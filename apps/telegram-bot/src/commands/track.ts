@@ -16,6 +16,7 @@ import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
 import {
   ctxAntiPhishingPhrase,
   withAntiPhishing,
+  wrapWithCtxPhrase,
 } from "../lib/anti-phishing.js";
 import {
   extractTokenAddress,
@@ -32,10 +33,12 @@ import {
 import { buildTrackChartPng } from "../lib/chart.js";
 import {
   BUY_ARROW_BUTTON,
+  BUY_CARD_LOADING_HTML,
   OUTAGE_REPLY,
   SELL_ARROW_BUTTON,
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
   TOKEN_LOOKUP_PROMPT_HTML,
+  TOKEN_NOT_FOUND_SHORT_REPLY,
   TRACK_NO_TRADES_YET_HTML,
   TRACK_RECENT_TRADES_HEADER_HTML,
   TRACK_RELATIVE_TIME,
@@ -476,23 +479,101 @@ const sendTrackReply = async (
   });
 };
 
+const trackShortAddress = (addr: string): string =>
+  addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+
 /**
- * Render the full /track view as a fresh reply in the current chat —
- * chart photo (if available) first, then the text card with its action
- * keyboard. Shared between the `/track <addr>` slash entry and the
+ * Render the /track card after first parking a `⏳ Loading…` placeholder
+ * in the chat slot the user just landed in. Used by the
  * `/start track_<addr>` deeplink fired by the inline ticker links on
- * each open `/positions` row.
+ * each open `/positions` row: the synthetic `/start` user bubble is
+ * deleted upstream, the placeholder lands in its slot, and the final
+ * card replaces it in-place so the user sees one continuous "loading →
+ * loaded" transition instead of a blank beat followed by a fresh card
+ * shipped further down the chat.
+ *
+ * Text path → edit placeholder to the rendered card. Chart-photo path →
+ * delete placeholder and send the photo+caption as a fresh reply, since
+ * `editMessageText` cannot morph a text bubble into a media bubble.
+ *
+ * Returns `"ok" | "not_found" | "unavailable"` so callers can route
+ * follow-up behaviour without re-fetching the token.
  */
-export const replyWithTrackCard = async (
+export const replyWithTrackCardViaLoadingPlaceholder = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<"ok" | "not_found" | "unavailable"> => {
+  const chatId = ctx.chat?.id;
+  const placeholderText = wrapWithCtxPhrase(
+    ctx,
+    BUY_CARD_LOADING_HTML.English(trackShortAddress(tokenAddress)),
+  );
+  const placeholder = await ctx.reply(placeholderText, {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  });
+  const placeholderId = placeholder.message_id;
+  const haveSlot =
+    chatId !== undefined && typeof placeholderId === "number";
+
   const result = await buildTrack(
     ctx.env,
     tokenAddress,
     ctxAntiPhishingPhrase(ctx),
   );
-  if (!result.ok) return result.kind;
+
+  if (!result.ok) {
+    const errorText =
+      result.kind === "not_found"
+        ? TOKEN_NOT_FOUND_SHORT_REPLY.English
+        : API_UNAVAILABLE;
+    if (haveSlot) {
+      const edited = await safeEditMessageById(
+        ctx,
+        { chatId, messageId: placeholderId },
+        errorText,
+        {
+          parse_mode: "HTML",
+          reply_markup: backHomeMarkup(),
+          link_preview_options: { is_disabled: true },
+        },
+      );
+      if (edited) return result.kind;
+    }
+    await replyWithNav(ctx, errorText, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    return result.kind;
+  }
+
+  if (result.render.chartPng) {
+    // Bubble type can't change from text to photo via editMessageText, so
+    // tear the placeholder down and ship the merged photo+caption fresh.
+    if (haveSlot) {
+      try {
+        await ctx.api.deleteMessage(chatId, placeholderId);
+      } catch (err) {
+        logger.debug("track loading placeholder delete failed", { err });
+      }
+    }
+    await sendTrackReply(ctx, result.render);
+    return "ok";
+  }
+
+  if (haveSlot) {
+    const edited = await safeEditMessageById(
+      ctx,
+      { chatId, messageId: placeholderId },
+      result.render.text,
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: result.render.keyboard },
+        link_preview_options: { is_disabled: true },
+      },
+    );
+    if (edited) return "ok";
+  }
   await sendTrackReply(ctx, result.render);
   return "ok";
 };

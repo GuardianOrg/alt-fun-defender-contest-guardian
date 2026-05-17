@@ -127,6 +127,17 @@ export interface SessionData {
    */
   lastBuyCardMessageByChat?: Record<string, number>;
   /**
+   * Last /positions card shipped to this chat — either as a fresh reply
+   * to the `/positions` command, or as the edited start-bubble after the
+   * Positions start-menu callback. The track-action deeplink fired by
+   * tapping a ticker on an open position deletes this message after
+   * rendering the token detail card so the user is not left scrolling
+   * past a stale positions list above the freshly-loaded card. Keyed by
+   * `chatId` (stringified for JSON round-trip) to mirror
+   * `lastBuyCardMessageByChat`.
+   */
+  lastPositionsMessageByChat?: Record<string, number>;
+  /**
    * Navigation stack of message snapshots used to power the global
    * `[← Back]` / `[🏠 Home]` row that lives on every system prompt
    * except `/start`. Each entry captures the text + inline keyboard

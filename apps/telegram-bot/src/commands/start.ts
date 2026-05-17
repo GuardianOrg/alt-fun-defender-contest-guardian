@@ -6,15 +6,13 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import { replyWithActionCard } from "../lib/action-card.js";
-import { replyWithNav } from "../lib/nav.js";
-import { replyWithTrackCard } from "./track.js";
+import { replyWithTrackCardViaLoadingPlaceholder } from "./track.js";
 import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
 import {
-  OUTAGE_REPLY,
   POSITIONS_NO_ACTIVE_WALLET_REPLY,
   REFRESH_PRIVATE_DM_ONLY_REPLY,
   START_BALANCE_LABEL,
@@ -28,7 +26,6 @@ import {
   START_WALLET_ADDRESS_LABEL,
   START_WELCOME_LEAD,
   TAP_TO_COPY_HINT,
-  TOKEN_NOT_FOUND_SHORT_REPLY,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -284,17 +281,41 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
         });
       }
       if (actionParam.action === "track") {
-        // Surface a friendly reply on each `replyWithTrackCard` failure
-        // mode — silently dropping the deeplink leaves the user on a
-        // blank /start with no idea why their tap did nothing.
-        const outcome = await replyWithTrackCard(ctx, actionParam.token);
-        if (outcome === "not_found") {
-          await replyWithNav(
-            ctx,
-            TOKEN_NOT_FOUND_SHORT_REPLY.English,
-          );
-        } else if (outcome === "unavailable") {
-          await replyWithNav(ctx, OUTAGE_REPLY.English);
+        // Sweep the synthetic `/start track_<addr>` user bubble BEFORE
+        // sending the loading placeholder so the placeholder lands in
+        // the slot the synthetic message just vacated — otherwise the
+        // user sees "/start" wedged above a fresh "⏳ Loading…" bubble.
+        // Best-effort: deletion failure is benign (48h window, no
+        // rights) and we'd still rather ship the card.
+        try {
+          await ctx.deleteMessage();
+        } catch {
+          // ignore
+        }
+        // Replace the deleted /start with a loading prompt that edits
+        // in-place into the rendered token detail card. The helper
+        // owns the placeholder → final-card transition end-to-end so
+        // the loading text is gone the moment the card lands.
+        // `replyWithTrackCardViaLoadingPlaceholder` already surfaces
+        // friendly fallback copy in the placeholder slot on `not_found`
+        // / `unavailable`, so no extra `replyWithNav` is needed here.
+        await replyWithTrackCardViaLoadingPlaceholder(ctx, actionParam.token);
+        // Sweep the prior /positions card (the source of the deeplink)
+        // so the user is not scrolled past a stale positions list above
+        // the freshly-loaded track card. Best-effort and fire-and-
+        // forget: a missing pointer just means the user never ran
+        // /positions in this chat, and a deleteMessage failure is
+        // benign (already gone / outside 48h window).
+        if (ctx.chat) {
+          const byChat = ctx.session.lastPositionsMessageByChat;
+          const key = String(ctx.chat.id);
+          const prevPositionsId = byChat?.[key];
+          if (byChat && typeof prevPositionsId === "number") {
+            delete byChat[key];
+            void ctx.api
+              .deleteMessage(ctx.chat.id, prevPositionsId)
+              .catch(() => {});
+          }
         }
       } else {
         await replyWithActionCard(
@@ -303,14 +324,14 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
           actionParam.action,
           actionParam.token,
         );
+        // Sweep the synthetic `/start <action>_<addr>` user bubble that
+        // Telegram injects when an action deeplink is tapped — the user
+        // never typed it, and leaving it above the token card just
+        // clutters the chat. Best-effort: incoming-message deletion in
+        // private DMs is allowed within 48h, and we'd rather keep the
+        // card visible than surface a transient deleteMessage failure.
+        void ctx.deleteMessage().catch(() => {});
       }
-      // Sweep the synthetic `/start <action>_<addr>` user bubble that
-      // Telegram injects when an action deeplink is tapped — the user
-      // never typed it, and leaving it above the token card just clutters
-      // the chat. Best-effort: incoming-message deletion in private DMs
-      // is allowed within 48h, and we'd rather keep the card visible than
-      // surface a transient deleteMessage failure to the user.
-      void ctx.deleteMessage().catch(() => {});
       return;
     }
 
