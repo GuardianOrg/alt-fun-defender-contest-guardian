@@ -200,9 +200,13 @@ const fetchPositions = async (
         p.unrealisedPnlPct = pctOrNull(value - cost, cost);
       }
     } catch (err) {
-      console.warn(
-        "[bot-positions-v2] live mark refresh failed, falling back to indexer snapshot",
-        err,
+      console.log(
+        JSON.stringify({
+          level: "warn",
+          event: "bot_positions_v2_live_mark_refresh_failed",
+          wallet,
+          error: err instanceof Error ? err.message : String(err),
+        }),
       );
     }
 
@@ -224,7 +228,15 @@ const fetchPositions = async (
     });
 
     return { open, realised };
-  } catch {
+  } catch (err) {
+    console.log(
+      JSON.stringify({
+        level: "error",
+        event: "bot_positions_v2_fetch_positions_failed",
+        wallet,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     return EMPTY;
   }
 };

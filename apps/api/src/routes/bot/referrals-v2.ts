@@ -95,6 +95,7 @@ referralsV2.get("/:wallet", async (c) => {
         }
       : ZERO_STATS;
 
+  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
   return c.json(
     formatSuccess({
       rewardsWallet,
