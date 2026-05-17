@@ -102,6 +102,8 @@ import {
   editToSubmenu,
   pushNavSnapshot,
   snapshotFromCallback,
+  safeEditMessageById,
+  type MessageRef,
 } from "../lib/nav.js";
 import {
   sweepWorkflow,
@@ -176,6 +178,26 @@ const safeEditMessageText = async (
 
 const truncateAddress = (addr: string): string =>
   `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+
+/**
+ * Edit `origin` to the wizard's first prompt and return true on
+ * success, false when the bubble is unsendable so the caller can fall
+ * back to a fresh `ctx.reply` + workflow-stack tracking. Keeps every
+ * /wallet conversation entry on the same "edit panel in place, never
+ * drop a fresh prompt below it" path the buy / track / withdraw
+ * wizards already use.
+ */
+const tryEditOriginToPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  origin: MessageRef,
+  text: string,
+): Promise<boolean> =>
+  conversation.external((outside) =>
+    safeEditMessageById(outside, origin, wrap(ctx, text), {
+      reply_markup: backHomeMarkup(),
+    }),
+  );
 
 /**
  * PIN + withdrawal-lock status lines live on the `/wallet` panel
@@ -355,13 +377,25 @@ const renameWalletConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   walletId: string,
+  origin?: MessageRef,
 ): Promise<void> => {
   await sweepWorkflow(conversation);
-  const promptMsg = await ctx.reply(
-    wrap(ctx, WALLET_RENAME_PROMPT.English),
-    { reply_markup: backHomeMarkup() },
-  );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  let editedOrigin = false;
+  if (origin) {
+    editedOrigin = await tryEditOriginToPrompt(
+      conversation,
+      ctx,
+      origin,
+      WALLET_RENAME_PROMPT.English,
+    );
+  }
+  if (!editedOrigin) {
+    const promptMsg = await ctx.reply(
+      wrap(ctx, WALLET_RENAME_PROMPT.English),
+      { reply_markup: backHomeMarkup() },
+    );
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
   const reply = await conversation.waitFor("message:text");
   const label = reply.message.text.trim();
   if (isOtherSlashCommand(label)) await haltAndForward(conversation);
@@ -469,19 +503,29 @@ const runPinSetFlow = async (
   userId: number,
   chatId: number,
   actionLabel: string,
+  origin?: MessageRef,
 ): Promise<boolean> => {
   // Track the bot's prompt messages so a sweep on exit removes them.
   // User-side PIN replies are NOT tracked: `sweepPinMessage` deletes
   // them individually for security (PIN must not survive in chat any
   // longer than necessary) — pushing already-deleted ids would just
   // burn `deleteMessage` calls on the eventual clear.
-  const askMsg = await ctx.reply(
-    wrap(ctx,
+  let editedOrigin = false;
+  if (origin) {
+    editedOrigin = await tryEditOriginToPrompt(
+      conversation,
+      ctx,
+      origin,
       WALLET_SET_PIN_PROMPT.English,
-    ),
-    { reply_markup: backHomeMarkup() },
-  );
-  await trackWorkflowMessage(conversation, askMsg.message_id);
+    );
+  }
+  if (!editedOrigin) {
+    const askMsg = await ctx.reply(
+      wrap(ctx, WALLET_SET_PIN_PROMPT.English),
+      { reply_markup: backHomeMarkup() },
+    );
+    await trackWorkflowMessage(conversation, askMsg.message_id);
+  }
 
   let candidate: string | null = null;
   while (candidate === null) {
@@ -552,13 +596,20 @@ const runPinVerifyFlow = async (
   pinAlreadySet: boolean,
   actionLabel: string,
   retryHint: string,
+  origin?: MessageRef,
 ): Promise<boolean> => {
   if (pinAlreadySet) {
-    const askMsg = await ctx.reply(
-      wrap(ctx, PIN_AUTHORISE_THE_PROMPT.English(actionLabel)),
-      { reply_markup: backHomeMarkup() },
-    );
-    await trackWorkflowMessage(conversation, askMsg.message_id);
+    let editedOrigin = false;
+    const prompt = PIN_AUTHORISE_THE_PROMPT.English(actionLabel);
+    if (origin) {
+      editedOrigin = await tryEditOriginToPrompt(conversation, ctx, origin, prompt);
+    }
+    if (!editedOrigin) {
+      const askMsg = await ctx.reply(wrap(ctx, prompt), {
+        reply_markup: backHomeMarkup(),
+      });
+      await trackWorkflowMessage(conversation, askMsg.message_id);
+    }
   }
 
   while (true) {
@@ -617,6 +668,7 @@ const exportKeyConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   walletId: string,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -642,6 +694,7 @@ const exportKeyConversation = async (
       userId,
       chatId,
       "export",
+      origin,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -657,6 +710,7 @@ const exportKeyConversation = async (
     pinAlreadySet,
     "export",
     "/wallet → Export key",
+    pinAlreadySet ? origin : undefined,
   );
   if (!verifyOk) {
     await sweepWorkflow(conversation);
@@ -737,17 +791,29 @@ type ImportResult =
 const importWalletConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(
-    wrap(ctx, WALLET_IMPORT_PASTE_KEY_PROMPT.English),
-    { reply_markup: backHomeMarkup() },
-  );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  let editedOrigin = false;
+  if (origin) {
+    editedOrigin = await tryEditOriginToPrompt(
+      conversation,
+      ctx,
+      origin,
+      WALLET_IMPORT_PASTE_KEY_PROMPT.English,
+    );
+  }
+  if (!editedOrigin) {
+    const promptMsg = await ctx.reply(
+      wrap(ctx, WALLET_IMPORT_PASTE_KEY_PROMPT.English),
+      { reply_markup: backHomeMarkup() },
+    );
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
 
   while (true) {
     const reply = await conversation.waitFor("message:text");
@@ -860,6 +926,7 @@ const deleteWalletConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   walletId: string,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -877,6 +944,7 @@ const deleteWalletConversation = async (
       userId,
       chatId,
       "delete",
+      origin,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -892,6 +960,7 @@ const deleteWalletConversation = async (
     pinAlreadySet,
     "delete",
     "/wallet → Delete",
+    pinAlreadySet ? origin : undefined,
   );
   if (!verifyOk) {
     await sweepWorkflow(conversation);
@@ -983,6 +1052,7 @@ const deleteWalletConversation = async (
 const setPinConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -993,6 +1063,7 @@ const setPinConversation = async (
     ctx,
     chatId,
     WALLET_SET_NEW_PIN_PROMPT.English,
+    origin,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
@@ -1015,6 +1086,7 @@ const setPinConversation = async (
 const changePinConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -1026,6 +1098,7 @@ const changePinConversation = async (
     userId,
     chatId,
     "PIN change",
+    origin,
   );
   if (!ok) {
     await sweepWorkflow(conversation);
@@ -1037,6 +1110,9 @@ const changePinConversation = async (
     chatId,
     WALLET_CHANGE_PIN_PROMPT.English,
   );
+  // No origin re-pass: verifyExistingPin already consumed the panel
+  // bubble for the verify prompt; the new-PIN prompt lands fresh and
+  // the conversation's exit sweep clears it.
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
@@ -1058,6 +1134,7 @@ const changePinConversation = async (
 const completeResetConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -1090,6 +1167,7 @@ const completeResetConversation = async (
     ctx,
     chatId,
     WALLET_RESET_PIN_PROMPT.English,
+    origin,
   );
   const result = await conversation.external((outside) =>
     buildPinManager(outside.env).completeReset(userId, newPin),
@@ -1307,8 +1385,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-rename", active.id);
+    await ctx.conversation.enter("wallet-rename", active.id, origin);
   });
 
   /**
@@ -1334,8 +1418,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-export-key", active.id);
+    await ctx.conversation.enter("wallet-export-key", active.id, origin);
   });
 
   bot.callbackQuery(WALLET_CALLBACK.exportDelete, async (ctx) => {
@@ -1378,8 +1468,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-delete", active.id);
+    await ctx.conversation.enter("wallet-delete", active.id, origin);
   });
 
   /**
@@ -1402,8 +1498,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-import");
+    await ctx.conversation.enter("wallet-import", origin);
   });
 
   // WALLET_CALLBACK.withdraw is owned by commands/withdraw.ts and
@@ -1426,8 +1528,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-set-pin");
+    await ctx.conversation.enter("wallet-set-pin", origin);
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinChange, async (ctx) => {
@@ -1436,8 +1544,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-change-pin");
+    await ctx.conversation.enter("wallet-change-pin", origin);
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinReset, async (ctx) => {
@@ -1486,8 +1600,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("wallet-complete-reset");
+    await ctx.conversation.enter("wallet-complete-reset", origin);
   });
 
   bot.callbackQuery(WALLET_CALLBACK.lockEnable, async (ctx) => {

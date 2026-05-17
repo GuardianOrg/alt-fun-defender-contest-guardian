@@ -287,12 +287,31 @@ describe("/wallet command", () => {
       await wm.createWallet(7, "old");
 
       await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      // Rename wizard edits the /wallet panel bubble in place instead
+      // of dropping a fresh prompt below it. Regression guard for the
+      // "callback fires a new bubble instead of replacing the panel"
+      // bug.
       const prompt = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           String(c.body.text).includes("Send the new label"),
       );
       expect(prompt).toBeDefined();
+      const kb =
+        (prompt!.body.reply_markup as
+          | {
+              inline_keyboard?: Array<
+                Array<{ text: string; callback_data?: string }>
+              >;
+            }
+          | undefined)?.inline_keyboard ?? [];
+      expect(
+        kb.some(
+          (row) =>
+            row.some((b) => b.callback_data === "nav:h") &&
+            row.some((b) => b.callback_data === "nav:b"),
+        ),
+      ).toBe(true);
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
@@ -345,13 +364,14 @@ describe("/wallet command", () => {
       const pm = buildPm(h);
       await pm.setPin(7, "123456");
 
-      // Enter conversation: callback triggers PIN prompt.
+      // Enter conversation: callback edits the /wallet panel into the
+      // PIN prompt rather than dropping a fresh bubble below it.
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
       const promptCalls = capture(fetchSpy);
       const prompt = promptCalls.find((c) =>
-        c.url.includes("/sendMessage"),
+        c.url.includes("/editMessageText"),
       );
       expect(prompt?.body.text).toMatch(/Send your 6-digit PIN/);
 
@@ -514,9 +534,11 @@ describe("/wallet command", () => {
     it("prompts the user for the private key on callback entry", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      // Import wizard edits the /wallet panel into the paste-key
+      // prompt rather than dropping a fresh bubble below it.
       const prompt = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           /Paste the private key/.test(c.body.text as string),
       );
       expect(prompt).toBeDefined();
@@ -1019,6 +1041,95 @@ describe("/wallet command", () => {
       expect(newOk.ok).toBe(true);
       const oldRejected = await pm.verifyPin(7, "123456");
       expect(oldRejected.ok).toBe(false);
+    });
+  });
+
+  // Regression for the "buttons that drop a fresh prompt below the
+  // wallet panel instead of replacing it" bug. Every wizard entered
+  // from a /wallet panel button must edit the panel bubble in place
+  // for its first prompt — same UX contract the buy / track /
+  // withdraw start-menu buttons already honour via editToSubmenu /
+  // safeEditMessageById. Asserting `editMessageText` (not
+  // `sendMessage`) for the first wizard prompt is the cheapest signal
+  // the origin MessageRef is being threaded through correctly.
+  describe("Wizard buttons edit /wallet panel in place (regression)", () => {
+    const buildPm = (h: BotTestHarness): PinManager =>
+      new PinManager(h.kv as unknown as KVNamespace, { saltRounds: 4 });
+
+    const firstEditOrSend = (
+      calls: TgCall[],
+    ): { edit?: TgCall; send?: TgCall } => ({
+      edit: calls.find((c) => c.url.includes("/editMessageText")),
+      send: calls.find((c) => c.url.includes("/sendMessage")),
+    });
+
+    it("Rename button edits the panel rather than sending a fresh prompt", async () => {
+      const h = makeBotHarness();
+      await walletManager(h).createWallet(7, "main");
+      await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send the new label/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Import button edits the panel rather than sending a fresh prompt", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Paste the private key/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Export key button edits the panel into the PIN-verify prompt", async () => {
+      const h = makeBotHarness();
+      await walletManager(h).createWallet(7, "main");
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send your 6-digit PIN/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Delete button edits the panel into the PIN-verify prompt", async () => {
+      const h = makeBotHarness();
+      await walletManager(h).createWallet(7, "main");
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send your 6-digit PIN/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Set PIN button edits the panel into the new-PIN prompt", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinSet));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send a new 6-digit PIN/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Change PIN button edits the panel into the PIN-verify prompt", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinChange));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send your current 6-digit PIN/);
+      expect(send).toBeUndefined();
+    });
+
+    it("Complete PIN reset button edits the panel into the new-PIN prompt", async () => {
+      const h = makeBotHarness();
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+      const oldRequestedAt = Date.now() - (PIN_RESET_DELAY_MS + 1000);
+      await h.kv.put(
+        "pin:7:reset",
+        JSON.stringify({ requestedAt: oldRequestedAt }),
+      );
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinCompleteReset));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/new 6-digit PIN/);
+      expect(send).toBeUndefined();
     });
   });
 });
