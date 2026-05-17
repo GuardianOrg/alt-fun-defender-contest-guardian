@@ -366,10 +366,10 @@ const runPinGate = async (
     while (candidate === null) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
+      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       await conversation.external((outside) =>
         sweepUserMessage(outside, chatId, msg.message.message_id),
       );
-      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (!PinManager.isValidPinFormat(text)) {
         await showPrompt(
           conversation,
@@ -390,10 +390,10 @@ const runPinGate = async (
     while (true) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
+      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       await conversation.external((outside) =>
         sweepUserMessage(outside, chatId, msg.message.message_id),
       );
-      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (text !== candidate) {
         await showPrompt(
           conversation,
@@ -421,10 +421,10 @@ const runPinGate = async (
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     await conversation.external((outside) =>
       sweepUserMessage(outside, chatId, msg.message.message_id),
     );
-    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
