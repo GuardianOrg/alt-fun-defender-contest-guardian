@@ -2594,3 +2594,18 @@ export const WALLET_DELETED_HEADER = {
   English: (shortAddress: string) => `Deleted ${shortAddress}.`,
   SimplifiedChinese: (shortAddress: string) => `已删除 ${shortAddress}。`,
 } as const;
+
+// ─── /referral — safety banner body sentences ──────────────────────
+
+export const REFERRAL_BANNER_BAD_PAYMENT_BODY = {
+  English: (count: number) =>
+    `${count} referral payment${count === 1 ? "" : "s"} rolled into treasury and are not recoverable.`,
+  SimplifiedChinese: (count: number) =>
+    `${count} 笔推荐返佣已并入国库，无法找回。`,
+} as const;
+export const REFERRAL_BANNER_ATTRIBUTION_DROPPED_BODY = {
+  English: (count: number) =>
+    `${count} user${count === 1 ? "" : "s"} hit your link before you finished setup; their attribution was not assigned.`,
+  SimplifiedChinese: (count: number) =>
+    `有 ${count} 位用户在您完成设置前点击了您的推荐链接，他们的归属未被记录。`,
+} as const;

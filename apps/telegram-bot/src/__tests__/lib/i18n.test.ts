@@ -505,6 +505,26 @@ describe("i18n module", () => {
     expect(t(i18n.WALLET_DELETED_HEADER, "SimplifiedChinese")("0xab…cd")).toBe(
       "已删除 0xab…cd。",
     );
+
+    // /referral safety-banner sentence bodies
+    expect(i18n.REFERRAL_BANNER_BAD_PAYMENT_BODY.English(1)).toBe(
+      "1 referral payment rolled into treasury and are not recoverable.",
+    );
+    expect(i18n.REFERRAL_BANNER_BAD_PAYMENT_BODY.English(3)).toBe(
+      "3 referral payments rolled into treasury and are not recoverable.",
+    );
+    expect(
+      t(i18n.REFERRAL_BANNER_BAD_PAYMENT_BODY, "SimplifiedChinese")(3),
+    ).toContain("3 笔推荐返佣");
+    expect(i18n.REFERRAL_BANNER_ATTRIBUTION_DROPPED_BODY.English(2)).toContain(
+      "2 users hit your link",
+    );
+    expect(
+      t(
+        i18n.REFERRAL_BANNER_ATTRIBUTION_DROPPED_BODY,
+        "SimplifiedChinese",
+      )(2),
+    ).toContain("2 位用户");
   });
 
   it("renders round-2 i18n keys (positions row labels, track sides, chart, PIN action labels, inline withdraw errors)", () => {

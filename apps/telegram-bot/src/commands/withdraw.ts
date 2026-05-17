@@ -33,7 +33,7 @@ import {
   type InlineCallbackButton,
   WALLET_CALLBACK,
 } from "../keyboards/wallet-actions.js";
-import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
@@ -393,7 +393,7 @@ const verifyPinForWithdraw = async (
   lang: Language,
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
-    withAntiPhishing(t(WITHDRAW_PIN_PROMPT, lang)),
+    wrap(ctx,t(WITHDRAW_PIN_PROMPT, lang)),
     { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -416,18 +416,18 @@ const verifyPinForWithdraw = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx,
           t(PIN_LOCKED_REPLY, lang)(mins, t(PIN_ACTION_LABEL_WITHDRAW, lang)),
         ),
       );
       return false;
     }
     if (result.reason === "unset") {
-      await ctx.reply(withAntiPhishing(noPinReply(lang)));
+      await ctx.reply(wrap(ctx,noPinReply(lang)));
       return false;
     }
     const retry = await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx,
         t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
       ),
       { reply_markup: backHomeMarkup(lang) },
@@ -449,7 +449,7 @@ const promptArg = async (
   interceptBuy = false,
   lang: Language = DEFAULT_LANGUAGE,
 ): Promise<string | null> => {
-  const promptMsg = await ctx.reply(withAntiPhishing(prompt), {
+  const promptMsg = await ctx.reply(wrap(ctx,prompt), {
     reply_markup: backHomeMarkup(lang),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -490,7 +490,7 @@ const withdrawWizardConversation = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(withAntiPhishing(noActiveWalletReply(lang)));
+    await ctx.reply(wrap(ctx,noActiveWalletReply(lang)));
     await sweepWorkflow(conversation);
     return;
   }
@@ -511,14 +511,14 @@ const withdrawWizardConversation = async (
       safeEditMessageById(
         outside,
         origin,
-        withAntiPhishing(renderAssetPrompt(balances, lang)),
+        wrap(ctx,renderAssetPrompt(balances, lang)),
         { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
       ),
     );
   }
   if (!editedOriginAsAsset) {
     const assetPromptMsg = await ctx.reply(
-      withAntiPhishing(renderAssetPrompt(balances, lang)),
+      wrap(ctx,renderAssetPrompt(balances, lang)),
       { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
     );
     await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
@@ -563,7 +563,7 @@ const withdrawWizardConversation = async (
     const parsed = parseAmount(raw, asset);
     if (parsed === null) {
       const retry = await ctx.reply(
-        withAntiPhishing(t(WITHDRAW_INVALID_AMOUNT_REPLY, lang)),
+        wrap(ctx,t(WITHDRAW_INVALID_AMOUNT_REPLY, lang)),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -588,7 +588,7 @@ const withdrawWizardConversation = async (
     const parsed = parseDestination(raw);
     if (parsed === null) {
       const retry = await ctx.reply(
-        withAntiPhishing(t(WITHDRAW_INVALID_DESTINATION_REPLY, lang)),
+        wrap(ctx,t(WITHDRAW_INVALID_DESTINATION_REPLY, lang)),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -632,7 +632,7 @@ const runPreFlightAndStage = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(withAntiPhishing(noActiveWalletReply(lang)));
+    await ctx.reply(wrap(ctx,noActiveWalletReply(lang)));
     return;
   }
 
@@ -640,7 +640,7 @@ const runPreFlightAndStage = async (
     buildSecurityState(outside.env).getWithdrawLock(userId),
   );
   if (lock.enabled) {
-    await ctx.reply(withAntiPhishing(withdrawLockedReply(lang)));
+    await ctx.reply(wrap(ctx,withdrawLockedReply(lang)));
     return;
   }
 
@@ -648,7 +648,7 @@ const runPreFlightAndStage = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
   if (!pinSet) {
-    await ctx.reply(withAntiPhishing(noPinReply(lang)));
+    await ctx.reply(wrap(ctx,noPinReply(lang)));
     return;
   }
 
@@ -673,7 +673,7 @@ const runPreFlightAndStage = async (
     };
   });
 
-  await ctx.reply(withAntiPhishing(renderSummary(args, balance, lang)), {
+  await ctx.reply(wrap(ctx,renderSummary(args, balance, lang)), {
     reply_markup: { inline_keyboard: confirmKeyboard(nonce, lang) },
   });
 };
@@ -694,7 +694,7 @@ const withdrawCommandConversation = async (
   await sweepWorkflow(conversation);
   const parsed = parseInlineArgs(argsRaw, lang);
   if (!parsed.ok) {
-    await ctx.reply(withAntiPhishing(parsed.reason));
+    await ctx.reply(wrap(ctx,parsed.reason));
     return;
   }
   await runPreFlightAndStage(
@@ -729,11 +729,11 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
   bot.command("withdraw", async (ctx) => {
     const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.reply(withAntiPhishing(noUserReply(lang)));
+      await ctx.reply(wrap(ctx,noUserReply(lang)));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(withAntiPhishing(nonPrivateChatReply(lang)));
+      await ctx.reply(wrap(ctx,nonPrivateChatReply(lang)));
       return;
     }
     const raw = typeof ctx.match === "string" ? ctx.match : "";
@@ -852,7 +852,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
 
     if (result.ok) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx,
           t(WITHDRAW_SUBMITTED_RECEIPT_HTML, lang)(
             result.txHash,
             explorerTxUrl(result.txHash),
@@ -862,6 +862,6 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
       );
       return;
     }
-    await ctx.reply(withAntiPhishing(`❌ ${renderError(result, lang)}`));
+    await ctx.reply(wrap(ctx,`❌ ${renderError(result, lang)}`));
   });
 };

@@ -58,6 +58,8 @@ import {
   REFERRAL_PICK_OR_CUSTOM_HINT,
   REFERRAL_PIN_CONFIRM_PROMPT,
   REFERRAL_PRIVATE_DM_ONLY_REPLY,
+  REFERRAL_BANNER_ATTRIBUTION_DROPPED_BODY,
+  REFERRAL_BANNER_BAD_PAYMENT_BODY,
   REFERRAL_REWARDS_WALLET_LABEL,
   REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY,
   REFERRAL_SEND_NEW_ADDRESS_PROMPT,
@@ -196,7 +198,7 @@ const renderBanners = (
     banners.push(
       [
         t(REFERRAL_HEADER_REWARDS_REJECTING, lang),
-        `${stats.badPaymentCount} referral payment${stats.badPaymentCount === 1 ? "" : "s"} rolled into treasury and are not recoverable.`,
+        t(REFERRAL_BANNER_BAD_PAYMENT_BODY, lang)(stats.badPaymentCount),
         t(REFERRAL_UPDATE_REWARDS_WALLET_HINT, lang),
       ].join("\n"),
     );
@@ -205,7 +207,9 @@ const renderBanners = (
     banners.push(
       [
         t(REFERRAL_HEADER_ATTRIBUTION_DROPPED, lang),
-        `${stats.attributionLossCount} user${stats.attributionLossCount === 1 ? "" : "s"} hit your link before you finished setup; their attribution was not assigned.`,
+        t(REFERRAL_BANNER_ATTRIBUTION_DROPPED_BODY, lang)(
+          stats.attributionLossCount,
+        ),
         t(REFERRAL_CHECK_REWARDS_WALLET_HINT, lang),
       ].join("\n"),
     );
@@ -221,7 +225,7 @@ const renderReferralHtml = (
 ): string => {
   const earned = formatUsdc(stats.lifetimeEarnedUsdc);
   const sections = [
-    escapeHtml(resolveAntiPhishingHeader(phrase)),
+    escapeHtml(resolveAntiPhishingHeader(phrase, lang)),
     "",
     t(REFERRAL_HEADER_YOUR_REFERRAL, lang),
     "",
@@ -338,9 +342,11 @@ const renderPickerHtml = (
   phrase: string | null | undefined,
   lang: Language,
 ): string =>
-  [escapeHtml(resolveAntiPhishingHeader(phrase)), "", pickerIntro(lang)].join(
-    "\n",
-  );
+  [
+    escapeHtml(resolveAntiPhishingHeader(phrase, lang)),
+    "",
+    pickerIntro(lang),
+  ].join("\n");
 
 /**
  * Build the referral view for the user's stable referral-identity
@@ -666,7 +672,7 @@ const changeRewardsWalletConversation = async (
   // phrase must be HTML-escaped before concatenation to avoid breaking
   // Telegram's parser if a phrase contains `<` or `&`.
   const warningText = [
-    escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx))),
+    escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx), lang)),
     "",
     rewardsWalletWarning(lang),
   ].join("\n");
