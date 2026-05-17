@@ -91,6 +91,69 @@ describe("renderHelp (pure)", () => {
     expect(html).not.toContain("如有更多问题");
   });
 
+  it("lists the current /settings surfaces in the overview", () => {
+    // /settings owns six knobs today: language, slippage, execution speed,
+    // degen mode, buy/sell presets, and the anti-phishing phrase. Help drift
+    // on any one of them sends users to the wrong place.
+    const html = renderHelp(undefined, undefined);
+    for (const needle of [
+      "language",
+      "slippage",
+      "execution speed",
+      "degen mode",
+      "buy/sell presets",
+      "anti-phishing phrase",
+    ]) {
+      expect(html).toContain(needle);
+    }
+  });
+
+  it("describes the current 5-slot buy/sell preset model under trading", () => {
+    // Old help text claimed fixed $20/$50/$100 buy buttons and 10/25/50/100%
+    // sell buttons. The bot ships 5 user-customisable slots per side (issue
+    // #818); regress if anyone reintroduces the stale fixed-button copy.
+    const trading = renderHelp("trading", undefined);
+    expect(trading).toMatch(/five quick-amount buttons/i);
+    expect(trading).toMatch(/five quick-sell buttons/i);
+    expect(trading).toContain("/settings → Buy Settings");
+    expect(trading).toContain("/settings → Sell Settings");
+  });
+
+  it("documents the 24-hour withdrawal-lock cooldown end-to-end under security", () => {
+    // The lock is two-phase: enable instant, disable requires the user to
+    // come back after 24h and tap Complete disable. The earlier copy only
+    // mentioned the cooldown — without the second tap users assumed the
+    // lock cleared on its own. The cancel-disable button label is the only
+    // affordance to revoke the request mid-cooldown.
+    const html = renderHelp("security", undefined);
+    expect(html).toMatch(/Withdrawal lock button/i);
+    expect(html).toContain("Complete disable");
+    expect(html).toContain("cancel disable");
+    expect(html).toContain("24-hour");
+  });
+
+  it("lists every no-attribution edge case under referrals", () => {
+    // Self-referral, bare-first-/start, and unprepared-referrer all silently
+    // drop attribution. Mentioning only one of them (the prior copy) left
+    // users debugging the other two with no help-text hint.
+    const html = renderHelp("referrals", undefined);
+    expect(html).toMatch(/self-referral/i);
+    expect(html).toMatch(/first \/start was bare/i);
+    expect(html).toMatch(/had not yet onboarded/i);
+  });
+
+  it("notes that token positions must be sold before they can be withdrawn", () => {
+    // /withdraw only handles native HYPE and USDC; users repeatedly tried to
+    // withdraw Alt Fun token balances directly and hit a confusing failure.
+    // The preserved "every withdrawal is blocked until the lock is disabled"
+    // wording on step 2 is intentional — see PR #1045 for the why.
+    const html = renderHelp("withdraw", undefined);
+    expect(html).toContain("USDC");
+    expect(html).toContain("HYPE");
+    expect(html).toMatch(/sell.*first/i);
+    expect(html).toMatch(/every withdrawal is blocked until the lock is disabled/i);
+  });
+
   it("does not claim alt.fun distributes the bot in security tips", () => {
     // The bot is operated outside alt.fun, so the anti-phishing copy must
     // not direct users to source the bot link from alt.fun. The neutral
