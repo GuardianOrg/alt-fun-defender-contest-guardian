@@ -53,8 +53,14 @@ describe("buildChartSvg", () => {
 
   it("renders an explanatory empty-state when there are no candles", () => {
     const svg = buildChartSvg([], { title: "Foo" });
-    expect(svg).toContain("No chart data yet");
+    expect(svg).toContain("No price data yet");
     expect(svg).toContain("Foo");
+  });
+
+  it("localises the empty-state text when lang is provided", () => {
+    const svg = buildChartSvg([], { title: "Foo", lang: "SimplifiedChinese" });
+    expect(svg).toContain("暂无价格数据");
+    expect(svg).not.toContain("No price data yet");
   });
 
   it("escapes XML metacharacters in the title to avoid breaking parsing", () => {

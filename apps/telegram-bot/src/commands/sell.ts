@@ -448,12 +448,12 @@ const sellLookupConversation = async (
           )
         : null;
 
-    const cardText = renderSellTokenCardText(token, tokenBalance);
+    const cardText = renderSellTokenCardText(token, tokenBalance, lang);
     const sellPresets = await conversation.external((outerCtx) =>
       normaliseSellPresets(outerCtx.session.sellPresetsPct),
     );
     const cardKeyboard = {
-      inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
+      inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets, lang),
     };
 
     let cardMessageId: number | null = null;
@@ -832,13 +832,14 @@ const handleSellRefresh = async (
     return;
   }
 
-  const cardText = renderSellTokenCardText(tokenResult.data, tokenBalance);
+  const cardText = renderSellTokenCardText(tokenResult.data, tokenBalance, lang);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: buildSellTokenKeyboard(
         tokenAddress,
         normaliseSellPresets(ctx.session.sellPresetsPct),
+        lang,
       ),
     },
     link_preview_options: { is_disabled: true },

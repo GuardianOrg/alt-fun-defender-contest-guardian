@@ -60,9 +60,13 @@ import {
   TOAST_LOADING_WITHDRAW,
   TOAST_NO_ACTIVE_WALLET,
   TOAST_SUBMITTING,
+  PIN_ACTION_LABEL_WITHDRAW,
   WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY,
   WITHDRAW_AMOUNT_PROMPT,
   WITHDRAW_DESTINATION_PROMPT,
+  WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY,
+  WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY,
+  WITHDRAW_INLINE_UNSUPPORTED_ASSET_REPLY,
   WITHDRAW_INSUFFICIENT_BALANCE_REPLY,
   WITHDRAW_INVALID_AMOUNT_REPLY,
   WITHDRAW_INVALID_DESTINATION_REPLY,
@@ -180,20 +184,25 @@ const parseInlineArgs = (raw: string, lang: Language): ParseResult => {
   const [assetRaw, amountRaw, addressRaw] = parts as [string, string, string];
   const assetUpper = assetRaw.toUpperCase();
   if (!isWithdrawAsset(assetUpper)) {
-    return { ok: false, reason: `Unsupported asset "${assetRaw}". ${hint}` };
+    return {
+      ok: false,
+      reason: t(WITHDRAW_INLINE_UNSUPPORTED_ASSET_REPLY, lang)(assetRaw, hint),
+    };
   }
   const amount = parseAmount(amountRaw, assetUpper);
   if (amount === null) {
     return {
       ok: false,
-      reason: `Invalid amount "${amountRaw}" — must be a positive decimal within the asset's precision.`,
+      reason: t(WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY, lang)(amountRaw),
     };
   }
   const to = parseDestination(addressRaw);
   if (to === null) {
     return {
       ok: false,
-      reason: `Invalid destination address "${addressRaw}" — must be a 0x-prefixed 40-character hex string.`,
+      reason: t(WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY, lang)(
+        addressRaw,
+      ),
     };
   }
   return { ok: true, args: { asset: assetUpper, amountRaw: amount, to } };
@@ -394,7 +403,9 @@ const verifyPinForWithdraw = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(t(PIN_LOCKED_REPLY, lang)(mins, "Withdraw")),
+        withAntiPhishing(
+          t(PIN_LOCKED_REPLY, lang)(mins, t(PIN_ACTION_LABEL_WITHDRAW, lang)),
+        ),
       );
       return false;
     }

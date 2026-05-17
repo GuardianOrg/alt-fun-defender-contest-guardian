@@ -319,6 +319,119 @@ describe("i18n module", () => {
     ).toBe("Transaction reverted: revert reason.");
   });
 
+  it("renders round-2 i18n keys (positions row labels, track sides, chart, PIN action labels, inline withdraw errors)", () => {
+    // /positions row + page-nav templates
+    expect(i18n.POSITIONS_OPEN_LINE_DETAILS.English("1.5", "20.00")).toBe(
+      "1.5 · cost $20.00",
+    );
+    expect(
+      t(i18n.POSITIONS_OPEN_LINE_DETAILS, "SimplifiedChinese")("1.5", "20.00"),
+    ).toBe("1.5 · 成本 $20.00");
+    expect(
+      i18n.POSITIONS_OPEN_LINE_VALUE_PNL.English("21.50", "+1.50", "+7.5%"),
+    ).toBe("value $21.50 · PnL +1.50 (+7.5%)");
+    expect(
+      t(i18n.POSITIONS_OPEN_LINE_VALUE_PNL, "SimplifiedChinese")(
+        "21.50",
+        "+1.50",
+        "+7.5%",
+      ),
+    ).toBe("市值 $21.50 · 盈亏 +1.50 (+7.5%)");
+    expect(
+      i18n.POSITIONS_REALISED_LINE_COST_PROCEEDS.English("10.00", "15.00"),
+    ).toBe("cost $10.00 · proceeds $15.00");
+    expect(
+      t(i18n.POSITIONS_REALISED_LINE_COST_PROCEEDS, "SimplifiedChinese")(
+        "10.00",
+        "15.00",
+      ),
+    ).toBe("成本 $10.00 · 收入 $15.00");
+    expect(
+      i18n.POSITIONS_REALISED_LINE_REALIZED_PNL.English("+5.00", "+50%"),
+    ).toBe("realized +5.00 (+50%)");
+    expect(
+      t(i18n.POSITIONS_REALISED_LINE_REALIZED_PNL, "SimplifiedChinese")(
+        "+5.00",
+        "+50%",
+      ),
+    ).toBe("已实现 +5.00 (+50%)");
+    expect(i18n.POSITIONS_PAGE_NAV_LABEL.English("→", 2, 5, "Open Pos")).toBe(
+      "→ Page 2/5 Open Pos",
+    );
+    expect(
+      t(i18n.POSITIONS_PAGE_NAV_LABEL, "SimplifiedChinese")(
+        "→",
+        2,
+        5,
+        "持仓",
+      ),
+    ).toBe("→ 第 2/5 页 持仓");
+
+    // /track trade side labels
+    expect(i18n.TRACK_TRADE_SIDE_BUY.English).toBe("BUY");
+    expect(t(i18n.TRACK_TRADE_SIDE_BUY, "SimplifiedChinese")).toBe("买入");
+    expect(i18n.TRACK_TRADE_SIDE_SELL.English).toBe("SELL");
+    expect(t(i18n.TRACK_TRADE_SIDE_SELL, "SimplifiedChinese")).toBe("卖出");
+
+    // Chart empty-state
+    expect(i18n.CHART_EMPTY_STATE_TEXT.English).toBe("No price data yet");
+    expect(t(i18n.CHART_EMPTY_STATE_TEXT, "SimplifiedChinese")).toBe(
+      "暂无价格数据",
+    );
+
+    // PIN action labels passed into localised templates
+    expect(i18n.PIN_ACTION_LABEL_WITHDRAW.English).toBe("Withdraw");
+    expect(t(i18n.PIN_ACTION_LABEL_WITHDRAW, "SimplifiedChinese")).toBe(
+      "提币",
+    );
+    expect(i18n.PIN_ACTION_LABEL_PIN_CHANGE.English).toBe("PIN change");
+    expect(t(i18n.PIN_ACTION_LABEL_PIN_CHANGE, "SimplifiedChinese")).toBe(
+      "PIN 修改",
+    );
+    expect(i18n.PIN_ACTION_LABEL_EXPORT.English).toBe("export");
+    expect(t(i18n.PIN_ACTION_LABEL_EXPORT, "SimplifiedChinese")).toBe(
+      "导出",
+    );
+    expect(i18n.PIN_ACTION_LABEL_DELETE.English).toBe("delete");
+    expect(t(i18n.PIN_ACTION_LABEL_DELETE, "SimplifiedChinese")).toBe(
+      "删除",
+    );
+    expect(i18n.PIN_SET_NOW_SEND_ONCE_MORE_PROMPT.English("export")).toBe(
+      "PIN set. Send it once more to authorise the export.",
+    );
+    expect(
+      t(i18n.PIN_SET_NOW_SEND_ONCE_MORE_PROMPT, "SimplifiedChinese")("导出"),
+    ).toContain("PIN 已设置");
+
+    // /withdraw inline-arg parse errors
+    expect(
+      i18n.WITHDRAW_INLINE_UNSUPPORTED_ASSET_REPLY.English("BTC", "Usage…"),
+    ).toBe('Unsupported asset "BTC". Usage…');
+    expect(
+      t(i18n.WITHDRAW_INLINE_UNSUPPORTED_ASSET_REPLY, "SimplifiedChinese")(
+        "BTC",
+        "Usage…",
+      ),
+    ).toContain("不支持的资产");
+    expect(
+      i18n.WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY.English("0.x"),
+    ).toContain("Invalid amount");
+    expect(
+      t(i18n.WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY, "SimplifiedChinese")(
+        "0.x",
+      ),
+    ).toContain("金额");
+    expect(
+      i18n.WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY.English("0xnope"),
+    ).toContain("Invalid destination address");
+    expect(
+      t(
+        i18n.WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY,
+        "SimplifiedChinese",
+      )("0xnope"),
+    ).toContain("目标地址");
+  });
+
   it("renders newly threaded buy/sell/withdraw/referral/wallet copy in both languages", () => {
     // /buy — custom-amount wizard
     expect(i18n.BUY_CUSTOM_AMOUNT_PROMPT.English(20)).toContain(

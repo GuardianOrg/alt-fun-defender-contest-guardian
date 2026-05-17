@@ -230,7 +230,8 @@ const buyLookupConversation = async (
           )
         : null;
 
-    const cardText = renderBuyTokenCardText(token, usdcBalance);
+    const lookupLang = getCtxLanguage(msgCtx);
+    const cardText = renderBuyTokenCardText(token, usdcBalance, lookupLang);
     const buyPresets = await conversation.external((outerCtx) =>
       normaliseBuyPresets(
         outerCtx.session.buyPresetsUsdc,
@@ -238,7 +239,7 @@ const buyLookupConversation = async (
       ),
     );
     const cardKeyboard = {
-      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
+      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets, lookupLang),
     };
 
     let cardMessageId: number | null = null;
@@ -500,6 +501,7 @@ const handleBuyRefresh = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
+  const lang = getCtxLanguage(ctx);
   const wm = buildManager(ctx.env);
   const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
   const [tokenResult, usdcBalance] = await Promise.all([
@@ -515,7 +517,7 @@ const handleBuyRefresh = async (
     return;
   }
 
-  const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance);
+  const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance, lang);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
     reply_markup: {
@@ -525,11 +527,12 @@ const handleBuyRefresh = async (
           ctx.session.buyPresetsUsdc,
           ctx.session.defaultBuyUsdc,
         ),
+        lang,
       ),
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, getCtxLanguage(ctx)) });
+  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, lang) });
 };
 
 /**

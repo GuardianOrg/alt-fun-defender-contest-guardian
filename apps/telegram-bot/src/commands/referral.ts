@@ -252,7 +252,7 @@ const buildKeyboard = (lang: Language): ReferralView["reply_markup"] => ({
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
-    backHomeRow(),
+    backHomeRow(lang),
   ],
 });
 
@@ -319,7 +319,7 @@ const buildPickerKeyboard = (
       callback_data: REFERRAL_CALLBACK.pickRewardsWalletCustom,
     },
   ]);
-  rows.push(backHomeRow());
+  rows.push(backHomeRow(lang));
   return rows;
 };
 
@@ -483,7 +483,7 @@ const showPrompt = async (
       safeEditMessageById(outside, origin, wrapped, {
         parse_mode: parseMode,
         link_preview_options: { is_disabled: true },
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(ctxLang(ctx)),
       }),
     );
     if (edited) return;
@@ -491,7 +491,7 @@ const showPrompt = async (
   const msg = await ctx.reply(wrapped, {
     parse_mode: parseMode,
     link_preview_options: { is_disabled: true },
-    reply_markup: backHomeMarkup(),
+    reply_markup: backHomeMarkup(ctxLang(ctx)),
   });
   await trackWorkflowMessage(conversation, msg.message_id);
 };
@@ -681,7 +681,7 @@ const changeRewardsWalletConversation = async (
       safeEditMessageById(outside, origin, warningText, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(lang),
       }),
     );
   }
@@ -689,7 +689,7 @@ const changeRewardsWalletConversation = async (
     const warningMsg = await ctx.reply(warningText, {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(lang),
     });
     await trackWorkflowMessage(conversation, warningMsg.message_id);
   }
@@ -787,7 +787,7 @@ const changeRewardsWalletConversation = async (
     await ctx.reply(
       wrap(ctx,
         result.kind === "unavailable"
-          ? "API temporarily unavailable — try again in a moment."
+          ? outageReply(lang)
           : t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang),
       ),
     );

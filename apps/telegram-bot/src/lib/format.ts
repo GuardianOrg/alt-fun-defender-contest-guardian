@@ -8,8 +8,13 @@ import {
   DEFAULT_LANGUAGE,
   type Language,
   POSITIONS_NO_OPEN_POSITIONS_REPLY,
+  POSITIONS_OPEN_LINE_DETAILS,
+  POSITIONS_OPEN_LINE_VALUE_PNL,
   POSITIONS_OPEN_POS_HEADER,
   POSITIONS_OPEN_SECTION_HEADER,
+  POSITIONS_PAGE_NAV_LABEL,
+  POSITIONS_REALISED_LINE_COST_PROCEEDS,
+  POSITIONS_REALISED_LINE_REALIZED_PNL,
   POSITIONS_REALISED_POS_HEADER,
   POSITIONS_REALISED_SECTION_HEADER,
   REFRESH_BUTTON_TEXT,
@@ -200,6 +205,7 @@ const truncateAndEscapeTicker = (ticker: string): string => {
 const formatOpenLine = (
   pos: BotOpenPosition,
   botUsername: string | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const labelRaw = truncateAndEscapeTicker(pos.ticker);
   const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
@@ -207,14 +213,22 @@ const formatOpenLine = (
   return (
     `${LINE_PREFIX}${label}` +
     `\n  ${formatTokenAddress(pos.token)}` +
-    `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
-    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`
+    `\n  ${t(POSITIONS_OPEN_LINE_DETAILS, lang)(
+      formatTokenAmount(pos.balance),
+      formatUsdc(pos.costBasisUsdc),
+    )}` +
+    `\n  ${t(POSITIONS_OPEN_LINE_VALUE_PNL, lang)(
+      formatUsdc(pos.currentValueUsdc),
+      formatSignedUsdc(pos.unrealisedPnlUsdc),
+      formatPct(pos.unrealisedPnlPct),
+    )}`
   );
 };
 
 const formatRealisedLine = (
   pos: BotRealisedPosition,
   botUsername: string | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const labelRaw = truncateAndEscapeTicker(pos.ticker);
   const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
@@ -222,8 +236,14 @@ const formatRealisedLine = (
   return (
     `${LINE_PREFIX}${label}` +
     `\n  ${formatTokenAddress(pos.token)}` +
-    `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
-    `\n  realized ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`
+    `\n  ${t(POSITIONS_REALISED_LINE_COST_PROCEEDS, lang)(
+      formatUsdc(pos.totalCostUsdc),
+      formatUsdc(pos.totalProceedsUsdc),
+    )}` +
+    `\n  ${t(POSITIONS_REALISED_LINE_REALIZED_PNL, lang)(
+      formatSignedUsdc(pos.realisedPnlUsdc),
+      formatPct(pos.realisedPnlPct),
+    )}`
   );
 };
 
@@ -298,12 +318,14 @@ export const buildPositionsView = (
   const sections: string[] = [];
   if (openTotal > 0) {
     const header = t(POSITIONS_OPEN_SECTION_HEADER, lang)(openTotal);
-    const lines = openSlice.map((p) => formatOpenLine(p, botUsername));
+    const lines = openSlice.map((p) => formatOpenLine(p, botUsername, lang));
     sections.push([header, ...lines].join("\n\n"));
   }
   if (realisedTotal > 0) {
     const header = t(POSITIONS_REALISED_SECTION_HEADER, lang)(realisedTotal);
-    const lines = realisedSlice.map((p) => formatRealisedLine(p, botUsername));
+    const lines = realisedSlice.map((p) =>
+      formatRealisedLine(p, botUsername, lang),
+    );
     sections.push([header, ...lines].join("\n\n"));
   }
 
@@ -406,13 +428,14 @@ const sectionNavRow = (
   buildCallback: (openPage: number, realisedPage: number) => string,
   axis: "open" | "realised",
   otherPage: number,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboardButton[] => {
   const callbackFor = (target: number): string =>
     axis === "open"
       ? buildCallback(target, otherPage)
       : buildCallback(otherPage, target);
   const labelFor = (target: number, arrow: "←" | "→" | ""): string =>
-    `${arrow ? `${arrow} ` : ""}Page ${target + 1}/${totalPages} ${label}`;
+    t(POSITIONS_PAGE_NAV_LABEL, lang)(arrow, target + 1, totalPages, label);
 
   if (totalPages <= 1) {
     return [
@@ -474,6 +497,7 @@ export const buildPositionsPageKeyboard = (
       pageCallback,
       "open",
       view.realisedPage,
+      lang,
     );
     if (openNav.length > 0) rows.push(openNav);
   }
@@ -487,6 +511,7 @@ export const buildPositionsPageKeyboard = (
       pageCallback,
       "realised",
       view.openPage,
+      lang,
     );
     if (realisedNav.length > 0) rows.push(realisedNav);
   }

@@ -2315,3 +2315,119 @@ export const WALLET_ACTIVE_LEGEND = {
   English: "* = active wallet (used for buy / sell / withdraw)",
   SimplifiedChinese: "* = 活动钱包（用于买入 / 卖出 / 提币）",
 } as const;
+
+// ─── /positions — per-row labels + pagination button ───────────────
+
+export const POSITIONS_OPEN_LINE_DETAILS = {
+  English: (balance: string, cost: string) => `${balance} · cost $${cost}`,
+  SimplifiedChinese: (balance: string, cost: string) =>
+    `${balance} · 成本 $${cost}`,
+} as const;
+export const POSITIONS_OPEN_LINE_VALUE_PNL = {
+  English: (value: string, signedPnl: string, pnlPct: string) =>
+    `value $${value} · PnL ${signedPnl} (${pnlPct})`,
+  SimplifiedChinese: (value: string, signedPnl: string, pnlPct: string) =>
+    `市值 $${value} · 盈亏 ${signedPnl} (${pnlPct})`,
+} as const;
+export const POSITIONS_REALISED_LINE_COST_PROCEEDS = {
+  English: (cost: string, proceeds: string) =>
+    `cost $${cost} · proceeds $${proceeds}`,
+  SimplifiedChinese: (cost: string, proceeds: string) =>
+    `成本 $${cost} · 收入 $${proceeds}`,
+} as const;
+export const POSITIONS_REALISED_LINE_REALIZED_PNL = {
+  English: (signedPnl: string, pnlPct: string) =>
+    `realized ${signedPnl} (${pnlPct})`,
+  SimplifiedChinese: (signedPnl: string, pnlPct: string) =>
+    `已实现 ${signedPnl} (${pnlPct})`,
+} as const;
+export const POSITIONS_PAGE_NAV_LABEL = {
+  English: (arrow: string, target: number, totalPages: number, label: string) =>
+    `${arrow ? `${arrow} ` : ""}Page ${target}/${totalPages} ${label}`,
+  SimplifiedChinese: (
+    arrow: string,
+    target: number,
+    totalPages: number,
+    label: string,
+  ) => `${arrow ? `${arrow} ` : ""}第 ${target}/${totalPages} 页 ${label}`,
+} as const;
+
+// ─── /track — trade side labels ────────────────────────────────────
+
+export const TRACK_TRADE_SIDE_BUY = {
+  English: "BUY",
+  SimplifiedChinese: "买入",
+} as const;
+export const TRACK_TRADE_SIDE_SELL = {
+  English: "SELL",
+  SimplifiedChinese: "卖出",
+} as const;
+
+// ─── Chart — empty-state placeholder ───────────────────────────────
+
+export const CHART_EMPTY_STATE_TEXT = {
+  English: "No price data yet",
+  SimplifiedChinese: "暂无价格数据",
+} as const;
+
+// ─── Action labels passed into localized PIN templates ─────────────
+//
+// PIN_LOCKED_REPLY / PIN_AUTHORISE_THE_PROMPT / PIN_VERIFY_PROMPT take
+// an `actionLabel` interpolation. Callers that hardcoded English action
+// names ("PIN change", "Withdraw") leaked English into otherwise
+// localised PIN copy. These entries name each action in both locales so
+// the template renders end-to-end translated.
+
+export const PIN_ACTION_LABEL_WITHDRAW = {
+  English: "Withdraw",
+  SimplifiedChinese: "提币",
+} as const;
+export const PIN_ACTION_LABEL_PIN_CHANGE = {
+  English: "PIN change",
+  SimplifiedChinese: "PIN 修改",
+} as const;
+export const PIN_ACTION_LABEL_EXPORT = {
+  English: "export",
+  SimplifiedChinese: "导出",
+} as const;
+export const PIN_ACTION_LABEL_DELETE = {
+  English: "delete",
+  SimplifiedChinese: "删除",
+} as const;
+export const PIN_SET_NOW_SEND_ONCE_MORE_PROMPT = {
+  English: (actionLabel: string) =>
+    `PIN set. Send it once more to authorise the ${actionLabel}.`,
+  SimplifiedChinese: (actionLabel: string) =>
+    `PIN 已设置。请再发送一次以授权${actionLabel}。`,
+} as const;
+
+// ─── /withdraw — inline arg parse errors ───────────────────────────
+
+export const WITHDRAW_INLINE_INVALID_AMOUNT_REPLY = {
+  English: (asset: string) =>
+    `Invalid ${asset} amount. Send a positive number (e.g. 0.1).`,
+  SimplifiedChinese: (asset: string) =>
+    `${asset} 金额无效。请发送正数（例如 0.1）。`,
+} as const;
+export const WITHDRAW_INLINE_INVALID_DESTINATION_REPLY = {
+  English: "Invalid destination. Must be a 0x-prefixed 40-char address.",
+  SimplifiedChinese: "目标地址无效。必须是以 0x 开头的 40 位十六进制地址。",
+} as const;
+export const WITHDRAW_INLINE_UNSUPPORTED_ASSET_REPLY = {
+  English: (assetRaw: string, hint: string) =>
+    `Unsupported asset "${assetRaw}". ${hint}`,
+  SimplifiedChinese: (assetRaw: string, hint: string) =>
+    `不支持的资产 "${assetRaw}"。${hint}`,
+} as const;
+export const WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY = {
+  English: (amountRaw: string) =>
+    `Invalid amount "${amountRaw}" — must be a positive decimal within the asset's precision.`,
+  SimplifiedChinese: (amountRaw: string) =>
+    `金额 "${amountRaw}" 无效——必须为正数且在该资产的精度范围内。`,
+} as const;
+export const WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY = {
+  English: (addressRaw: string) =>
+    `Invalid destination address "${addressRaw}" — must be a 0x-prefixed 40-character hex string.`,
+  SimplifiedChinese: (addressRaw: string) =>
+    `目标地址 "${addressRaw}" 无效——必须是以 0x 开头的 40 位十六进制字符串。`,
+} as const;

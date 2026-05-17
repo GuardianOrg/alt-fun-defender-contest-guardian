@@ -43,6 +43,10 @@ import {
   WALLET_IMPORT_INVALID_KEY_REPLY,
   WALLET_IMPORT_PASTE_KEY_PROMPT,
   WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
+  PIN_ACTION_LABEL_DELETE,
+  PIN_ACTION_LABEL_EXPORT,
+  PIN_ACTION_LABEL_PIN_CHANGE,
+  PIN_SET_NOW_SEND_ONCE_MORE_PROMPT,
   WALLET_ACTIVE_LEGEND,
   WALLET_EMPTY_CREATE_HINT,
   WALLET_EMPTY_IMPORT_HINT,
@@ -217,7 +221,7 @@ const tryEditOriginToPrompt = async (
 ): Promise<boolean> =>
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, wrap(ctx, text), {
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
     }),
   );
 
@@ -427,7 +431,7 @@ const renameWalletConversation = async (
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
       wrap(ctx, t(WALLET_RENAME_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
   }
@@ -561,7 +565,7 @@ const runPinSetFlow = async (
   if (!editedOrigin) {
     const askMsg = await ctx.reply(
       wrap(ctx, t(WALLET_SET_PIN_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
   }
@@ -577,7 +581,7 @@ const runPinSetFlow = async (
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
         wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -587,7 +591,7 @@ const runPinSetFlow = async (
 
   const confirmAsk = await ctx.reply(
     wrap(ctx, t(WALLET_CONFIRM_PIN_PROMPT, lang)),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
 
@@ -601,7 +605,7 @@ const runPinSetFlow = async (
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -614,9 +618,9 @@ const runPinSetFlow = async (
   );
   const finalAsk = await ctx.reply(
     wrap(ctx,
-      `PIN set. Send it once more to authorise the ${actionLabel}.`,
+      t(PIN_SET_NOW_SEND_ONCE_MORE_PROMPT, lang)(actionLabel),
     ),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, finalAsk.message_id);
   return true;
@@ -646,7 +650,7 @@ const runPinVerifyFlow = async (
     }
     if (!editedOrigin) {
       const askMsg = await ctx.reply(wrap(ctx, prompt), {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(lang),
       });
       await trackWorkflowMessage(conversation, askMsg.message_id);
     }
@@ -684,7 +688,7 @@ const runPinVerifyFlow = async (
     }
     const retry = await ctx.reply(
       wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -728,13 +732,14 @@ const exportKeyConversation = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
 
+  const exportLabel = t(PIN_ACTION_LABEL_EXPORT, lang);
   if (!pinAlreadySet) {
     const setOk = await runPinSetFlow(
       conversation,
       ctx,
       userId,
       chatId,
-      "export",
+      exportLabel,
       origin,
       lang,
     );
@@ -750,7 +755,7 @@ const exportKeyConversation = async (
     userId,
     chatId,
     pinAlreadySet,
-    "export",
+    exportLabel,
     "/wallet → Export key",
     pinAlreadySet ? origin : undefined,
     lang,
@@ -854,7 +859,7 @@ const importWalletConversation = async (
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
       wrap(ctx, t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
   }
@@ -880,7 +885,7 @@ const importWalletConversation = async (
     if (!parsed) {
       const retry = await ctx.reply(
         wrap(ctx, t(WALLET_IMPORT_INVALID_KEY_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -913,7 +918,7 @@ const importWalletConversation = async (
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
         wrap(ctx, t(WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -976,13 +981,14 @@ const deleteWalletConversation = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
 
+  const deleteLabel = t(PIN_ACTION_LABEL_DELETE, lang);
   if (!pinAlreadySet) {
     const setOk = await runPinSetFlow(
       conversation,
       ctx,
       userId,
       chatId,
-      "delete",
+      deleteLabel,
       origin,
       lang,
     );
@@ -998,7 +1004,7 @@ const deleteWalletConversation = async (
     userId,
     chatId,
     pinAlreadySet,
-    "delete",
+    deleteLabel,
     "/wallet → Delete",
     pinAlreadySet ? origin : undefined,
     lang,
@@ -1030,7 +1036,7 @@ const deleteWalletConversation = async (
         truncateAddress(walletRecord.address),
       ),
     ),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 
@@ -1141,7 +1147,7 @@ const changePinConversation = async (
     ctx,
     userId,
     chatId,
-    "PIN change",
+    t(PIN_ACTION_LABEL_PIN_CHANGE, lang),
     origin,
   );
   if (!ok) {
