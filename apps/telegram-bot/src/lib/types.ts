@@ -8,14 +8,16 @@ export interface Env {
    */
   API_BASE_URL: string;
   /**
-   * Dedicated `X-API-Key` for the bot's calls into `apps/api`. Optional
-   * to allow smoke-test deploys before the apps/api `api_keys` row is
-   * provisioned — when undefined, `lib/api.ts` omits the header and
-   * requests fall into apps/api's anonymous per-IP rate limit (240/min,
-   * shared across every user on the bot Worker). Provisioning tracked in
-   * #640; AGENTS.md "Auth model" still describes the eventual contract.
+   * Dedicated `X-API-Key` for the bot's calls into `apps/api`. Required:
+   * the bot fans every user through one Worker egress IP, so a missing
+   * header would bucket all traffic into apps/api's anonymous 240/min
+   * per-IP ceiling and self-starve under a few concurrent commands.
+   * `createBot` throws at construction if this is unset so a misdeploy
+   * fails fast instead of silently degrading. Provision via
+   * `apps/api/scripts/provision-api-key.ts` and ship with
+   * `wrangler secret put API_KEY` (per environment).
    */
-  API_KEY?: string;
+  API_KEY: string;
   /**
    * AES-256-GCM master key for custodial wallets — 32 raw bytes,
    * base64-encoded. Rotating it invalidates every stored wallet because

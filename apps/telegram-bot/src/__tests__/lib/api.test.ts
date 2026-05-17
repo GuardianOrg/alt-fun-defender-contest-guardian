@@ -64,7 +64,14 @@ describe("fetchBotPositions", () => {
     realisedPnlPct: 50,
   };
 
-  it("omits X-API-Key when env.API_KEY is undefined (falls into apps/api anonymous bucket, see #640)", async () => {
+  // Defensive backstop: `buildHeaders` strips whitespace-only values so
+  // a mis-pasted secret never serializes as ` ` on the wire and trips
+  // apps/api's 401 path. `createBot` already throws on missing /
+  // whitespace API_KEY at construction (see `bot.ts`), so this path is
+  // unreachable in production — the test pins the helper-level contract
+  // so a future refactor that drops the boot guard still can't leak
+  // `x-api-key: " "`.
+  it("omits X-API-Key when env.API_KEY is whitespace-only (helper-level backstop; boot guard already rejects this)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
         JSON.stringify({ data: { open: [], realised: [] } }),
@@ -72,23 +79,7 @@ describe("fetchBotPositions", () => {
       ),
     );
     await fetchBotPositions(
-      { API_BASE_URL: env.API_BASE_URL, API_KEY: undefined },
-      "0xabc",
-    );
-    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
-    const headers = new Headers(init.headers);
-    expect(headers.has("x-api-key")).toBe(false);
-  });
-
-  it("omits X-API-Key when env.API_KEY is the empty string", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ data: { open: [], realised: [] } }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
-    await fetchBotPositions(
-      { API_BASE_URL: env.API_BASE_URL, API_KEY: "" },
+      { API_BASE_URL: env.API_BASE_URL, API_KEY: "   " },
       "0xabc",
     );
     const init = fetchSpy.mock.calls[0]![1] as RequestInit;
