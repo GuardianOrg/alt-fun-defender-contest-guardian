@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  ANTI_PHISHING_HEADER,
   resolveAntiPhishingHeader,
+  staticAntiPhishingHeader,
   withAntiPhishing,
 } from "../../lib/anti-phishing.js";
+
+const ANTI_PHISHING_HEADER = staticAntiPhishingHeader();
 
 describe("resolveAntiPhishingHeader", () => {
   it("returns the user phrase when set", () => {

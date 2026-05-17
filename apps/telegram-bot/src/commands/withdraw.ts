@@ -49,6 +49,8 @@ import {
 import {
   CANCEL_BUTTON,
   CONFIRM_WITHDRAW_BUTTON,
+  DEFAULT_LANGUAGE,
+  type Language,
   PIN_LOCKED_REPLY,
   PIN_WRONG_RETRY_REPLY,
   RPC_UNAVAILABLE_WITH_REASON_REPLY,
@@ -67,13 +69,15 @@ import {
   WITHDRAW_SUMMARY_HEADER,
   WITHDRAW_TAP_CONFIRM_HINT,
   WITHDRAW_WHICH_ASSET_PROMPT,
-  WITHDRAW_LOCKED_REPLY as I18N_WITHDRAW_LOCKED_REPLY,
-  WITHDRAW_NO_ACTIVE_WALLET_REPLY as I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY,
-  WITHDRAW_NO_PIN_REPLY as I18N_WITHDRAW_NO_PIN_REPLY,
-  WITHDRAW_NO_USER_REPLY as I18N_WITHDRAW_NO_USER_REPLY,
-  WITHDRAW_NON_PRIVATE_CHAT_REPLY as I18N_WITHDRAW_NON_PRIVATE_CHAT_REPLY,
+  WITHDRAW_LOCKED_REPLY,
+  WITHDRAW_NO_ACTIVE_WALLET_REPLY,
+  WITHDRAW_NO_PIN_REPLY,
+  WITHDRAW_NO_USER_REPLY,
+  WITHDRAW_NON_PRIVATE_CHAT_REPLY,
   WITHDRAW_PRIVATE_DM_ONLY_REPLY,
   WITHDRAW_USAGE_HINT_REPLY,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
@@ -94,17 +98,33 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 
-const NO_USER_REPLY = I18N_WITHDRAW_NO_USER_REPLY.English;
+const noUserReply = (lang: Language): string =>
+  t(WITHDRAW_NO_USER_REPLY, lang);
+const nonPrivateChatReply = (lang: Language): string =>
+  t(WITHDRAW_NON_PRIVATE_CHAT_REPLY, lang);
+const noActiveWalletReply = (lang: Language): string =>
+  t(WITHDRAW_NO_ACTIVE_WALLET_REPLY, lang);
+const withdrawLockedReply = (lang: Language): string =>
+  t(WITHDRAW_LOCKED_REPLY, lang);
+const noPinReply = (lang: Language): string => t(WITHDRAW_NO_PIN_REPLY, lang);
+const usageHint = (lang: Language): string =>
+  t(WITHDRAW_USAGE_HINT_REPLY, lang);
 
-const NON_PRIVATE_CHAT_REPLY = I18N_WITHDRAW_NON_PRIVATE_CHAT_REPLY.English;
+const ctxLang = (ctx: AppContext): Language => getCtxLanguage(ctx);
 
-const NO_ACTIVE_WALLET_REPLY = I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY.English;
-
-const WITHDRAW_LOCKED_REPLY = I18N_WITHDRAW_LOCKED_REPLY.English;
-
-const NO_PIN_REPLY = I18N_WITHDRAW_NO_PIN_REPLY.English;
-
-const USAGE_HINT = WITHDRAW_USAGE_HINT_REPLY.English;
+/**
+ * Pull the user's language from inside a conversation. Conversation
+ * handlers receive a replay `ctx` whose `session` is hydrated by the
+ * conversations plugin, so `getCtxLanguage` works the same as on the
+ * live request path. Keep this in a single helper so the conversation
+ * call sites don't drift.
+ */
+const convLang = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<Language> =>
+  conversation.external((outside) =>
+    outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
 
 /** Match the trade-confirmation window in `lib/execute.ts`. */
 const CONFIRM_WINDOW_MS = 60_000;
@@ -151,13 +171,14 @@ type ParseResult =
   | { ok: true; args: ParsedArgs }
   | { ok: false; reason: string };
 
-const parseInlineArgs = (raw: string): ParseResult => {
+const parseInlineArgs = (raw: string, lang: Language): ParseResult => {
+  const hint = usageHint(lang);
   const parts = raw.trim().split(/\s+/).filter(Boolean);
-  if (parts.length !== 3) return { ok: false, reason: USAGE_HINT };
+  if (parts.length !== 3) return { ok: false, reason: hint };
   const [assetRaw, amountRaw, addressRaw] = parts as [string, string, string];
   const assetUpper = assetRaw.toUpperCase();
   if (!isWithdrawAsset(assetUpper)) {
-    return { ok: false, reason: `Unsupported asset "${assetRaw}". ${USAGE_HINT}` };
+    return { ok: false, reason: `Unsupported asset "${assetRaw}". ${hint}` };
   }
   const amount = parseAmount(amountRaw, assetUpper);
   if (amount === null) {
@@ -261,9 +282,12 @@ const WITHDRAW_ASSET_CALLBACK = {
 
 const ASSET_PICKER_PATTERN = /^wda:(usdc|hype)$/;
 
-const renderAssetPrompt = (balances: AssetBalances): string =>
+const renderAssetPrompt = (
+  balances: AssetBalances,
+  lang: Language,
+): string =>
   [
-    WITHDRAW_WHICH_ASSET_PROMPT.English,
+    t(WITHDRAW_WHICH_ASSET_PROMPT, lang),
     "",
     `You have ${formatBalance(balances.usdc, "USDC")} and ${formatBalance(balances.hype, "HYPE")}.`,
   ].join("\n");
@@ -288,9 +312,13 @@ const assetFromCallback = (data: string): WithdrawAsset | null => {
   return m[1] === "usdc" ? "USDC" : "HYPE";
 };
 
-const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
+const renderSummary = (
+  args: ParsedArgs,
+  balance: bigint | null,
+  lang: Language,
+): string => {
   const lines = [
-    WITHDRAW_SUMMARY_HEADER.English,
+    t(WITHDRAW_SUMMARY_HEADER, lang),
     "",
     `• Asset: ${args.asset}`,
     `• Amount: ${formatAmount(args.amountRaw, args.asset)} ${args.asset}`,
@@ -298,34 +326,33 @@ const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
     `• Destination: ${args.to}`,
   ];
   if (balance !== null && args.amountRaw > balance) {
-    lines.push(
-      "",
-      WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY.English,
-    );
+    lines.push("", t(WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY, lang));
   }
-  lines.push("", WITHDRAW_TAP_CONFIRM_HINT.English);
+  lines.push("", t(WITHDRAW_TAP_CONFIRM_HINT, lang));
   return lines.join("\n");
 };
 
 const confirmKeyboard = (
   nonce: string,
+  lang: Language,
 ): Array<Array<{ text: string; callback_data: string }>> => [
   [
-    { text: CONFIRM_WITHDRAW_BUTTON.English, callback_data: `wdc:${nonce}` },
-    { text: CANCEL_BUTTON.English, callback_data: `wdcl:${nonce}` },
+    { text: t(CONFIRM_WITHDRAW_BUTTON, lang), callback_data: `wdc:${nonce}` },
+    { text: t(CANCEL_BUTTON, lang), callback_data: `wdcl:${nonce}` },
   ],
 ];
 
 const renderError = (
   result: Exclude<Awaited<ReturnType<typeof executeWithdraw>>, { ok: true }>,
+  lang: Language,
 ): string => {
   if (result.kind === "insufficient_funds") {
-    return WITHDRAW_INSUFFICIENT_BALANCE_REPLY.English;
+    return t(WITHDRAW_INSUFFICIENT_BALANCE_REPLY, lang);
   }
   if (result.kind === "reverted") {
-    return TRANSACTION_REVERTED_WITH_REASON_REPLY.English(result.reason ?? "");
+    return t(TRANSACTION_REVERTED_WITH_REASON_REPLY, lang)(result.reason ?? "");
   }
-  return RPC_UNAVAILABLE_WITH_REASON_REPLY.English(result.reason ?? "");
+  return t(RPC_UNAVAILABLE_WITH_REASON_REPLY, lang)(result.reason ?? "");
 };
 
 /**
@@ -339,11 +366,10 @@ const verifyPinForWithdraw = async (
   ctx: AppContext,
   userId: number,
   chatId: number,
+  lang: Language,
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
-    withAntiPhishing(
-      WITHDRAW_PIN_PROMPT.English,
-    ),
+    withAntiPhishing(t(WITHDRAW_PIN_PROMPT, lang)),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -366,17 +392,17 @@ const verifyPinForWithdraw = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(PIN_LOCKED_REPLY.English(mins, "Withdraw")),
+        withAntiPhishing(t(PIN_LOCKED_REPLY, lang)(mins, "Withdraw")),
       );
       return false;
     }
     if (result.reason === "unset") {
-      await ctx.reply(withAntiPhishing(NO_PIN_REPLY));
+      await ctx.reply(withAntiPhishing(noPinReply(lang)));
       return false;
     }
     const retry = await ctx.reply(
       withAntiPhishing(
-        PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining),
+        t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
       ),
       { reply_markup: backHomeMarkup() },
     );
@@ -424,6 +450,7 @@ const withdrawWizardConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   // Resolve the active wallet up front: the asset prompt now displays
@@ -436,7 +463,7 @@ const withdrawWizardConversation = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(withAntiPhishing(NO_ACTIVE_WALLET_REPLY));
+    await ctx.reply(withAntiPhishing(noActiveWalletReply(lang)));
     await sweepWorkflow(conversation);
     return;
   }
@@ -457,14 +484,14 @@ const withdrawWizardConversation = async (
       safeEditMessageById(
         outside,
         origin,
-        withAntiPhishing(renderAssetPrompt(balances)),
+        withAntiPhishing(renderAssetPrompt(balances, lang)),
         { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
       ),
     );
   }
   if (!editedOriginAsAsset) {
     const assetPromptMsg = await ctx.reply(
-      withAntiPhishing(renderAssetPrompt(balances)),
+      withAntiPhishing(renderAssetPrompt(balances, lang)),
       { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
     );
     await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
@@ -508,9 +535,7 @@ const withdrawWizardConversation = async (
     const parsed = parseAmount(raw, asset);
     if (parsed === null) {
       const retry = await ctx.reply(
-        withAntiPhishing(
-          WITHDRAW_INVALID_AMOUNT_REPLY.English,
-        ),
+        withAntiPhishing(t(WITHDRAW_INVALID_AMOUNT_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -524,7 +549,7 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      WITHDRAW_DESTINATION_PROMPT.English,
+      t(WITHDRAW_DESTINATION_PROMPT, lang),
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -533,9 +558,7 @@ const withdrawWizardConversation = async (
     const parsed = parseDestination(raw);
     if (parsed === null) {
       const retry = await ctx.reply(
-        withAntiPhishing(
-          WITHDRAW_INVALID_DESTINATION_REPLY.English,
-        ),
+        withAntiPhishing(t(WITHDRAW_INVALID_DESTINATION_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -550,6 +573,7 @@ const withdrawWizardConversation = async (
     userId,
     chatId,
     { asset, amountRaw, to },
+    lang,
   );
   await sweepWorkflow(conversation);
 };
@@ -567,6 +591,7 @@ const runPreFlightAndStage = async (
   userId: number,
   chatId: number,
   args: ParsedArgs,
+  lang: Language,
 ): Promise<void> => {
   // All KV reads must run via `conversation.external((outside) => …)` so
   // the conversations plugin captures the result and replays consistently
@@ -577,7 +602,7 @@ const runPreFlightAndStage = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(withAntiPhishing(NO_ACTIVE_WALLET_REPLY));
+    await ctx.reply(withAntiPhishing(noActiveWalletReply(lang)));
     return;
   }
 
@@ -585,7 +610,7 @@ const runPreFlightAndStage = async (
     buildSecurityState(outside.env).getWithdrawLock(userId),
   );
   if (lock.enabled) {
-    await ctx.reply(withAntiPhishing(WITHDRAW_LOCKED_REPLY));
+    await ctx.reply(withAntiPhishing(withdrawLockedReply(lang)));
     return;
   }
 
@@ -593,11 +618,11 @@ const runPreFlightAndStage = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
   if (!pinSet) {
-    await ctx.reply(withAntiPhishing(NO_PIN_REPLY));
+    await ctx.reply(withAntiPhishing(noPinReply(lang)));
     return;
   }
 
-  const ok = await verifyPinForWithdraw(conversation, ctx, userId, chatId);
+  const ok = await verifyPinForWithdraw(conversation, ctx, userId, chatId, lang);
   if (!ok) return;
 
   const balance = await fetchAssetBalanceExternal(
@@ -618,8 +643,8 @@ const runPreFlightAndStage = async (
     };
   });
 
-  await ctx.reply(withAntiPhishing(renderSummary(args, balance)), {
-    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+  await ctx.reply(withAntiPhishing(renderSummary(args, balance, lang)), {
+    reply_markup: { inline_keyboard: confirmKeyboard(nonce, lang) },
   });
 };
 
@@ -635,8 +660,9 @@ const withdrawCommandConversation = async (
   argsRaw: string,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
-  const parsed = parseInlineArgs(argsRaw);
+  const parsed = parseInlineArgs(argsRaw, lang);
   if (!parsed.ok) {
     await ctx.reply(withAntiPhishing(parsed.reason));
     return;
@@ -647,6 +673,7 @@ const withdrawCommandConversation = async (
     ctx.from.id,
     ctx.chat.id,
     parsed.args,
+    lang,
   );
   await sweepWorkflow(conversation);
 };
@@ -670,12 +697,13 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
   );
 
   bot.command("withdraw", async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.reply(withAntiPhishing(NO_USER_REPLY));
+      await ctx.reply(withAntiPhishing(noUserReply(lang)));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(withAntiPhishing(NON_PRIVATE_CHAT_REPLY));
+      await ctx.reply(withAntiPhishing(nonPrivateChatReply(lang)));
       return;
     }
     const raw = typeof ctx.match === "string" ? ctx.match : "";
@@ -689,13 +717,14 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
   });
 
   const enterWizard = async (ctx: AppContext): Promise<void> => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: WITHDRAW_PRIVATE_DM_ONLY_REPLY.English,
+        text: t(WITHDRAW_PRIVATE_DM_ONLY_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -707,7 +736,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     // — keeping the flow in one stable chat bubble instead of dropping
     // a fresh asset picker below the still-visible parent menu.
     const result = await editToSubmenu(ctx, {
-      text: TOAST_LOADING_WITHDRAW.English,
+      text: t(TOAST_LOADING_WITHDRAW, lang),
       parseMode: "HTML",
       inlineKeyboard: [backHomeRow()],
       linkPreviewDisabled: true,
@@ -729,12 +758,13 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
    * silently; the user's intent was to abort either way.
    */
   bot.callbackQuery(/^wdcl:(.+)$/, async (ctx) => {
+    const lang = ctxLang(ctx);
     const nonce = ctx.match?.[1];
     const pending = ctx.session.pendingWithdraw;
     if (pending && pending.nonce === nonce) {
       ctx.session.pendingWithdraw = undefined;
     }
-    await ctx.answerCallbackQuery({ text: TOAST_CANCELLED.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_CANCELLED, lang) });
     try {
       await ctx.editMessageReplyMarkup({ reply_markup: undefined });
     } catch {
@@ -749,6 +779,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
    * if the second tap lands before the session write commits.
    */
   bot.callbackQuery(/^wdc:(.+)$/, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -761,7 +792,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
         ctx.session.pendingWithdraw = undefined;
       }
       await ctx.answerCallbackQuery({
-        text: TOAST_CONFIRMATION_EXPIRED_WITHDRAW.English,
+        text: t(TOAST_CONFIRMATION_EXPIRED_WITHDRAW, lang),
         show_alert: true,
       });
       return;
@@ -772,13 +803,13 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: TOAST_NO_ACTIVE_WALLET.English,
+        text: t(TOAST_NO_ACTIVE_WALLET, lang),
         show_alert: true,
       });
       return;
     }
 
-    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_SUBMITTING, lang) });
 
     const privateKey = await wm.decrypt(active.encryptedKey, ctx.from.id);
     const result = await executeWithdraw(ctx.env, {
@@ -802,6 +833,6 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
       );
       return;
     }
-    await ctx.reply(withAntiPhishing(`❌ ${renderError(result)}`));
+    await ctx.reply(withAntiPhishing(`❌ ${renderError(result, lang)}`));
   });
 };

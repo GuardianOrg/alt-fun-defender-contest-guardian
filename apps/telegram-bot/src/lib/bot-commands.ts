@@ -25,6 +25,9 @@ import {
   BOT_COMMAND_TRACK_DESCRIPTION,
   BOT_COMMAND_WALLET_DESCRIPTION,
   BOT_COMMAND_WITHDRAW_DESCRIPTION,
+  DEFAULT_LANGUAGE,
+  type Language,
+  t,
 } from "./i18n.js";
 
 export interface BotCommandSpec {
@@ -32,15 +35,34 @@ export interface BotCommandSpec {
   description: string;
 }
 
-export const BOT_COMMANDS: readonly BotCommandSpec[] = [
-  { command: "start", description: BOT_COMMAND_START_DESCRIPTION.English },
-  { command: "help", description: BOT_COMMAND_HELP_DESCRIPTION.English },
-  { command: "buy", description: BOT_COMMAND_BUY_DESCRIPTION.English },
-  { command: "sell", description: BOT_COMMAND_SELL_DESCRIPTION.English },
-  { command: "positions", description: BOT_COMMAND_POSITIONS_DESCRIPTION.English },
-  { command: "track", description: BOT_COMMAND_TRACK_DESCRIPTION.English },
-  { command: "wallet", description: BOT_COMMAND_WALLET_DESCRIPTION.English },
-  { command: "withdraw", description: BOT_COMMAND_WITHDRAW_DESCRIPTION.English },
-  { command: "settings", description: BOT_COMMAND_SETTINGS_DESCRIPTION.English },
-  { command: "referral", description: BOT_COMMAND_REFERRAL_DESCRIPTION.English },
+export const buildBotCommands = (
+  lang: Language = DEFAULT_LANGUAGE,
+): readonly BotCommandSpec[] => [
+  { command: "start", description: t(BOT_COMMAND_START_DESCRIPTION, lang) },
+  { command: "help", description: t(BOT_COMMAND_HELP_DESCRIPTION, lang) },
+  { command: "buy", description: t(BOT_COMMAND_BUY_DESCRIPTION, lang) },
+  { command: "sell", description: t(BOT_COMMAND_SELL_DESCRIPTION, lang) },
+  {
+    command: "positions",
+    description: t(BOT_COMMAND_POSITIONS_DESCRIPTION, lang),
+  },
+  { command: "track", description: t(BOT_COMMAND_TRACK_DESCRIPTION, lang) },
+  { command: "wallet", description: t(BOT_COMMAND_WALLET_DESCRIPTION, lang) },
+  {
+    command: "withdraw",
+    description: t(BOT_COMMAND_WITHDRAW_DESCRIPTION, lang),
+  },
+  {
+    command: "settings",
+    description: t(BOT_COMMAND_SETTINGS_DESCRIPTION, lang),
+  },
+  {
+    command: "referral",
+    description: t(BOT_COMMAND_REFERRAL_DESCRIPTION, lang),
+  },
 ];
+
+/** Default-locale (English) slash menu. */
+export const BOT_COMMANDS: readonly BotCommandSpec[] = buildBotCommands(
+  DEFAULT_LANGUAGE,
+);

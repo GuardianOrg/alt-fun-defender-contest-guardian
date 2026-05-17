@@ -73,9 +73,13 @@ import {
   TOAST_WITHDRAWAL_LOCK_DISABLED,
   TOAST_WITHDRAWAL_LOCK_ENABLED,
   WALLET_DELETE_NOW_BUTTON,
-  WALLET_NO_USER_REPLY as I18N_WALLET_NO_USER_REPLY,
-  WALLET_NON_PRIVATE_CHAT_REPLY as I18N_WALLET_NON_PRIVATE_CHAT_REPLY,
+  WALLET_NO_USER_REPLY,
+  WALLET_NON_PRIVATE_CHAT_REPLY,
   WALLET_PRIVATE_DM_ONLY_REPLY,
+  DEFAULT_LANGUAGE,
+  type Language,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { PIN_RESET_DELAY_MS, PinManager, type ResetStatus } from "../lib/pin.js";
 import {
@@ -110,9 +114,14 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 
-const NO_USER_REPLY = I18N_WALLET_NO_USER_REPLY.English;
+const ctxLang = (ctx: AppContext): Language => getCtxLanguage(ctx);
 
-const NON_PRIVATE_CHAT_REPLY = I18N_WALLET_NON_PRIVATE_CHAT_REPLY.English;
+const convLang = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<Language> =>
+  conversation.external((outside) =>
+    outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
 
 const RENAME_MAX_LEN = 32;
 
@@ -139,7 +148,7 @@ const isPrivateChat = (ctx: AppContext): boolean =>
 const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   if (isPrivateChat(ctx)) return true;
   await ctx.answerCallbackQuery({
-    text: WALLET_PRIVATE_DM_ONLY_REPLY.English,
+    text: t(WALLET_PRIVATE_DM_ONLY_REPLY, ctxLang(ctx)),
     show_alert: true,
   });
   return false;
@@ -246,6 +255,7 @@ const renderMainText = (
   security: WalletSecurityStatus,
   now: number,
   pinResetReadyAt: number | null,
+  lang: Language,
 ): string => {
   const statusLines = renderSecurityStatusLines(
     security,
@@ -257,7 +267,7 @@ const renderMainText = (
     // Constraints" so users who already have a Privy wallet see the
     // bridge path. Both Create and Import are now wired.
     return [
-      WALLET_NO_WALLETS_YET_REPLY.English,
+      t(WALLET_NO_WALLETS_YET_REPLY, lang),
       "",
       "• Create — generate a new bot-managed wallet to start trading",
       "• Import — paste an existing private key (including a Privy key exported from the Web App)",
@@ -329,6 +339,7 @@ const readSecurityStatus = async (
 const renderMainState = async (
   env: AppContext["env"],
   userId: number,
+  lang: Language,
 ): Promise<{
   text: string;
   reply_markup: {
@@ -340,7 +351,14 @@ const renderMainState = async (
   const active = await wm.getActive(userId);
   const { status, resetReadyAt } = await readSecurityStatus(env, userId);
   return {
-    text: renderMainText(wallets, active, status, Date.now(), resetReadyAt),
+    text: renderMainText(
+      wallets,
+      active,
+      status,
+      Date.now(),
+      resetReadyAt,
+      lang,
+    ),
     reply_markup: {
       inline_keyboard: buildWalletMainKeyboard(
         wallets.length > 0,
@@ -353,7 +371,7 @@ const renderMainState = async (
 
 const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from || !ctx.callbackQuery?.message) return;
-  const state = await renderMainState(ctx.env, ctx.from.id);
+  const state = await renderMainState(ctx.env, ctx.from.id, ctxLang(ctx));
   await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
@@ -379,6 +397,7 @@ const renameWalletConversation = async (
   walletId: string,
   origin?: MessageRef,
 ): Promise<void> => {
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
   let editedOrigin = false;
   if (origin) {
@@ -386,12 +405,12 @@ const renameWalletConversation = async (
       conversation,
       ctx,
       origin,
-      WALLET_RENAME_PROMPT.English,
+      t(WALLET_RENAME_PROMPT, lang),
     );
   }
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
-      wrap(ctx, WALLET_RENAME_PROMPT.English),
+      wrap(ctx, t(WALLET_RENAME_PROMPT, lang)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -403,7 +422,10 @@ const renameWalletConversation = async (
   await trackWorkflowMessage(conversation, reply.message.message_id);
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      wrap(ctx, WALLET_RENAME_LENGTH_INVALID_REPLY.English(RENAME_MAX_LEN)),
+      wrap(
+        ctx,
+        t(WALLET_RENAME_LENGTH_INVALID_REPLY, lang)(RENAME_MAX_LEN),
+      ),
     );
     await sweepWorkflow(conversation);
     return;
@@ -428,7 +450,7 @@ const renameWalletConversation = async (
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
       await reply.reply(
-        wrap(ctx, WALLET_RENAME_NO_LONGER_EXISTS_REPLY.English),
+        wrap(ctx, t(WALLET_RENAME_NO_LONGER_EXISTS_REPLY, lang)),
       );
       await sweepWorkflow(conversation);
       return;
@@ -436,7 +458,7 @@ const renameWalletConversation = async (
     throw err;
   }
   const state = await conversation.external((outerCtx) =>
-    renderMainState(outerCtx.env, fromId),
+    renderMainState(outerCtx.env, fromId, lang),
   );
   await reply.reply(wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
@@ -504,6 +526,7 @@ const runPinSetFlow = async (
   chatId: number,
   actionLabel: string,
   origin?: MessageRef,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<boolean> => {
   // Track the bot's prompt messages so a sweep on exit removes them.
   // User-side PIN replies are NOT tracked: `sweepPinMessage` deletes
@@ -516,12 +539,12 @@ const runPinSetFlow = async (
       conversation,
       ctx,
       origin,
-      WALLET_SET_PIN_PROMPT.English,
+      t(WALLET_SET_PIN_PROMPT, lang),
     );
   }
   if (!editedOrigin) {
     const askMsg = await ctx.reply(
-      wrap(ctx, WALLET_SET_PIN_PROMPT.English),
+      wrap(ctx, t(WALLET_SET_PIN_PROMPT, lang)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -537,7 +560,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, PIN_INVALID_FORMAT_REPLY.English),
+        wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -547,7 +570,7 @@ const runPinSetFlow = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, WALLET_CONFIRM_PIN_PROMPT.English),
+    wrap(ctx, t(WALLET_CONFIRM_PIN_PROMPT, lang)),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -561,7 +584,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx, PIN_DO_NOT_MATCH_REPLY.English),
+        wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -597,10 +620,11 @@ const runPinVerifyFlow = async (
   actionLabel: string,
   retryHint: string,
   origin?: MessageRef,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<boolean> => {
   if (pinAlreadySet) {
     let editedOrigin = false;
-    const prompt = PIN_AUTHORISE_THE_PROMPT.English(actionLabel);
+    const prompt = t(PIN_AUTHORISE_THE_PROMPT, lang)(actionLabel);
     if (origin) {
       editedOrigin = await tryEditOriginToPrompt(conversation, ctx, origin, prompt);
     }
@@ -629,7 +653,7 @@ const runPinVerifyFlow = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, PIN_LOCKED_REPLY.English(mins, capitalize(actionLabel))),
+        wrap(ctx, t(PIN_LOCKED_REPLY, lang)(mins, capitalize(actionLabel))),
       );
       return false;
     }
@@ -638,12 +662,12 @@ const runPinVerifyFlow = async (
       // confirmed `isPinSet` at entry. Surface a clean abort rather
       // than looping forever if the KV state somehow vanished.
       await ctx.reply(
-        wrap(ctx, PIN_STATE_LOST_REPLY.English(retryHint)),
+        wrap(ctx, t(PIN_STATE_LOST_REPLY, lang)(retryHint)),
       );
       return false;
     }
     const retry = await ctx.reply(
-      wrap(ctx, PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining)),
+      wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -673,6 +697,7 @@ const exportKeyConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   // Conversation bodies replay across waitFor boundaries; on replay
@@ -695,6 +720,7 @@ const exportKeyConversation = async (
       chatId,
       "export",
       origin,
+      lang,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -711,6 +737,7 @@ const exportKeyConversation = async (
     "export",
     "/wallet → Export key",
     pinAlreadySet ? origin : undefined,
+    lang,
   );
   if (!verifyOk) {
     await sweepWorkflow(conversation);
@@ -724,7 +751,7 @@ const exportKeyConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, WALLET_EXPORT_NO_LONGER_EXISTS_REPLY.English),
+      wrap(ctx, t(WALLET_EXPORT_NO_LONGER_EXISTS_REPLY, lang)),
     );
     await sweepWorkflow(conversation);
     return;
@@ -743,7 +770,7 @@ const exportKeyConversation = async (
   await sweepWorkflow(conversation);
 
   const revealBody = [
-    WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY.English,
+    t(WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY, lang),
     "",
     `Address: ${wallet.address}`,
     `Private key: ${privateKey}`,
@@ -754,7 +781,7 @@ const exportKeyConversation = async (
       inline_keyboard: [
         [
           {
-            text: WALLET_DELETE_NOW_BUTTON.English,
+            text: t(WALLET_DELETE_NOW_BUTTON, lang),
             callback_data: WALLET_CALLBACK.exportDelete,
           },
         ],
@@ -796,6 +823,7 @@ const importWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   let editedOrigin = false;
@@ -804,12 +832,12 @@ const importWalletConversation = async (
       conversation,
       ctx,
       origin,
-      WALLET_IMPORT_PASTE_KEY_PROMPT.English,
+      t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang),
     );
   }
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
-      wrap(ctx, WALLET_IMPORT_PASTE_KEY_PROMPT.English),
+      wrap(ctx, t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -835,9 +863,7 @@ const importWalletConversation = async (
     const parsed = parsePrivateKey(text);
     if (!parsed) {
       const retry = await ctx.reply(
-        wrap(ctx,
-          WALLET_IMPORT_INVALID_KEY_REPLY.English,
-        ),
+        wrap(ctx, t(WALLET_IMPORT_INVALID_KEY_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -870,9 +896,7 @@ const importWalletConversation = async (
     );
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
-        wrap(ctx,
-          WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY.English,
-        ),
+        wrap(ctx, t(WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY, lang)),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -880,9 +904,7 @@ const importWalletConversation = async (
     }
     if (result.kind === "duplicate") {
       await ctx.reply(
-        wrap(ctx,
-          WALLET_IMPORT_ALREADY_EXISTS_REPLY.English,
-        ),
+        wrap(ctx, t(WALLET_IMPORT_ALREADY_EXISTS_REPLY, lang)),
       );
       await sweepWorkflow(conversation);
       return;
@@ -899,7 +921,7 @@ const importWalletConversation = async (
     const wallet = result.wallet;
 
     const state = await conversation.external((outside) =>
-      renderMainState(outside.env, userId),
+      renderMainState(outside.env, userId, lang),
     );
     await ctx.reply(
       wrap(ctx,
@@ -931,6 +953,7 @@ const deleteWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   const pinAlreadySet = await conversation.external((outside) =>
@@ -945,6 +968,7 @@ const deleteWalletConversation = async (
       chatId,
       "delete",
       origin,
+      lang,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -961,6 +985,7 @@ const deleteWalletConversation = async (
     "delete",
     "/wallet → Delete",
     pinAlreadySet ? origin : undefined,
+    lang,
   );
   if (!verifyOk) {
     await sweepWorkflow(conversation);
@@ -975,7 +1000,7 @@ const deleteWalletConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
+      wrap(ctx, t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang)),
     );
     await sweepWorkflow(conversation);
     return;
@@ -984,8 +1009,8 @@ const deleteWalletConversation = async (
   const confirmPrompt = await ctx.reply(
     wrap(
       ctx,
-      WALLET_DELETE_CONFIRM_PROMPT.English(
-        walletRecord.label ?? WALLET_UNLABELED.English,
+      t(WALLET_DELETE_CONFIRM_PROMPT, lang)(
+        walletRecord.label ?? t(WALLET_UNLABELED, lang),
         truncateAddress(walletRecord.address),
       ),
     ),
@@ -1002,7 +1027,7 @@ const deleteWalletConversation = async (
     // Anything other than the exact uppercase token aborts — lowercase,
     // typo, fat-fingered emoji. The strictness is the point; this gate
     // exists to require deliberate action.
-    await ctx.reply(wrap(ctx, TOAST_DELETE_CANCELLED.English));
+    await ctx.reply(wrap(ctx, t(TOAST_DELETE_CANCELLED, lang)));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1025,14 +1050,14 @@ const deleteWalletConversation = async (
   );
   if (deleteResult.kind === "missing") {
     await ctx.reply(
-      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
+      wrap(ctx, t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang)),
     );
     await sweepWorkflow(conversation);
     return;
   }
 
   const state = await conversation.external((outside) =>
-    renderMainState(outside.env, userId),
+    renderMainState(outside.env, userId, lang),
   );
   await ctx.reply(
     wrap(ctx,
@@ -1057,23 +1082,25 @@ const setPinConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
   const newPin = await askNewPin(
     conversation,
     ctx,
     chatId,
-    WALLET_SET_NEW_PIN_PROMPT.English,
+    t(WALLET_SET_NEW_PIN_PROMPT, lang),
     origin,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
   const state = await conversation.external((outside) =>
-    renderMainState(outside.env, userId),
+    renderMainState(outside.env, userId, lang),
   );
-  await ctx.reply(wrap(ctx, `${WALLET_PIN_SET_HEADER.English}\n\n${state.text}`), {
-    reply_markup: state.reply_markup,
-  });
+  await ctx.reply(
+    wrap(ctx, `${t(WALLET_PIN_SET_HEADER, lang)}\n\n${state.text}`),
+    { reply_markup: state.reply_markup },
+  );
   await sweepWorkflow(conversation);
 };
 
@@ -1091,6 +1118,7 @@ const changePinConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
   const ok = await verifyExistingPin(
     conversation,
@@ -1112,18 +1140,19 @@ const changePinConversation = async (
     conversation,
     ctx,
     chatId,
-    WALLET_CHANGE_PIN_PROMPT.English,
+    t(WALLET_CHANGE_PIN_PROMPT, lang),
     origin,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
   const state = await conversation.external((outside) =>
-    renderMainState(outside.env, userId),
+    renderMainState(outside.env, userId, lang),
   );
-  await ctx.reply(wrap(ctx, `${WALLET_PIN_CHANGED_HEADER.English}\n\n${state.text}`), {
-    reply_markup: state.reply_markup,
-  });
+  await ctx.reply(
+    wrap(ctx, `${t(WALLET_PIN_CHANGED_HEADER, lang)}\n\n${state.text}`),
+    { reply_markup: state.reply_markup },
+  );
   await sweepWorkflow(conversation);
 };
 
@@ -1141,12 +1170,13 @@ const completeResetConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
   const reset: ResetStatus = await conversation.external((outside) =>
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
-    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
+    await ctx.reply(wrap(ctx, t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang)));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1158,7 +1188,7 @@ const completeResetConversation = async (
     await ctx.reply(
       wrap(
         ctx,
-        WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY.English(hours),
+        t(WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY, lang)(hours),
       ),
     );
     await sweepWorkflow(conversation);
@@ -1168,7 +1198,7 @@ const completeResetConversation = async (
     conversation,
     ctx,
     chatId,
-    WALLET_RESET_PIN_PROMPT.English,
+    t(WALLET_RESET_PIN_PROMPT, lang),
     origin,
   );
   const result = await conversation.external((outside) =>
@@ -1177,22 +1207,26 @@ const completeResetConversation = async (
   if (result.kind === "pending") {
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.reply(
-      wrap(ctx, WALLET_RESET_NOT_READY_REPLY.English(hours)),
+      wrap(ctx, t(WALLET_RESET_NOT_READY_REPLY, lang)(hours)),
     );
     await sweepWorkflow(conversation);
     return;
   }
   if (result.kind === "not-requested") {
-    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
+    await ctx.reply(wrap(ctx, t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang)));
     await sweepWorkflow(conversation);
     return;
   }
   const state = await conversation.external((outside) =>
-    renderMainState(outside.env, userId),
+    renderMainState(outside.env, userId, lang),
   );
-  await ctx.reply(wrap(ctx, `${WALLET_PIN_RESET_COMPLETE_HEADER.English}\n\n${state.text}`), {
-    reply_markup: state.reply_markup,
-  });
+  await ctx.reply(
+    wrap(
+      ctx,
+      `${t(WALLET_PIN_RESET_COMPLETE_HEADER, lang)}\n\n${state.text}`,
+    ),
+    { reply_markup: state.reply_markup },
+  );
   await sweepWorkflow(conversation);
 };
 
@@ -1250,8 +1284,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    * rather than dispatching into the manager with an unknown userId.
    */
   bot.command("wallet", async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.reply(wrap(ctx, NO_USER_REPLY));
+      await ctx.reply(wrap(ctx, t(WALLET_NO_USER_REPLY, lang)));
       return;
     }
     // Wallet flows are private-only — group / supergroup / channel
@@ -1259,18 +1294,19 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     // callback flows would let any group member mutate state. Reject
     // anything that isn't a 1:1 chat before doing any KV reads.
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
+      await ctx.reply(wrap(ctx, t(WALLET_NON_PRIVATE_CHAT_REPLY, lang)));
       return;
     }
-    const state = await renderMainState(ctx.env, ctx.from.id);
+    const state = await renderMainState(ctx.env, ctx.from.id, lang);
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.create, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
@@ -1279,12 +1315,12 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const wallet = await wm.createWallet(ctx.from.id);
       await editToMain(ctx);
       await ctx.answerCallbackQuery({
-        text: TOAST_WALLET_CREATED.English(truncateAddress(wallet.address)),
+        text: t(TOAST_WALLET_CREATED, lang)(truncateAddress(wallet.address)),
       });
     } catch (err) {
       if (err instanceof TooManyWalletsError) {
         await ctx.answerCallbackQuery({
-          text: TOAST_WALLET_CAP_REACHED.English(MAX_WALLETS_PER_USER),
+          text: t(TOAST_WALLET_CAP_REACHED, lang)(MAX_WALLETS_PER_USER),
           show_alert: true,
         });
         return;
@@ -1294,6 +1330,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   });
 
   bot.callbackQuery(WALLET_CALLBACK.switchPicker, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from || !ctx.callbackQuery.message) {
       await ctx.answerCallbackQuery();
       return;
@@ -1303,7 +1340,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length === 0) {
       await ctx.answerCallbackQuery({
-        text: TOAST_NO_WALLETS_TO_SWITCH.English,
+        text: t(TOAST_NO_WALLETS_TO_SWITCH, lang),
         show_alert: true,
       });
       return;
@@ -1316,7 +1353,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (parent) pushNavSnapshot(ctx.session, parent);
     await safeEditMessageText(
       ctx,
-      wrap(ctx, WALLET_PICK_ACTIVE_PROMPT.English),
+      wrap(ctx, t(WALLET_PICK_ACTIVE_PROMPT, lang)),
       {
         reply_markup: {
           inline_keyboard: buildWalletSwitchKeyboard(
@@ -1332,6 +1369,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   bot.callbackQuery(
     new RegExp(`^${WALLET_CALLBACK.switchTo}:`),
     async (ctx) => {
+      const lang = ctxLang(ctx);
       if (!ctx.from) {
         await ctx.answerCallbackQuery();
         return;
@@ -1340,7 +1378,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const data = ctx.callbackQuery.data ?? "";
       const walletId = data.split(":")[1];
       if (!walletId) {
-        await ctx.answerCallbackQuery({ text: TOAST_INVALID_SWITCH_TARGET.English });
+        await ctx.answerCallbackQuery({
+          text: t(TOAST_INVALID_SWITCH_TARGET, lang),
+        });
         return;
       }
       const wm = buildManager(ctx.env);
@@ -1349,7 +1389,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       } catch (err) {
         if (err instanceof WalletNotFoundError) {
           await ctx.answerCallbackQuery({
-            text: TOAST_WALLET_NO_LONGER_EXISTS.English,
+            text: t(TOAST_WALLET_NO_LONGER_EXISTS, lang),
             show_alert: true,
           });
           return;
@@ -1360,8 +1400,8 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await editToMain(ctx);
       await ctx.answerCallbackQuery({
         text: wallet?.label
-          ? TOAST_WALLET_SWITCHED_TO.English(wallet.label)
-          : TOAST_WALLET_SWITCHED.English,
+          ? t(TOAST_WALLET_SWITCHED_TO, lang)(wallet.label)
+          : t(TOAST_WALLET_SWITCHED, lang),
       });
     },
   );
@@ -1373,6 +1413,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    * surface small for the first conversations integration.
    */
   bot.callbackQuery(WALLET_CALLBACK.rename, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1382,7 +1423,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: TOAST_NO_ACTIVE_WALLET_TO_RENAME.English,
+        text: t(TOAST_NO_ACTIVE_WALLET_TO_RENAME, lang),
         show_alert: true,
       });
       return;
@@ -1406,6 +1447,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    * export converge on the same multi-wallet UX.
    */
   bot.callbackQuery(WALLET_CALLBACK.exportKey, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1415,7 +1457,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: TOAST_NO_ACTIVE_WALLET_TO_EXPORT.English,
+        text: t(TOAST_NO_ACTIVE_WALLET_TO_EXPORT, lang),
         show_alert: true,
       });
       return;
@@ -1445,7 +1487,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       // deleteMessage window. The user's intent (no plaintext key in
       // chat) is satisfied either way.
     }
-    await ctx.answerCallbackQuery({ text: TOAST_DELETED.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_DELETED, ctxLang(ctx)) });
   });
 
   /**
@@ -1456,6 +1498,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    * → conversation once delete / withdraw / export share that UX.
    */
   bot.callbackQuery(WALLET_CALLBACK.delete, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1465,7 +1508,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: TOAST_NO_ACTIVE_WALLET_TO_DELETE.English,
+        text: t(TOAST_NO_ACTIVE_WALLET_TO_DELETE, lang),
         show_alert: true,
       });
       return;
@@ -1486,6 +1529,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    * walked through a prompt that can only fail at the persist step.
    */
   bot.callbackQuery(WALLET_CALLBACK.import, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1495,7 +1539,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length >= MAX_WALLETS_PER_USER) {
       await ctx.answerCallbackQuery({
-        text: TOAST_WALLET_CAP_REACHED.English(MAX_WALLETS_PER_USER),
+        text: t(TOAST_WALLET_CAP_REACHED, lang)(MAX_WALLETS_PER_USER),
         show_alert: true,
       });
       return;
@@ -1514,6 +1558,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // enters the same wizard as the /start → Withdraw button.
 
   bot.callbackQuery(WALLET_CALLBACK.pinSet, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1525,7 +1570,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     // check or the 24h reset flow.
     if (await buildPinManager(ctx.env).isPinSet(ctx.from.id)) {
       await ctx.answerCallbackQuery({
-        text: TOAST_PIN_ALREADY_SET.English,
+        text: t(TOAST_PIN_ALREADY_SET, lang),
         show_alert: true,
       });
       return;
@@ -1557,6 +1602,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinReset, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1566,7 +1612,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "ready") {
       await ctx.answerCallbackQuery({
-        text: TOAST_RESET_ALREADY_READY.English,
+        text: t(TOAST_RESET_ALREADY_READY, lang),
         show_alert: true,
       });
       return;
@@ -1574,7 +1620,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (result.kind === "pending") {
       const hours = formatHoursRemaining(result.readyAt, Date.now());
       await ctx.answerCallbackQuery({
-        text: TOAST_PIN_RESET_REQUESTED.English(hours),
+        text: t(TOAST_PIN_RESET_REQUESTED, lang)(hours),
         show_alert: true,
       });
       return;
@@ -1593,7 +1639,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildPinManager(ctx.env).cancelReset(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: TOAST_RESET_CANCELLED.English });
+    await ctx.answerCallbackQuery({
+      text: t(TOAST_RESET_CANCELLED, ctxLang(ctx)),
+    });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinCompleteReset, async (ctx) => {
@@ -1613,6 +1661,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   });
 
   bot.callbackQuery(WALLET_CALLBACK.lockEnable, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1620,10 +1669,13 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).enableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_ENABLED.English });
+    await ctx.answerCallbackQuery({
+      text: t(TOAST_WITHDRAWAL_LOCK_ENABLED, lang),
+    });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.lockDisable, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
@@ -1635,18 +1687,20 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "not-enabled") {
       await ctx.answerCallbackQuery({
-        text: TOAST_LOCK_NOT_ENABLED.English,
+        text: t(TOAST_LOCK_NOT_ENABLED, lang),
         show_alert: true,
       });
       return;
     }
     if (result.kind === "disabled") {
-      await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_DISABLED.English });
+      await ctx.answerCallbackQuery({
+        text: t(TOAST_WITHDRAWAL_LOCK_DISABLED, lang),
+      });
       return;
     }
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.answerCallbackQuery({
-      text: TOAST_LOCK_DISABLE_REQUESTED.English(hours),
+      text: t(TOAST_LOCK_DISABLE_REQUESTED, lang)(hours),
       show_alert: true,
     });
   });
@@ -1659,17 +1713,20 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).cancelDisableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: TOAST_DISABLE_CANCELLED.English });
+    await ctx.answerCallbackQuery({
+      text: t(TOAST_DISABLE_CANCELLED, ctxLang(ctx)),
+    });
   });
 
 
   bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
-    const state = await renderMainState(ctx.env, ctx.from.id);
+    const state = await renderMainState(ctx.env, ctx.from.id, lang);
     await editToSubmenu(ctx, {
       text: wrap(ctx, state.text),
       inlineKeyboard: state.reply_markup.inline_keyboard,

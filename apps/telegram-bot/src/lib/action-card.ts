@@ -20,15 +20,7 @@ import {
   renderSellTokenCardText,
 } from "./token-card.js";
 
-/**
- * Backwards-compatible English-only export kept for tests and any
- * callsite that hasn't been threaded through `getCtxLanguage(ctx)` yet.
- * Prefer `actionTokenOutage(ctx)` so the outage card renders in the
- * user's preferred language.
- */
-export const ACTION_TOKEN_OUTAGE = ACTION_TOKEN_OUTAGE_REPLY.English;
-
-const actionTokenOutage = (ctx: AppContext): string =>
+export const actionTokenOutage = (ctx: AppContext): string =>
   t(ACTION_TOKEN_OUTAGE_REPLY, getCtxLanguage(ctx));
 
 interface ActionCardView {

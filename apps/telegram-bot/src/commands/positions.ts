@@ -4,7 +4,7 @@ import type { Address } from "viem";
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
-  ACTION_TOKEN_OUTAGE,
+  actionTokenOutage,
   editToActionCard,
 } from "../lib/action-card.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
@@ -339,7 +339,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         );
         if (!ok) {
           await ctx.answerCallbackQuery({
-            text: ACTION_TOKEN_OUTAGE,
+            text: actionTokenOutage(ctx),
             show_alert: true,
           });
           return;

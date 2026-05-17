@@ -51,10 +51,12 @@ const LEGACY_COMMAND_SLOT_PAYLOADS: ReadonlyArray<Record<string, unknown>> = [
   { scope: { type: "all_chat_administrators" }, language_code: "en" },
 ];
 
-// One setWebhook + N deleteMyCommands + one setMyCommands.
-const SET_WEBHOOK_FETCH_COUNT = 1 + LEGACY_COMMAND_SLOT_PAYLOADS.length + 1;
-// N deleteMyCommands + one setMyCommands.
-const PUBLISH_COMMANDS_FETCH_COUNT = LEGACY_COMMAND_SLOT_PAYLOADS.length + 1;
+// One setWebhook + N deleteMyCommands + one default setMyCommands + one
+// per-language setMyCommands (SimplifiedChinese).
+const SET_WEBHOOK_FETCH_COUNT = 1 + LEGACY_COMMAND_SLOT_PAYLOADS.length + 2;
+// N deleteMyCommands + one default setMyCommands + one per-language
+// setMyCommands (SimplifiedChinese).
+const PUBLISH_COMMANDS_FETCH_COUNT = LEGACY_COMMAND_SLOT_PAYLOADS.length + 2;
 
 describe("POST /admin/set-webhook", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -160,8 +162,11 @@ describe("POST /admin/set-webhook", () => {
     const res = await post({ url: "https://example.com/webhook" });
     expect(res.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(SET_WEBHOOK_FETCH_COUNT);
+    // The default (English) setMyCommands lands just before the per-
+    // language sets; index `SET_WEBHOOK_FETCH_COUNT - 2` because the
+    // SimplifiedChinese setMyCommands is the trailing call.
     const [commandsUrl, commandsInit] =
-      fetchSpy.mock.calls[SET_WEBHOOK_FETCH_COUNT - 1]!;
+      fetchSpy.mock.calls[SET_WEBHOOK_FETCH_COUNT - 2]!;
     expect(commandsUrl).toBe(
       "https://api.telegram.org/bottest-bot-token/setMyCommands",
     );
@@ -391,8 +396,10 @@ describe("POST /admin/set-commands", () => {
       ),
     ).toEqual(LEGACY_COMMAND_SLOT_PAYLOADS);
 
+    // Default-language setMyCommands lands at index N-2 (the trailing
+    // call is the SimplifiedChinese setMyCommands).
     const [setUrl, setInit] =
-      fetchSpy.mock.calls[PUBLISH_COMMANDS_FETCH_COUNT - 1]!;
+      fetchSpy.mock.calls[PUBLISH_COMMANDS_FETCH_COUNT - 2]!;
     expect(setUrl).toBe(
       "https://api.telegram.org/bottest-bot-token/setMyCommands",
     );
@@ -405,6 +412,18 @@ describe("POST /admin/set-commands", () => {
         description: c.description,
       })),
     );
+    // SimplifiedChinese setMyCommands lands last with language_code: "zh"
+    const [zhUrl, zhInit] =
+      fetchSpy.mock.calls[PUBLISH_COMMANDS_FETCH_COUNT - 1]!;
+    expect(zhUrl).toBe(
+      "https://api.telegram.org/bottest-bot-token/setMyCommands",
+    );
+    const zhBody = JSON.parse((zhInit as RequestInit).body as string) as {
+      commands: Array<{ command: string; description: string }>;
+      language_code: string;
+    };
+    expect(zhBody.language_code).toBe("zh");
+    expect(zhBody.commands.length).toBe(BOT_COMMANDS.length);
   });
 
   it("502s when Telegram is unreachable", async () => {

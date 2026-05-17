@@ -23,7 +23,9 @@ import {
   isOtherSlashCommand,
 } from "../lib/conversation-commands.js";
 import {
-  OUTAGE_REPLY as I18N_OUTAGE_REPLY,
+  DEFAULT_LANGUAGE,
+  type Language,
+  OUTAGE_REPLY,
   PIN_DO_NOT_MATCH_REPLY,
   PIN_INVALID_FORMAT_REPLY,
   PIN_LOCKED_REPLY,
@@ -49,9 +51,9 @@ import {
   REFERRAL_LINK_LABEL,
   REFERRAL_LONG_LIVED_HINT,
   REFERRAL_REFERRED_USERS_LABEL,
-  REFERRAL_NO_USER_REPLY as I18N_REFERRAL_NO_USER_REPLY,
-  REFERRAL_NO_WALLET_REPLY as I18N_REFERRAL_NO_WALLET_REPLY,
-  REFERRAL_NON_PRIVATE_CHAT_REPLY as I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY,
+  REFERRAL_NO_USER_REPLY,
+  REFERRAL_NO_WALLET_REPLY,
+  REFERRAL_NON_PRIVATE_CHAT_REPLY,
   REFERRAL_PAST_REFEREES_WARNING,
   REFERRAL_PICK_OR_CUSTOM_HINT,
   REFERRAL_PIN_CONFIRM_PROMPT,
@@ -66,6 +68,8 @@ import {
   REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY,
   TAP_TO_COPY_HINT,
   TOAST_MISSING_USER,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import {
   backHomeMarkup,
@@ -87,13 +91,22 @@ import {
 
 const DEFAULT_BOT_USERNAME = BOT_NAME;
 
-const NON_PRIVATE_CHAT_REPLY = I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY.English;
+const ctxLang = (ctx: AppContext): Language => getCtxLanguage(ctx);
 
-const NO_USER_REPLY = I18N_REFERRAL_NO_USER_REPLY.English;
+const convLang = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<Language> =>
+  conversation.external((outside) =>
+    outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
 
-const NO_WALLET_REPLY = I18N_REFERRAL_NO_WALLET_REPLY.English;
-
-const OUTAGE_REPLY = I18N_OUTAGE_REPLY.English;
+const nonPrivateChatReply = (lang: Language): string =>
+  t(REFERRAL_NON_PRIVATE_CHAT_REPLY, lang);
+const noUserReply = (lang: Language): string =>
+  t(REFERRAL_NO_USER_REPLY, lang);
+const noWalletReply = (lang: Language): string =>
+  t(REFERRAL_NO_WALLET_REPLY, lang);
+const outageReply = (lang: Language): string => t(OUTAGE_REPLY, lang);
 
 /**
  * Short callback codes for the /referral surface. Prefixed `rf:` so
@@ -173,23 +186,26 @@ const buildLink = (
  * indexer is subscribing to its events — see
  * `apps/api/src/routes/bot/referrals.ts` for the data path.
  */
-const renderBanners = (stats: BotReferralStats): string[] => {
+const renderBanners = (
+  stats: BotReferralStats,
+  lang: Language,
+): string[] => {
   const banners: string[] = [];
   if (stats.badPaymentCount > 0) {
     banners.push(
       [
-        REFERRAL_HEADER_REWARDS_REJECTING.English,
+        t(REFERRAL_HEADER_REWARDS_REJECTING, lang),
         `${stats.badPaymentCount} referral payment${stats.badPaymentCount === 1 ? "" : "s"} rolled into treasury and are not recoverable.`,
-        REFERRAL_UPDATE_REWARDS_WALLET_HINT.English,
+        t(REFERRAL_UPDATE_REWARDS_WALLET_HINT, lang),
       ].join("\n"),
     );
   }
   if (stats.attributionLossCount > 0) {
     banners.push(
       [
-        REFERRAL_HEADER_ATTRIBUTION_DROPPED.English,
+        t(REFERRAL_HEADER_ATTRIBUTION_DROPPED, lang),
         `${stats.attributionLossCount} user${stats.attributionLossCount === 1 ? "" : "s"} hit your link before you finished setup; their attribution was not assigned.`,
-        REFERRAL_CHECK_REWARDS_WALLET_HINT.English,
+        t(REFERRAL_CHECK_REWARDS_WALLET_HINT, lang),
       ].join("\n"),
     );
   }
@@ -200,37 +216,38 @@ const renderReferralHtml = (
   link: string,
   stats: BotReferralStats,
   phrase: string | null | undefined,
+  lang: Language,
 ): string => {
   const earned = formatUsdc(stats.lifetimeEarnedUsdc);
   const sections = [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
-    REFERRAL_HEADER_YOUR_REFERRAL.English,
+    t(REFERRAL_HEADER_YOUR_REFERRAL, lang),
     "",
-    REFERRAL_SHARE_LINK_LEAD.English,
+    t(REFERRAL_SHARE_LINK_LEAD, lang),
     "",
-    REFERRAL_LINK_LABEL.English,
+    t(REFERRAL_LINK_LABEL, lang),
     `<code>${escapeHtml(link)}</code>`,
-    TAP_TO_COPY_HINT.English,
+    t(TAP_TO_COPY_HINT, lang),
     "",
-    REFERRAL_REWARDS_WALLET_LABEL.English,
+    t(REFERRAL_REWARDS_WALLET_LABEL, lang),
     `<code>${escapeHtml(stats.rewardsWallet)}</code>`,
     "",
-    REFERRAL_REFERRED_USERS_LABEL.English(stats.referredCount),
-    REFERRAL_LIFETIME_EARNED_LABEL.English(escapeHtml(earned)),
+    t(REFERRAL_REFERRED_USERS_LABEL, lang)(stats.referredCount),
+    t(REFERRAL_LIFETIME_EARNED_LABEL, lang)(escapeHtml(earned)),
   ];
-  const banners = renderBanners(stats);
+  const banners = renderBanners(stats, lang);
   if (banners.length > 0) {
     return [...banners, "", ...sections].join("\n");
   }
   return sections.join("\n");
 };
 
-const buildKeyboard = (): ReferralView["reply_markup"] => ({
+const buildKeyboard = (lang: Language): ReferralView["reply_markup"] => ({
   inline_keyboard: [
     [
       {
-        text: REFERRAL_CHANGE_REWARDS_WALLET_BUTTON.English,
+        text: t(REFERRAL_CHANGE_REWARDS_WALLET_BUTTON, lang),
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
@@ -274,7 +291,8 @@ const pickerButtonLabel = (w: StoredWallet): string =>
  */
 const buildPickerKeyboard = (
   wallets: StoredWallet[],
-  currentRewardsWallet?: string | null,
+  currentRewardsWallet: string | null | undefined,
+  lang: Language,
 ): { text: string; callback_data: string }[][] => {
   const currentLower = currentRewardsWallet?.toLowerCase();
   const rows: { text: string; callback_data: string }[][] = [];
@@ -296,7 +314,7 @@ const buildPickerKeyboard = (
   }
   rows.push([
     {
-      text: REFERRAL_CUSTOM_BUTTON.English,
+      text: t(REFERRAL_CUSTOM_BUTTON, lang),
       callback_data: REFERRAL_CALLBACK.pickRewardsWalletCustom,
     },
   ]);
@@ -304,18 +322,24 @@ const buildPickerKeyboard = (
   return rows;
 };
 
-const PICKER_INTRO = [
-  REFERRAL_HEADER_CHANGE_REWARDS_WALLET.English,
-  "",
-  REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT.English,
-  "",
-  REFERRAL_PAST_REFEREES_WARNING.English,
-  "",
-  REFERRAL_PICK_OR_CUSTOM_HINT.English,
-].join("\n");
+const pickerIntro = (lang: Language): string =>
+  [
+    t(REFERRAL_HEADER_CHANGE_REWARDS_WALLET, lang),
+    "",
+    t(REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT, lang),
+    "",
+    t(REFERRAL_PAST_REFEREES_WARNING, lang),
+    "",
+    t(REFERRAL_PICK_OR_CUSTOM_HINT, lang),
+  ].join("\n");
 
-const renderPickerHtml = (phrase: string | null | undefined): string =>
-  [escapeHtml(resolveAntiPhishingHeader(phrase)), "", PICKER_INTRO].join("\n");
+const renderPickerHtml = (
+  phrase: string | null | undefined,
+  lang: Language,
+): string =>
+  [escapeHtml(resolveAntiPhishingHeader(phrase)), "", pickerIntro(lang)].join(
+    "\n",
+  );
 
 /**
  * Build the referral view for the user's stable referral-identity
@@ -329,6 +353,7 @@ const buildView = async (
   userId: number,
   username: string | undefined,
   phrase: string | null | undefined,
+  lang: Language,
 ): Promise<
   | { ok: true; view: ReferralView }
   | { ok: false; kind: "no_wallet" | "outage" }
@@ -354,10 +379,10 @@ const buildView = async (
   return {
     ok: true,
     view: {
-      text: renderReferralHtml(link, stats.data, phrase),
+      text: renderReferralHtml(link, stats.data, phrase, lang),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
-      reply_markup: buildKeyboard(),
+      reply_markup: buildKeyboard(lang),
     },
   };
 };
@@ -367,16 +392,18 @@ const sendReferral = async (
   userId: number,
   username: string | undefined,
 ): Promise<void> => {
+  const lang = ctxLang(ctx);
   const result = await buildView(
     ctx.env,
     userId,
     username,
     ctx.session.antiPhishingPhrase,
+    lang,
   );
   if (!result.ok) {
     await replyWithNav(
       ctx,
-      result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
+      result.kind === "no_wallet" ? noWalletReply(lang) : outageReply(lang),
     );
     return;
   }
@@ -387,15 +414,16 @@ const sendReferral = async (
   });
 };
 
-const REWARDS_WALLET_WARNING = [
-  REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT.English,
-  "",
-  REFERRAL_PAST_REFEREES_WARNING.English,
-  "",
-  REFERRAL_LONG_LIVED_HINT.English,
-  "",
-  REFERRAL_SEND_NEW_ADDRESS_PROMPT.English,
-].join("\n");
+const rewardsWalletWarning = (lang: Language): string =>
+  [
+    t(REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT, lang),
+    "",
+    t(REFERRAL_PAST_REFEREES_WARNING, lang),
+    "",
+    t(REFERRAL_LONG_LIVED_HINT, lang),
+    "",
+    t(REFERRAL_SEND_NEW_ADDRESS_PROMPT, lang),
+  ].join("\n");
 
 /**
  * Well-known burn / null addresses. `0x0` is the EVM null sink;
@@ -480,6 +508,7 @@ const runPinGate = async (
   userId: number,
   chatId: number,
   origin: MessageRef | undefined,
+  lang: Language,
 ): Promise<boolean> => {
   const pinAlreadySet = await conversation.external((outside) =>
     buildPinManager(outside.env).isPinSet(userId),
@@ -490,7 +519,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      REFERRAL_SET_PIN_PROMPT.English,
+      t(REFERRAL_SET_PIN_PROMPT, lang),
     );
     let candidate: string | null = null;
     while (candidate === null) {
@@ -505,7 +534,7 @@ const runPinGate = async (
           conversation,
           ctx,
           origin,
-          PIN_INVALID_FORMAT_REPLY.English,
+          t(PIN_INVALID_FORMAT_REPLY, lang),
         );
         continue;
       }
@@ -515,7 +544,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      REFERRAL_PIN_CONFIRM_PROMPT.English,
+      t(REFERRAL_PIN_CONFIRM_PROMPT, lang),
     );
     while (true) {
       const msg = await conversation.waitFor("message:text");
@@ -529,7 +558,7 @@ const runPinGate = async (
           conversation,
           ctx,
           origin,
-          PIN_DO_NOT_MATCH_REPLY.English,
+          t(PIN_DO_NOT_MATCH_REPLY, lang),
         );
         continue;
       }
@@ -546,7 +575,7 @@ const runPinGate = async (
     conversation,
     ctx,
     origin,
-    REFERRAL_VERIFY_PIN_PROMPT.English,
+    t(REFERRAL_VERIFY_PIN_PROMPT, lang),
   );
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -567,9 +596,9 @@ const runPinGate = async (
       await ctx.reply(
         wrap(
           ctx,
-          PIN_LOCKED_REPLY.English(
+          t(PIN_LOCKED_REPLY, lang)(
             mins,
-            REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL.English,
+            t(REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL, lang),
           ),
         ),
       );
@@ -579,8 +608,8 @@ const runPinGate = async (
       await ctx.reply(
         wrap(
           ctx,
-          PIN_STATE_LOST_REPLY.English(
-            REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT.English,
+          t(PIN_STATE_LOST_REPLY, lang)(
+            t(REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT, lang),
           ),
         ),
       );
@@ -590,7 +619,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining),
+      t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
     );
   }
 };
@@ -609,6 +638,7 @@ const changeRewardsWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   // KV key for the rewards-wallet record is the user's stable
@@ -624,7 +654,7 @@ const changeRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await ctx.reply(wrap(ctx, NO_WALLET_REPLY));
+    await ctx.reply(wrap(ctx, noWalletReply(lang)));
     await sweepWorkflow(conversation);
     return;
   }
@@ -637,7 +667,7 @@ const changeRewardsWalletConversation = async (
   const warningText = [
     escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx))),
     "",
-    REWARDS_WALLET_WARNING,
+    rewardsWalletWarning(lang),
   ].join("\n");
   // Initial warning is rendered with parse_mode=HTML and a pre-built
   // anti-phishing header (the inner `wrap()` would double-prepend it),
@@ -681,7 +711,7 @@ const changeRewardsWalletConversation = async (
         conversation,
         ctx,
         origin,
-        REFERRAL_INVALID_ADDRESS_REPLY.English,
+        t(REFERRAL_INVALID_ADDRESS_REPLY, lang),
       );
       continue;
     }
@@ -696,10 +726,10 @@ const changeRewardsWalletConversation = async (
         ctx,
         origin,
         [
-          REFERRAL_BURN_ADDRESS_WARNING_REPLY.English,
-          REFERRAL_BURN_PAYMENT_LOST_WARNING.English,
+          t(REFERRAL_BURN_ADDRESS_WARNING_REPLY, lang),
+          t(REFERRAL_BURN_PAYMENT_LOST_WARNING, lang),
           "",
-          REFERRAL_BURN_CONFIRM_PROMPT.English,
+          t(REFERRAL_BURN_CONFIRM_PROMPT, lang),
         ].join("\n"),
       );
       const confirmMsg = await conversation.waitFor("message:text");
@@ -721,7 +751,7 @@ const changeRewardsWalletConversation = async (
             conversation,
             ctx,
             origin,
-            REFERRAL_ABORTED_RETRY_PROMPT.English,
+            t(REFERRAL_ABORTED_RETRY_PROMPT, lang),
           );
           continue;
         }
@@ -731,7 +761,7 @@ const changeRewardsWalletConversation = async (
             conversation,
             ctx,
             origin,
-            REFERRAL_STILL_BURN_RETRY_PROMPT.English,
+            t(REFERRAL_STILL_BURN_RETRY_PROMPT, lang),
           );
           continue;
         }
@@ -743,7 +773,7 @@ const changeRewardsWalletConversation = async (
   }
   const newRewardsWallet: string = candidate;
 
-  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin);
+  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin, lang);
   if (!pinOk) {
     await sweepWorkflow(conversation);
     return;
@@ -757,7 +787,7 @@ const changeRewardsWalletConversation = async (
       wrap(ctx,
         result.kind === "unavailable"
           ? "API temporarily unavailable — try again in a moment."
-          : REFERRAL_COULD_NOT_UPDATE_REPLY.English,
+          : t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang),
       ),
     );
     await sweepWorkflow(conversation);
@@ -774,6 +804,7 @@ const changeRewardsWalletConversation = async (
       userId,
       outside.from?.username,
       outside.session.antiPhishingPhrase,
+      lang,
     ),
   );
   let landed = false;
@@ -815,6 +846,7 @@ const pickKnownRewardsWalletConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const { walletId, origin } = args;
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   const identity = await conversation.external((outside) =>
@@ -825,7 +857,7 @@ const pickKnownRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await showPrompt(conversation, ctx, origin, NO_WALLET_REPLY);
+    await showPrompt(conversation, ctx, origin, noWalletReply(lang));
     await sweepWorkflow(conversation);
     return;
   }
@@ -838,14 +870,14 @@ const pickKnownRewardsWalletConversation = async (
       conversation,
       ctx,
       origin,
-      REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY.English,
+      t(REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY, lang),
     );
     await sweepWorkflow(conversation);
     return;
   }
   const newRewardsWallet = picked.address.toLowerCase();
 
-  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin);
+  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin, lang);
   if (!pinOk) {
     await sweepWorkflow(conversation);
     return;
@@ -856,10 +888,10 @@ const pickKnownRewardsWalletConversation = async (
   );
   if (!result.ok) {
     if (result.kind === "unavailable") {
-      await showPrompt(conversation, ctx, origin, OUTAGE_REPLY);
+      await showPrompt(conversation, ctx, origin, outageReply(lang));
     } else {
       await ctx.reply(
-        wrap(ctx, REFERRAL_COULD_NOT_UPDATE_REPLY.English),
+        wrap(ctx, t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang)),
       );
     }
     await sweepWorkflow(conversation);
@@ -872,6 +904,7 @@ const pickKnownRewardsWalletConversation = async (
       userId,
       outside.from?.username,
       outside.session.antiPhishingPhrase,
+      lang,
     ),
   );
   let landed = false;
@@ -918,25 +951,27 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
   );
 
   bot.command("referral", async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.reply(wrap(ctx, NO_USER_REPLY));
+      await ctx.reply(wrap(ctx, noUserReply(lang)));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
+      await ctx.reply(wrap(ctx, nonPrivateChatReply(lang)));
       return;
     }
     await sendReferral(ctx, ctx.from.id, ctx.from.username);
   });
 
   bot.callbackQuery(START_CALLBACK.referral, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
+        text: t(REFERRAL_PRIVATE_DM_ONLY_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -946,10 +981,12 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       ctx.from.id,
       ctx.from.username,
       ctx.session.antiPhishingPhrase,
+      lang,
     );
     if (!result.ok) {
       await ctx.answerCallbackQuery({
-        text: result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
+        text:
+          result.kind === "no_wallet" ? noWalletReply(lang) : outageReply(lang),
         show_alert: true,
       });
       return;
@@ -964,13 +1001,14 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
   });
 
   bot.callbackQuery(REFERRAL_CALLBACK.changeRewardsWallet, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
+        text: t(REFERRAL_PRIVATE_DM_ONLY_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -997,22 +1035,23 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       }
     }
     await editToSubmenu(ctx, {
-      text: renderPickerHtml(ctx.session.antiPhishingPhrase),
+      text: renderPickerHtml(ctx.session.antiPhishingPhrase, lang),
       parseMode: "HTML",
-      inlineKeyboard: buildPickerKeyboard(wallets, currentRewardsWallet),
+      inlineKeyboard: buildPickerKeyboard(wallets, currentRewardsWallet, lang),
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();
   });
 
   bot.callbackQuery(REFERRAL_CALLBACK.pickRewardsWalletCustom, async (ctx) => {
+    const lang = ctxLang(ctx);
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
+        text: t(REFERRAL_PRIVATE_DM_ONLY_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -1032,13 +1071,14 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       `^${REFERRAL_CALLBACK.pickRewardsWalletPrefix.replace(/:/g, "\\:")}(w_[0-9a-z]{6})$`,
     ),
     async (ctx) => {
+      const lang = ctxLang(ctx);
       if (!ctx.from) {
-        await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, lang) });
         return;
       }
       if (!isPrivateChat(ctx)) {
         await ctx.answerCallbackQuery({
-          text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
+          text: t(REFERRAL_PRIVATE_DM_ONLY_REPLY, lang),
           show_alert: true,
         });
         return;
