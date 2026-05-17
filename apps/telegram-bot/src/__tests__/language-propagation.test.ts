@@ -239,9 +239,11 @@ describe("language preference propagates across flows", () => {
   // Regression: changing language in the settings panel must clear the
   // nav stack so a subsequent Back tap does not restore the stale
   // English /start snapshot that was captured when the user entered
-  // settings. Without this, the Back button after a language switch
-  // visually reverted the whole screen to English.
-  it("language-switch callback clears the navStack so Back re-renders home in the new language", async () => {
+  // settings. With the stack empty, Back falls through to Home and
+  // re-renders /start fresh in the new language. We assert the stack
+  // is empty after the toggle — the downstream Back → renderHome path
+  // is covered by `nav.test.ts` against the same empty-stack input.
+  it("language-switch callback clears the navStack so a later Back falls through to a fresh Home render", async () => {
     const h = makeBotHarness();
     // Seed a session whose navStack carries the English /start
     // snapshot that would have been pushed when the user entered
