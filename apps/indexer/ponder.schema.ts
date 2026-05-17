@@ -63,6 +63,38 @@ export const token = onchainTable("token", (t) => ({
   timestamp: t.bigint().notNull(),
 }), (table) => ({
   creatorIdx: index().on(table.creator),
+  // Backs the GRADUATED tab on `GET /api/v1/tokens?status=graduated`:
+  //
+  //   SELECT ... FROM ponder_views.token
+  //   WHERE graduated = true
+  //   ORDER BY graduated_at DESC
+  //   LIMIT 500
+  //
+  // Without a directionally-matching composite the planner falls back
+  // to a seq scan of the full token catalogue and an external sort —
+  // GRADUATED tab loads grow linearly with token count and tip into
+  // multi-second territory once the catalogue is even a few thousand
+  // rows. The `(graduated, graduated_at DESC)` index lets the
+  // `graduated = true` slice resolve as a tight reverse-ordered range
+  // scan capped at LIMIT, matching the same fix pattern as
+  // `tokenSnapshot.tokenTsDescIdIdx`.
+  graduatedAtIdx: index().on(table.graduated, table.graduatedAt.desc()),
+  // Backs the GRADUATING tab on `GET /api/v1/tokens?status=graduating`:
+  //
+  //   SELECT ... FROM ponder_views.token
+  //   WHERE graduated = false
+  //   ORDER BY curve_supply ASC
+  //   LIMIT 500
+  //
+  // Same shape regression: the `graduated = false` slice covers most
+  // of the catalogue (only a small fraction of tokens have ever
+  // graduated), so without this index every GRADUATING-tab request
+  // seq-scans the whole table and sorts in memory. The composite lets
+  // the planner walk the `graduated = false` segment in ascending
+  // `curveSupply` order (closest-to-sold-out first — the candidate
+  // ordering the route's USD-denominated 85% gate consumes; see
+  // `routes/tokens/list.ts → fetchNonGraduatedTokensOnchain`).
+  curveSupplyIdx: index().on(table.graduated, table.curveSupply),
 }));
 
 /** Bonding curve trades with LT amounts and curve state changes. */
