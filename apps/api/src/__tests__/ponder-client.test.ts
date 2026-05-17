@@ -26,11 +26,48 @@ describe("createPonderQuery", () => {
     );
 
     expect(result).toEqual({ token: { name: "Test" } });
-    expect(mockFetch).toHaveBeenCalledWith("http://test-ponder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "query { token { name } }", variables: undefined }),
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://test-ponder",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: "query { token { name } }",
+          variables: undefined,
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  // Regression: a stalled Ponder upstream (Neon connection drop, indexer
+  // single-isolate contention) used to consume the full Cloudflare subrequest
+  // budget. Every read-side caller — including the bot's /positions endpoint —
+  // sat blocked on this fetch. Now bounded by QUERY_TIMEOUT_MS so the failure
+  // surfaces as a fast `null`. Suppress the console.log so the test output
+  // isn't polluted by the structured network_error log line.
+  it("aborts a stalled fetch and returns null", async () => {
+    vi.useFakeTimers();
+    const consoleLogSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => {});
+    try {
+      const queryPonder = createPonderQuery("http://test-ponder");
+      mockFetch.mockImplementation(
+        (_url: unknown, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          }),
+      );
+      const pending = queryPonder("query { token { name } }");
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await pending).toBeNull();
+    } finally {
+      consoleLogSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("returns null when response is not ok", async () => {

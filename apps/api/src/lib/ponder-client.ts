@@ -20,6 +20,18 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 const HEALTH_CHECK_TIMEOUT = 3000;
 /**
+ * Per-call abort budget for the GraphQL query path. Healthy Ponder p50 is
+ * ~10–100ms (see `apps/indexer/RESPONSE_TIME_INVESTIGATION.md`); p99 spikes
+ * to ~900ms during the 7–9PM UTC traffic ramp. 8s leaves an order of
+ * magnitude over the worst healthy round-trip, well under Cloudflare's 30s
+ * subrequest ceiling, and tight enough that an upstream stall (Neon
+ * connection drop, indexer single-isolate contention) surfaces as a fast
+ * `null` instead of stranding every downstream caller — including the bot's
+ * `/positions` callback which awaits this same upstream for its
+ * `walletBotPositions` + `tokenBalances` round-trips.
+ */
+const QUERY_TIMEOUT_MS = 8000;
+/**
  * Truncation guard so a sprawling aliased query (e.g. the 50-token batch
  * `fetchHistoricalCurveSnapshots` builds) doesn't fill the log line. We
  * only need enough to identify the query and grep for it in the source.
@@ -84,11 +96,14 @@ export function createPonderQuery(ponderUrl?: string) {
     query: string,
     variables?: Record<string, unknown>,
   ): Promise<T | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, variables }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -132,6 +147,8 @@ export function createPonderQuery(ponderUrl?: string) {
         error,
       });
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   };
 }
