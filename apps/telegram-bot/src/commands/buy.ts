@@ -34,7 +34,13 @@ import {
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
 import {
+  BUY_CUSTOM_AMOUNT_PROMPT,
   BUY_INSUFFICIENT_USDC_REPLY,
+  BUY_INSUFFICIENT_USDC_RETRY_REPLY,
+  BUY_INVALID_NUMBER_RETRY_REPLY,
+  BUY_MINIMUM_BUY_RETRY_REPLY,
+  BUY_STAGING_HTML,
+  BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY,
   NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
   TOAST_CONFIRM_ALREADY_EXPIRED,
@@ -224,7 +230,8 @@ const buyLookupConversation = async (
           )
         : null;
 
-    const cardText = renderBuyTokenCardText(token, usdcBalance);
+    const lookupLang = getCtxLanguage(msgCtx);
+    const cardText = renderBuyTokenCardText(token, usdcBalance, lookupLang);
     const buyPresets = await conversation.external((outerCtx) =>
       normaliseBuyPresets(
         outerCtx.session.buyPresetsUsdc,
@@ -232,7 +239,7 @@ const buyLookupConversation = async (
       ),
     );
     const cardKeyboard = {
-      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
+      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets, lookupLang),
     };
 
     let cardMessageId: number | null = null;
@@ -279,7 +286,9 @@ const buyCustomConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptText = `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`;
+  const promptText = t(BUY_CUSTOM_AMOUNT_PROMPT, getCtxLanguage(ctx))(
+    MIN_USDC_BUY_AMOUNT,
+  );
 
   // Edit-in-place when entered from a token-card tap so the wizard
   // runs in the same bubble; fall back to a fresh reply when no origin
@@ -308,11 +317,12 @@ const buyCustomConversation = async (
     }
     if (await tryAddressBuyIntercept(conversation, text)) return;
 
+    const msgLang = getCtxLanguage(msgCtx);
     const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
     if (amount === null) {
       const retry = await replyWithNav(
         msgCtx,
-        `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
+        t(BUY_INVALID_NUMBER_RETRY_REPLY, msgLang)(MIN_USDC_BUY_AMOUNT),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -320,7 +330,7 @@ const buyCustomConversation = async (
     if (amount < MIN_USDC_BUY_AMOUNT) {
       const retry = await replyWithNav(
         msgCtx,
-        `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount.`,
+        t(BUY_MINIMUM_BUY_RETRY_REPLY, msgLang)(MIN_USDC_BUY_AMOUNT),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -348,7 +358,7 @@ const buyCustomConversation = async (
     if (usdcBalance === null) {
       const retry = await replyWithNav(
         msgCtx,
-        `Unable to verify your USDC balance — please try again.`,
+        t(BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY, msgLang),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -359,9 +369,10 @@ const buyCustomConversation = async (
     if (usdcAvailable < totalNeeded) {
       const retry = await replyWithNav(
         msgCtx,
-        `Insufficient USDC balance.\n` +
-          `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formatUsdc6(usdcBalance)}.\n\n` +
-          `Enter a smaller amount, or tap Home to exit.`,
+        t(BUY_INSUFFICIENT_USDC_RETRY_REPLY, msgLang)(
+          totalNeeded,
+          formatUsdc6(usdcBalance),
+        ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -443,11 +454,13 @@ const buyCustomConversation = async (
     );
     const tickerSafe = escapeHtml(token.ticker);
     const tokenSafe = escapeHtml(token.address);
-    const stagingText =
-      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-      `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
-    const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, getCtxLanguage(msgCtx)) };
+    const stagingText = t(BUY_STAGING_HTML, msgLang)(
+      amount,
+      tickerSafe,
+      tokenSafe,
+      trackingPageUrl(token.address),
+    );
+    const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, msgLang) };
 
     // Prefer editing the originating token-detail card in place: the
     // card already showed token + balance, the staging text re-states
@@ -488,6 +501,7 @@ const handleBuyRefresh = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
+  const lang = getCtxLanguage(ctx);
   const wm = buildManager(ctx.env);
   const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
   const [tokenResult, usdcBalance] = await Promise.all([
@@ -503,7 +517,7 @@ const handleBuyRefresh = async (
     return;
   }
 
-  const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance);
+  const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance, lang);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
     reply_markup: {
@@ -513,11 +527,12 @@ const handleBuyRefresh = async (
           ctx.session.buyPresetsUsdc,
           ctx.session.defaultBuyUsdc,
         ),
+        lang,
       ),
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, getCtxLanguage(ctx)) });
+  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, lang) });
 };
 
 /**
@@ -635,10 +650,12 @@ const handleFixedBuy = async (
   });
   const tickerSafe = escapeHtml(tokenResult.data.ticker);
   const tokenSafe = escapeHtml(tokenResult.data.address);
-  const stagingText =
-    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
-    `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-    `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const stagingText = t(BUY_STAGING_HTML, lang)(
+    amountUsdc,
+    tickerSafe,
+    tokenSafe,
+    trackingPageUrl(tokenResult.data.address),
+  );
   const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the token-detail card the user tapped from into the staging

@@ -43,8 +43,14 @@ import {
   SELL_NO_BALANCE_REPLY,
   SELL_PERCENT_ROUNDS_TO_ZERO_REPLY,
   SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY,
+  SELL_PRESET_ALL_OF_SUFFIX,
   SELL_PROCEEDS_BELOW_MIN_REPLY,
   SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY,
+  SELL_STAGING_BUFFER_CAPPED_HTML,
+  SELL_STAGING_BUFFER_CAPPED_PRESET_HTML,
+  SELL_STAGING_READY_HTML,
+  SELL_STAGING_READY_PRESET_HTML,
+  TRADE_STAGING_TOKEN_LINE_HTML,
   SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
@@ -348,7 +354,7 @@ const editOriginToPrompt = async (
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, text, {
       parse_mode: "HTML",
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(ctxLang(outside)),
       link_preview_options: { is_disabled: true },
     }),
   );
@@ -446,12 +452,12 @@ const sellLookupConversation = async (
           )
         : null;
 
-    const cardText = renderSellTokenCardText(token, tokenBalance);
+    const cardText = renderSellTokenCardText(token, tokenBalance, lang);
     const sellPresets = await conversation.external((outerCtx) =>
       normaliseSellPresets(outerCtx.session.sellPresetsPct),
     );
     const cardKeyboard = {
-      inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
+      inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets, lang),
     };
 
     let cardMessageId: number | null = null;
@@ -517,7 +523,7 @@ const sellCustomConversation = async (
   if (origin) {
     promptShown = await conversation.external((outside) =>
       safeEditMessageById(outside, origin, promptText, {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(ctxLang(outside)),
       }),
     );
   }
@@ -753,17 +759,26 @@ const runPercentSell = async (
   );
   const tickerSafe = escapeHtml(token.ticker);
   const tokenSafe = escapeHtml(token.address);
-  const tokenLine =
-    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const tokenLine = t(TRADE_STAGING_TOKEN_LINE_HTML, lang)(
+    trackingPageUrl(token.address),
+    tickerSafe,
+    tokenSafe,
+  );
   const header =
     buffer.kind === "capped"
-      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
-        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
-      : `✅ <b>Ready to sell ${percent}% of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+      ? t(SELL_STAGING_BUFFER_CAPPED_HTML, lang)(
+          effectiveProceedsUsd,
+          quote.proceedsUsd,
+          percent,
+          tokenLine,
+        )
+      : t(SELL_STAGING_READY_HTML, lang)(
+          percent,
+          tickerSafe,
+          effectiveProceedsUsd,
+          tokenLine,
+        );
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the originating token-detail card into the staging bubble so
   // the wizard runs in a single bubble; fall back to a fresh reply if
@@ -824,13 +839,14 @@ const handleSellRefresh = async (
     return;
   }
 
-  const cardText = renderSellTokenCardText(tokenResult.data, tokenBalance);
+  const cardText = renderSellTokenCardText(tokenResult.data, tokenBalance, lang);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: buildSellTokenKeyboard(
         tokenAddress,
         normaliseSellPresets(ctx.session.sellPresetsPct),
+        lang,
       ),
     },
     link_preview_options: { is_disabled: true },
@@ -994,21 +1010,35 @@ const handlePercentSell = async (
     ticker: token.ticker,
     tokenRaw: effectiveTokenRaw,
   });
-  const allOf = percent === 100 ? ` all ${formatToken18(tokenBalance)}` : "";
+  const totalBalanceFormatted = formatToken18(tokenBalance);
+  const allOf =
+    percent === 100 ? t(SELL_PRESET_ALL_OF_SUFFIX, lang)(totalBalanceFormatted) : "";
   const tickerSafe = escapeHtml(token.ticker);
   const tokenSafe = escapeHtml(token.address);
-  const tokenLine =
-    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const tokenLine = t(TRADE_STAGING_TOKEN_LINE_HTML, lang)(
+    trackingPageUrl(token.address),
+    tickerSafe,
+    tokenSafe,
+  );
   const header =
     buffer.kind === "capped"
-      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
-        `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${tickerSafe}. ` +
-        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
-      : `✅ <b>Ready to sell ${percent}%${allOf} of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+      ? t(SELL_STAGING_BUFFER_CAPPED_PRESET_HTML, lang)(
+          effectiveProceedsUsd,
+          quote.proceedsUsd,
+          percent,
+          formatToken18(effectiveTokenRaw),
+          totalBalanceFormatted,
+          tickerSafe,
+          tokenLine,
+        )
+      : t(SELL_STAGING_READY_PRESET_HTML, lang)(
+          percent,
+          allOf,
+          tickerSafe,
+          effectiveProceedsUsd,
+          tokenLine,
+        );
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the token-detail card into the staging bubble in place rather
   // than dropping a fresh staging prompt below it. `cnf:` / `ccl:`
@@ -1066,10 +1096,11 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
   // edits the same bubble (rather than dropping a new prompt below the
   // still-visible start menu).
   bot.callbackQuery(START_CALLBACK.sell, async (ctx) => {
+    const lang = ctxLang(ctx);
     const result = await editToSubmenu(ctx, {
-      text: PROMPT_HTML(ctxLang(ctx)),
+      text: PROMPT_HTML(lang),
       parseMode: "HTML",
-      inlineKeyboard: [backHomeRow()],
+      inlineKeyboard: [backHomeRow(lang)],
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();

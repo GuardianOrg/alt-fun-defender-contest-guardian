@@ -44,6 +44,8 @@ import {
   TRACK_NO_TRADES_YET_HTML,
   TRACK_RECENT_TRADES_HEADER_HTML,
   TRACK_RELATIVE_TIME,
+  TRACK_TRADE_SIDE_BUY,
+  TRACK_TRADE_SIDE_SELL,
   getCtxLanguage,
   t,
 } from "../lib/i18n.js";
@@ -146,11 +148,16 @@ const renderTradeRow = (
     // Malformed numeric strings would otherwise crash the formatter and
     // strand a whole /track view over one bad row. Skip the amount but
     // keep the row so the user still sees the trade happened.
-    return `${trade.isBuy ? "🟢 BUY" : "🔴 SELL"} • ${trader} • —`;
+    const sideLabel = trade.isBuy
+      ? `🟢 ${t(TRACK_TRADE_SIDE_BUY, lang)}`
+      : `🔴 ${t(TRACK_TRADE_SIDE_SELL, lang)}`;
+    return `${sideLabel} • ${trader} • —`;
   }
   const tsSec = Number.parseInt(trade.timestamp, 10);
   const rel = Number.isFinite(tsSec) ? formatRelative(nowSec - tsSec, lang) : "—";
-  const side = trade.isBuy ? "🟢 BUY" : "🔴 SELL";
+  const side = trade.isBuy
+    ? `🟢 ${t(TRACK_TRADE_SIDE_BUY, lang)}`
+    : `🔴 ${t(TRACK_TRADE_SIDE_SELL, lang)}`;
   return `${side} ${formatUsdc6(usdc)} (${formatToken18(tokens)}) • ${trader} • ${rel}`;
 };
 
@@ -181,7 +188,7 @@ export const renderTrackBody = (
   maxTrades: number = TRADES_PER_CARD,
   lang: Language = DEFAULT_LANGUAGE,
 ): string => {
-  const card = renderTrackTokenCardText(token);
+  const card = renderTrackTokenCardText(token, lang);
   const capped = trades.slice(0, Math.max(0, maxTrades));
   if (capped.length === 0) {
     return `${card}\n\n${t(TRACK_RECENT_TRADES_HEADER_HTML, lang)}\n${t(TRACK_NO_TRADES_YET_HTML, lang)}`;
@@ -293,7 +300,7 @@ export const buildTrackFromToken = async (
   lang: Language = DEFAULT_LANGUAGE,
 ): Promise<TrackRender> => {
   const chartPromise: Promise<Uint8Array | null> = Promise.race([
-    buildTrackChartPng(env, token.address, token.name),
+    buildTrackChartPng(env, token.address, token.name, lang),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), CHART_TIMEOUT_MS)),
   ]);
   const [tradesResult, chartPng] = await Promise.all([
@@ -642,6 +649,7 @@ const handleTrackBuy = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
+  const lang = getCtxLanguage(ctx);
   const wm = buildManager(ctx.env);
   const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
   const [tokenResult, usdcBalance] = await Promise.all([
@@ -658,7 +666,7 @@ const handleTrackBuy = async (
   // Replace the /track card in place with the buy card so Back lands
   // the user back on the /track view via the snapshot pushed below.
   const result = await editToSubmenu(ctx, {
-    text: renderBuyTokenCardText(tokenResult.data, usdcBalance),
+    text: renderBuyTokenCardText(tokenResult.data, usdcBalance, lang),
     parseMode: "HTML",
     inlineKeyboard: buildBuyTokenKeyboard(
       tokenAddress,
@@ -666,6 +674,7 @@ const handleTrackBuy = async (
         ctx.session.buyPresetsUsdc,
         ctx.session.defaultBuyUsdc,
       ),
+      lang,
     ),
     linkPreviewDisabled: true,
   });
@@ -685,6 +694,7 @@ const handleTrackSell = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
+  const lang = getCtxLanguage(ctx);
   const wm = buildManager(ctx.env);
   const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
   const [tokenResult, tokenBalance] = await Promise.all([
@@ -701,11 +711,12 @@ const handleTrackSell = async (
     return;
   }
   const result = await editToSubmenu(ctx, {
-    text: renderSellTokenCardText(tokenResult.data, tokenBalance),
+    text: renderSellTokenCardText(tokenResult.data, tokenBalance, lang),
     parseMode: "HTML",
     inlineKeyboard: buildSellTokenKeyboard(
       tokenAddress,
       normaliseSellPresets(ctx.session.sellPresetsPct),
+      lang,
     ),
     linkPreviewDisabled: true,
   });

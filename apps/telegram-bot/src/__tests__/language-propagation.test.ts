@@ -104,6 +104,38 @@ describe("language preference propagates across flows", () => {
       String((c.body as { text?: string }).text ?? "").includes("尚未创建任何钱包"),
     );
     expect(wallet).toBeDefined();
+    const body = String(
+      (wallet!.body as { text?: string }).text ?? "",
+    );
+    // PIN status, withdrawal-lock status, and the empty-state Create /
+    // Import hints all live on the empty /wallet panel — every one of
+    // them must render in Simplified Chinese, not English.
+    expect(body).toContain("PIN：未设置");
+    expect(body).toContain("提币锁定：关闭");
+    expect(body).toContain("新建 — 生成一个由机器人管理的新钱包");
+    expect(body).toContain("导入 — 粘贴已有的私钥");
+  });
+
+  it("renders /wallet wallet-list view in SimplifiedChinese", async () => {
+    const h = makeBotHarness();
+    await seedChineseSession(h);
+    const wm = new WalletManager(
+      h.kv as unknown as KVNamespace,
+      h.env.MASTER_KEY,
+    );
+    await wm.createWallet(USER_ID);
+    await h.run(commandUpdate("/wallet", 1));
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const body = String(
+      (sends[0]!.body as { text?: string }).text ?? "",
+    );
+    // List header, "(unlabeled)" placeholder, and active-wallet legend
+    // all need to land translated when a wallet exists.
+    expect(body).toContain("钱包（1/");
+    expect(body).toContain("（未命名）");
+    expect(body).toContain("活动钱包");
   });
 
   it("renders /referral non-private-chat reply in SimplifiedChinese", async () => {

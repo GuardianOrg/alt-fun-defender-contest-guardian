@@ -211,14 +211,14 @@ export const showBuyCardForAddress = async (
     ? await fetchUsdcBalance(ctx.env, active.address)
     : null;
 
-  const cardText = renderBuyTokenCardText(token, usdcBalance);
+  const cardText = renderBuyTokenCardText(token, usdcBalance, lang);
   const buyPresets = normaliseBuyPresets(
     ctx.session.buyPresetsUsdc,
     ctx.session.defaultBuyUsdc,
   );
   await finaliseBuyCard(ctx, placeholder, cardText, {
     reply_markup: {
-      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
+      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets, lang),
     },
     link_preview_options: { is_disabled: true },
   });

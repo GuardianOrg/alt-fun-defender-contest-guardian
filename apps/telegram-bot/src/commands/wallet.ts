@@ -43,8 +43,30 @@ import {
   WALLET_IMPORT_INVALID_KEY_REPLY,
   WALLET_IMPORT_PASTE_KEY_PROMPT,
   WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
+  PIN_ACTION_LABEL_DELETE,
+  PIN_ACTION_LABEL_EXPORT,
+  PIN_ACTION_LABEL_PIN_CHANGE,
+  PIN_SET_NOW_SEND_ONCE_MORE_PROMPT,
+  WALLET_ACTIVE_LEGEND,
+  WALLET_DELETED_HEADER,
+  WALLET_EMPTY_CREATE_HINT,
+  WALLET_EMPTY_IMPORT_HINT,
+  WALLET_EXPORT_REVEAL_ADDRESS_LABEL,
+  WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL,
+  WALLET_IMPORT_CAP_REACHED_REPLY,
+  WALLET_IMPORTED_HEADER,
+  WALLET_LIST_HEADER,
   WALLET_NO_WALLETS_YET_REPLY,
   WALLET_PICK_ACTIVE_PROMPT,
+  WALLET_STATUS_PIN_NOT_SET,
+  WALLET_STATUS_PIN_RESET_PENDING,
+  WALLET_STATUS_PIN_RESET_READY,
+  WALLET_STATUS_PIN_SET,
+  WALLET_STATUS_WITHDRAW_LOCK_DISABLE_PENDING,
+  WALLET_STATUS_WITHDRAW_LOCK_DISABLE_READY,
+  WALLET_STATUS_WITHDRAW_LOCK_OFF,
+  WALLET_STATUS_WITHDRAW_LOCK_ON,
+  WALLET_UNLABELED_PLACEHOLDER,
   WALLET_PIN_CHANGED_HEADER,
   WALLET_PIN_RESET_COMPLETE_HEADER,
   WALLET_PIN_SET_HEADER,
@@ -204,7 +226,7 @@ const tryEditOriginToPrompt = async (
 ): Promise<boolean> =>
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, wrap(ctx, text), {
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
     }),
   );
 
@@ -218,33 +240,30 @@ const renderSecurityStatusLines = (
   security: WalletSecurityStatus,
   now: number,
   pinResetReadyAt: number | null,
+  lang: Language,
 ): string[] => {
   const lines: string[] = [];
   if (!security.pinSet) {
-    lines.push("• PIN: not set");
+    lines.push(t(WALLET_STATUS_PIN_NOT_SET, lang));
   } else if (security.pinResetReady) {
-    lines.push(
-      "• PIN: reset ready — tap [Complete PIN reset] to set a new PIN",
-    );
+    lines.push(t(WALLET_STATUS_PIN_RESET_READY, lang));
   } else if (security.pinResetPending && pinResetReadyAt !== null) {
     lines.push(
-      `• PIN: reset requested, available in ~${formatHoursRemaining(pinResetReadyAt, now)} — tap [Cancel PIN reset] if you didn't request this`,
+      t(WALLET_STATUS_PIN_RESET_PENDING, lang)(
+        formatHoursRemaining(pinResetReadyAt, now),
+      ),
     );
   } else {
-    lines.push("• PIN: set");
+    lines.push(t(WALLET_STATUS_PIN_SET, lang));
   }
   if (!security.withdrawLockEnabled) {
-    lines.push("• Withdrawal lock: off");
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_OFF, lang));
   } else if (security.withdrawDisableReady) {
-    lines.push(
-      "• Withdrawal lock: on (disable ready — tap [Complete disable] to clear)",
-    );
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_DISABLE_READY, lang));
   } else if (security.withdrawDisablePending) {
-    lines.push(
-      "• Withdrawal lock: on (disable pending — 24h cooldown in progress)",
-    );
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_DISABLE_PENDING, lang));
   } else {
-    lines.push("• Withdrawal lock: on");
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_ON, lang));
   }
   return lines;
 };
@@ -261,6 +280,7 @@ const renderMainText = (
     security,
     now,
     pinResetReadyAt,
+    lang,
   );
   if (wallets.length === 0) {
     // "Import from Web App" stays first-class per AGENTS.md "Key
@@ -269,21 +289,25 @@ const renderMainText = (
     return [
       t(WALLET_NO_WALLETS_YET_REPLY, lang),
       "",
-      "• Create — generate a new bot-managed wallet to start trading",
-      "• Import — paste an existing private key (including a Privy key exported from the Web App)",
+      t(WALLET_EMPTY_CREATE_HINT, lang),
+      t(WALLET_EMPTY_IMPORT_HINT, lang),
       "",
       ...statusLines,
     ].join("\n");
   }
-  const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
+  const lines = [
+    t(WALLET_LIST_HEADER, lang)(wallets.length, MAX_WALLETS_PER_USER),
+    "",
+  ];
+  const unlabeled = t(WALLET_UNLABELED_PLACEHOLDER, lang);
   for (const w of wallets) {
     const marker = w.id === active?.id ? "*" : " ";
     lines.push(
-      `${marker} ${w.label ?? "(unlabeled)"} — ${truncateAddress(w.address)}`,
+      `${marker} ${w.label ?? unlabeled} — ${truncateAddress(w.address)}`,
     );
   }
   if (active) {
-    lines.push("", "* = active wallet (used for buy / sell / withdraw)");
+    lines.push("", t(WALLET_ACTIVE_LEGEND, lang));
   }
   lines.push("", ...statusLines);
   return lines.join("\n");
@@ -412,7 +436,7 @@ const renameWalletConversation = async (
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
       wrap(ctx, t(WALLET_RENAME_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
   }
@@ -546,7 +570,7 @@ const runPinSetFlow = async (
   if (!editedOrigin) {
     const askMsg = await ctx.reply(
       wrap(ctx, t(WALLET_SET_PIN_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
   }
@@ -562,7 +586,7 @@ const runPinSetFlow = async (
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
         wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -572,7 +596,7 @@ const runPinSetFlow = async (
 
   const confirmAsk = await ctx.reply(
     wrap(ctx, t(WALLET_CONFIRM_PIN_PROMPT, lang)),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
 
@@ -586,7 +610,7 @@ const runPinSetFlow = async (
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -599,9 +623,9 @@ const runPinSetFlow = async (
   );
   const finalAsk = await ctx.reply(
     wrap(ctx,
-      `PIN set. Send it once more to authorise the ${actionLabel}.`,
+      t(PIN_SET_NOW_SEND_ONCE_MORE_PROMPT, lang)(actionLabel),
     ),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, finalAsk.message_id);
   return true;
@@ -631,7 +655,7 @@ const runPinVerifyFlow = async (
     }
     if (!editedOrigin) {
       const askMsg = await ctx.reply(wrap(ctx, prompt), {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(lang),
       });
       await trackWorkflowMessage(conversation, askMsg.message_id);
     }
@@ -669,7 +693,7 @@ const runPinVerifyFlow = async (
     }
     const retry = await ctx.reply(
       wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -713,13 +737,14 @@ const exportKeyConversation = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
 
+  const exportLabel = t(PIN_ACTION_LABEL_EXPORT, lang);
   if (!pinAlreadySet) {
     const setOk = await runPinSetFlow(
       conversation,
       ctx,
       userId,
       chatId,
-      "export",
+      exportLabel,
       origin,
       lang,
     );
@@ -735,7 +760,7 @@ const exportKeyConversation = async (
     userId,
     chatId,
     pinAlreadySet,
-    "export",
+    exportLabel,
     "/wallet → Export key",
     pinAlreadySet ? origin : undefined,
     lang,
@@ -773,8 +798,8 @@ const exportKeyConversation = async (
   const revealBody = [
     t(WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY, lang),
     "",
-    `Address: ${wallet.address}`,
-    `Private key: ${privateKey}`,
+    t(WALLET_EXPORT_REVEAL_ADDRESS_LABEL, lang)(wallet.address),
+    t(WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, lang)(privateKey),
   ].join("\n");
 
   const revealMessage = await ctx.reply(wrap(ctx, revealBody), {
@@ -839,7 +864,7 @@ const importWalletConversation = async (
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
       wrap(ctx, t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang)),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
   }
@@ -865,7 +890,7 @@ const importWalletConversation = async (
     if (!parsed) {
       const retry = await ctx.reply(
         wrap(ctx, t(WALLET_IMPORT_INVALID_KEY_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -898,7 +923,7 @@ const importWalletConversation = async (
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
         wrap(ctx, t(WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -913,7 +938,7 @@ const importWalletConversation = async (
     if (result.kind === "cap") {
       await ctx.reply(
         wrap(ctx,
-          `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first, then try importing again.`,
+          t(WALLET_IMPORT_CAP_REACHED_REPLY, lang)(MAX_WALLETS_PER_USER),
         ),
       );
       await sweepWorkflow(conversation);
@@ -926,7 +951,7 @@ const importWalletConversation = async (
     );
     await ctx.reply(
       wrap(ctx,
-        `Imported ${truncateAddress(wallet.address)}.\n\n${state.text}`,
+        `${t(WALLET_IMPORTED_HEADER, lang)(truncateAddress(wallet.address))}\n\n${state.text}`,
       ),
       { reply_markup: state.reply_markup },
     );
@@ -961,13 +986,14 @@ const deleteWalletConversation = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
 
+  const deleteLabel = t(PIN_ACTION_LABEL_DELETE, lang);
   if (!pinAlreadySet) {
     const setOk = await runPinSetFlow(
       conversation,
       ctx,
       userId,
       chatId,
-      "delete",
+      deleteLabel,
       origin,
       lang,
     );
@@ -983,7 +1009,7 @@ const deleteWalletConversation = async (
     userId,
     chatId,
     pinAlreadySet,
-    "delete",
+    deleteLabel,
     "/wallet → Delete",
     pinAlreadySet ? origin : undefined,
     lang,
@@ -1015,7 +1041,7 @@ const deleteWalletConversation = async (
         truncateAddress(walletRecord.address),
       ),
     ),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 
@@ -1062,7 +1088,7 @@ const deleteWalletConversation = async (
   );
   await ctx.reply(
     wrap(ctx,
-      `Deleted ${truncateAddress(walletRecord.address)}.\n\n${state.text}`,
+      `${t(WALLET_DELETED_HEADER, lang)(truncateAddress(walletRecord.address))}\n\n${state.text}`,
     ),
     { reply_markup: state.reply_markup },
   );
@@ -1126,7 +1152,7 @@ const changePinConversation = async (
     ctx,
     userId,
     chatId,
-    "PIN change",
+    t(PIN_ACTION_LABEL_PIN_CHANGE, lang),
     origin,
   );
   if (!ok) {

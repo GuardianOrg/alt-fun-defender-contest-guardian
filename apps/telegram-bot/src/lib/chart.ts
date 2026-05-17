@@ -1,4 +1,10 @@
 import type { ApiResult } from "./api.js";
+import {
+  CHART_EMPTY_STATE_TEXT,
+  DEFAULT_LANGUAGE,
+  type Language,
+  t,
+} from "./i18n.js";
 import { logger } from "./logger.js";
 import type { Env } from "./types.js";
 
@@ -106,6 +112,8 @@ export interface ChartSvgOptions {
   title?: string;
   /** Optional sub-line under the title (e.g. "24h"). */
   subtitle?: string;
+  /** Locale for the empty-state placeholder. Defaults to English. */
+  lang?: Language;
 }
 
 const BG = "#0e1116";
@@ -172,12 +180,15 @@ export const buildChartSvg = (
     : "";
 
   if (candles.length === 0) {
+    const emptyText = escapeXml(
+      t(CHART_EMPTY_STATE_TEXT, opts.lang ?? DEFAULT_LANGUAGE),
+    );
     return [
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`,
       `<rect width="${width}" height="${height}" fill="${BG}"/>`,
       titleSvg,
       subtitleSvg,
-      `<text x="${width / 2}" y="${height / 2}" fill="${TEXT}" font-family="-apple-system, system-ui, sans-serif" font-size="14" text-anchor="middle">No chart data yet</text>`,
+      `<text x="${width / 2}" y="${height / 2}" fill="${TEXT}" font-family="-apple-system, system-ui, sans-serif" font-size="14" text-anchor="middle">${emptyText}</text>`,
       `</svg>`,
     ].join("");
   }
@@ -279,6 +290,7 @@ export const buildTrackChartPng = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   address: string,
   title: string,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<Uint8Array | null> => {
   try {
     const snap = await fetchChartSnapshot(env, address, "1d");
@@ -287,6 +299,7 @@ export const buildTrackChartPng = async (
     const svg = buildChartSvg(snap.data.candles, {
       title,
       subtitle: "24h",
+      lang,
     });
     return await renderChartPng(svg);
   } catch (err) {

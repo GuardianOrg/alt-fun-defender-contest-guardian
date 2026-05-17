@@ -454,7 +454,7 @@ describe("/wallet command", () => {
       );
       expect(confirmPrompt).toBeDefined();
 
-      // Turn 2: confirm. Bot asks to send once more to authorise.
+      // Turn 2: confirm. Bot asks to send once more to authorize.
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("123456", 4));
@@ -463,7 +463,7 @@ describe("/wallet command", () => {
         afterConfirm.find(
           (c) =>
             c.url.includes("/sendMessage") &&
-            /authorise the export/.test(c.body.text as string),
+            /authorize the export/.test(c.body.text as string),
         ),
       ).toBeDefined();
 
@@ -803,7 +803,7 @@ describe("/wallet command", () => {
         ),
       ).toBeDefined();
 
-      // Turn 2: confirm. Bot asks to authorise the delete.
+      // Turn 2: confirm. Bot asks to authorize the delete.
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("123456", 4));
@@ -811,7 +811,7 @@ describe("/wallet command", () => {
         capture(fetchSpy).find(
           (c) =>
             c.url.includes("/sendMessage") &&
-            /authorise the delete/.test(c.body.text as string),
+            /authorize the delete/.test(c.body.text as string),
         ),
       ).toBeDefined();
 
