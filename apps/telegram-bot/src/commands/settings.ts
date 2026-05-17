@@ -13,22 +13,18 @@ import {
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
-  MAX_TIP_GWEI,
-  MIN_TIP_GWEI,
   SETTINGS_CALLBACK,
   SLIPPAGE_PRESETS_BPS,
-  TIP_PRESETS_LENGTH,
+  SPEED_PRESETS,
   buildBuySettingsKeyboard,
-  buildExecSpeedKeyboard,
   buildSellSettingsKeyboard,
   buildSettingsKeyboard,
   decodeBuyPresetSlot,
   decodeSellPresetSlot,
   decodeSlippagePreset,
-  decodeTipPresetSlot,
+  decodeSpeedPreset,
   formatBpsLabel,
   formatTipLabel,
-  normaliseTipPresets,
   resolveActiveTipGwei,
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
@@ -89,28 +85,13 @@ const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   return false;
 };
 
-const readStatus = (ctx: AppContext): SettingsStatus => {
-  const tipPresets = normaliseTipPresets(ctx.session.executionTipPresetsGwei);
-  return {
-    slippageBps: ctx.session.slippageBps,
-    defaultBuyUsdc: ctx.session.defaultBuyUsdc,
-    degenMode: ctx.session.degenMode,
-    antiPhishingPhrase: ctx.session.antiPhishingPhrase ?? null,
-    executionTipGwei: resolveActiveTipGwei(
-      tipPresets,
-      ctx.session.executionTipGwei,
-    ),
-  };
-};
-
-const readTipPresets = (session: SessionData): number[] =>
-  normaliseTipPresets(session.executionTipPresetsGwei);
-
-const readActiveTipGwei = (session: SessionData): number =>
-  resolveActiveTipGwei(
-    normaliseTipPresets(session.executionTipPresetsGwei),
-    session.executionTipGwei,
-  );
+const readStatus = (ctx: AppContext): SettingsStatus => ({
+  slippageBps: ctx.session.slippageBps,
+  defaultBuyUsdc: ctx.session.defaultBuyUsdc,
+  degenMode: ctx.session.degenMode,
+  antiPhishingPhrase: ctx.session.antiPhishingPhrase ?? null,
+  executionTipGwei: resolveActiveTipGwei(ctx.session.executionTipGwei),
+});
 
 const readBuyPresets = (session: SessionData): number[] =>
   normaliseBuyPresets(session.buyPresetsUsdc, session.defaultBuyUsdc);
@@ -137,17 +118,6 @@ const renderBuySettingsText = (): string =>
 
 const renderSellSettingsText = (): string =>
   ["Sell Settings", "", "Tap a slot to change its percent."].join("\n");
-
-const renderExecSpeedText = (): string =>
-  [
-    "Execution Speed",
-    "",
-    "Sets the priority-fee tip (`maxPriorityFeePerGas`) on every buy / sell tx.",
-    "",
-    "Average network tip is around 0.15 gwei — the higher the tip, the higher the chance the block builder picks your tx in the next block.",
-    "",
-    "Tap a value to make it the active tip. Tap the active value again to edit it.",
-  ].join("\n");
 
 interface RenderedState {
   text: string;
@@ -177,17 +147,6 @@ const renderSellState = (ctx: AppContext): RenderedState => {
   return {
     text: renderSellSettingsText(),
     reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets) },
-  };
-};
-
-const renderExecSpeedState = (ctx: AppContext): RenderedState => {
-  const presets = readTipPresets(ctx.session);
-  const active = readActiveTipGwei(ctx.session);
-  return {
-    text: renderExecSpeedText(),
-    reply_markup: {
-      inline_keyboard: buildExecSpeedKeyboard(presets, active),
-    },
   };
 };
 
@@ -636,129 +595,6 @@ const sellPresetSlotConversation = async (
 };
 
 /**
- * Conversation: edit one slot of the execution-speed tip preset list
- * (issue #967). `slotIdx` is the 0-based slot the user tapped while it
- * was already the active tip. Saves to `executionTipPresetsGwei[slotIdx]`
- * and bumps `executionTipGwei` to the new value (the active tip is
- * what the user is editing — keeping the active tip pinned to the old
- * value while the displayed slot label changes would be confusing).
- */
-const tipPresetSlotConversation = async (
-  conversation: Conversation<AppContext, AppContext>,
-  ctx: AppContext,
-  slotIdx: number,
-  origin?: OriginMessageRef,
-): Promise<void> => {
-  if (
-    !Number.isInteger(slotIdx) ||
-    slotIdx < 0 ||
-    slotIdx >= TIP_PRESETS_LENGTH
-  ) {
-    return;
-  }
-  await sweepWorkflow(conversation);
-  await showPrompt(
-    conversation,
-    ctx,
-    origin,
-    [
-      "Change the value of this execution-speed slot.",
-      "",
-      `Send a gwei tip between ${MIN_TIP_GWEI} and ${MAX_TIP_GWEI}.`,
-      "",
-      "Tap Home to exit and keep the current value.",
-    ].join("\n"),
-  );
-
-  while (true) {
-    const msg = await conversation.waitFor("message:text");
-    await trackWorkflowMessage(conversation, msg.message.message_id);
-    const text = msg.message.text.trim();
-    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
-    if (await tryAddressBuyIntercept(conversation, text)) return;
-    const value = parseUserAmount(text.replace(/gwei/gi, ""), {
-      max: MAX_TIP_GWEI,
-    });
-    if (value === null) {
-      await showPrompt(
-        conversation,
-        ctx,
-        origin,
-        "Send a positive gwei amount like `0.5` or `2`.",
-      );
-      continue;
-    }
-    if (value < MIN_TIP_GWEI) {
-      await showPrompt(
-        conversation,
-        ctx,
-        origin,
-        `Minimum tip is ${MIN_TIP_GWEI} gwei. Send a larger value.`,
-      );
-      continue;
-    }
-    if (value > MAX_TIP_GWEI) {
-      await showPrompt(
-        conversation,
-        ctx,
-        origin,
-        `Capped at ${MAX_TIP_GWEI} gwei. Send a smaller value.`,
-      );
-      continue;
-    }
-    // Reject duplicates so each slot stays a distinct preset — the
-    // dual-mode select / edit affordance assumes one slot per value,
-    // and the keyboard's first-match-wins rule would leave the other
-    // matching slot stuck as a clone with no visible distinction.
-    // CodeRabbit PR #969.
-    const existing = await conversation.external((outside) =>
-      readTipPresets(outside.session),
-    );
-    if (existing.some((tip, i) => i !== slotIdx && tip === value)) {
-      await showPrompt(
-        conversation,
-        ctx,
-        origin,
-        "That value is already used by another slot. Send a different tip.",
-      );
-      continue;
-    }
-    try {
-      await conversation.external((outside) => {
-        const current = normaliseTipPresets(
-          outside.session.executionTipPresetsGwei,
-        );
-        current[slotIdx] = value;
-        outside.session.executionTipPresetsGwei = current;
-        outside.session.executionTipGwei = value;
-      });
-    } catch {
-      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
-      await sweepWorkflow(conversation);
-      return;
-    }
-    const edited = origin
-      ? await conversation.external(async (outside) => {
-          const state = renderExecSpeedState(outside);
-          return safeEditMessage(outside, origin, wrap(outside, state.text), {
-            reply_markup: state.reply_markup,
-          });
-        })
-      : false;
-    if (!edited) {
-      const state = await conversation.external((outside) =>
-        renderExecSpeedState(outside),
-      );
-      await ctx.reply(wrap(ctx, state.text), {
-        reply_markup: state.reply_markup,
-      });
-    }
-    await sweepWorkflow(conversation);
-    return;
-  }
-};
-
-/**
  * Conversation: set or change the anti-phishing phrase. Lives on the
  * `/settings` panel above [Degen mode]; lands the user back on a
  * refreshed settings panel whose header reflects the new phrase. The
@@ -875,16 +711,6 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   );
   bot.use(
     createConversation(
-      tipPresetSlotConversation as (
-        conv: Conversation<AppContext, AppContext>,
-        ctx: AppContext,
-        ...args: unknown[]
-      ) => Promise<void>,
-      { id: "settings-tip-preset-slot", parallel: true },
-    ),
-  );
-  bot.use(
-    createConversation(
       setPhraseConversation as (
         conv: Conversation<AppContext, AppContext>,
         ctx: AppContext,
@@ -983,56 +809,40 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     await ctx.answerCallbackQuery();
   });
 
-  bot.callbackQuery(SETTINGS_CALLBACK.execSettings, async (ctx) => {
-    if (!ctx.from) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    if (!(await ensurePrivate(ctx))) return;
-    const parent = snapshotFromCallback(ctx);
-    if (parent) pushNavSnapshot(ctx.session, parent);
-    await editToState(ctx, renderExecSpeedState(ctx));
+  // Section-header buttons (`-- Slippage --`, `-- Execution Speed --`)
+  // are inert by design — answer the callback so Telegram stops the
+  // loading spinner, but leave the panel untouched.
+  bot.callbackQuery(SETTINGS_CALLBACK.noop, async (ctx) => {
     await ctx.answerCallbackQuery();
   });
 
+  // Inline execution-speed presets (Lightning / Fast / Eco). Tapping a
+  // button promotes that preset to the active tip — values are fixed
+  // (see `SPEED_PRESETS`) so there is no edit branch.
   bot.callbackQuery(
-    new RegExp(`^${SETTINGS_CALLBACK.tipPresetSlot}\\d+$`),
+    new RegExp(`^${SETTINGS_CALLBACK.speedPreset}\\d+$`),
     async (ctx) => {
       if (!ctx.from) {
         await ctx.answerCallbackQuery();
         return;
       }
       if (!(await ensurePrivate(ctx))) return;
-      const idx = decodeTipPresetSlot(ctx.callbackQuery.data ?? "");
-      if (idx === null || idx < 0 || idx >= TIP_PRESETS_LENGTH) {
+      const idx = decodeSpeedPreset(ctx.callbackQuery.data ?? "");
+      if (idx === null || idx < 0 || idx >= SPEED_PRESETS.length) {
         await ctx.answerCallbackQuery();
         return;
       }
-      const presets = readTipPresets(ctx.session);
-      const slotValue = presets[idx]!;
-      const activeTip = readActiveTipGwei(ctx.session);
-      // Dual-mode: tap inactive → select; tap active → edit. The
-      // active comparison happens against the value, not the index,
-      // so a slot that happens to share its value with the active
-      // tip still gets the same "tap to edit" behaviour as the
-      // canonical active slot — which is fine, edits land on the
-      // tapped slot index regardless.
-      if (slotValue !== activeTip) {
-        ctx.session.executionTipGwei = slotValue;
-        await editToState(ctx, renderExecSpeedState(ctx));
-        await ctx.answerCallbackQuery({
-          text: `Execution speed set to ${formatTipLabel(slotValue)}.`,
-        });
-        return;
+      const preset = SPEED_PRESETS[idx]!;
+      ctx.session.executionTipGwei = preset.gwei;
+      // Drop any obsolete custom-preset payload from older sessions so
+      // it can't be silently picked up by a future read path.
+      if (ctx.session.executionTipPresetsGwei !== undefined) {
+        ctx.session.executionTipPresetsGwei = undefined;
       }
-      const origin = ctx.callbackQuery.message
-        ? {
-            chatId: ctx.callbackQuery.message.chat.id,
-            messageId: ctx.callbackQuery.message.message_id,
-          }
-        : undefined;
-      await ctx.answerCallbackQuery();
-      await ctx.conversation.enter("settings-tip-preset-slot", idx, origin);
+      await editToState(ctx, renderMainState(ctx));
+      await ctx.answerCallbackQuery({
+        text: `Execution speed set to ${preset.label} (${formatTipLabel(preset.gwei)}).`,
+      });
     },
   );
 

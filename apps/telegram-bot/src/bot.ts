@@ -1,5 +1,5 @@
 import { KvAdapter } from "@grammyjs/storage-cloudflare";
-import { DEFAULT_TIP_PRESETS_GWEI } from "./keyboards/settings-actions.js";
+import { SPEED_PRESET_GWEI } from "./keyboards/settings-actions.js";
 import {
   type ConversationData,
   type ConversationFlavor,
@@ -54,15 +54,22 @@ export interface SessionData {
    */
   sellPresetsPct?: number[];
   /**
-   * 3-slot customizable execution-speed tip presets in gwei (issue #967).
-   * `executionTipGwei` is the currently-active tip and is what gets
-   * plumbed into `lib/trade.ts` as `maxPriorityFeePerGas` on every
-   * sendTransaction. Older sessions have these undefined;
-   * `normaliseTipPresets` falls back to the default `[0.5, 0.15, 0.1]`
-   * and the active tip falls back to slot 0.
+   * Active execution-speed tip in gwei. Plumbed into `lib/trade.ts` as
+   * `maxPriorityFeePerGas` on every sendTransaction. The user picks one
+   * of the three fixed Lightning / Fast / Eco presets (see
+   * `SPEED_PRESETS` in `keyboards/settings-actions.ts`); older sessions
+   * predating the inline picker may hold an arbitrary value and fall
+   * back to slot 0 (Lightning, 0.5 gwei) via `resolveActiveTipGwei`.
+   */
+  executionTipGwei?: number;
+  /**
+   * Vestigial: 3-slot custom tip preset list from the now-removed
+   * edit wizard (issue #967). Retained as an optional read-only field
+   * so JSON payloads from older sessions still parse — the runtime
+   * never reads it. The speed-preset callback handler clears it on the
+   * next tap so the key drops out of storage entirely.
    */
   executionTipPresetsGwei?: number[];
-  executionTipGwei?: number;
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -144,11 +151,10 @@ const buildDefaultSession = (): SessionData => ({
   defaultBuyUsdc: 20,
   buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
   sellPresetsPct: [...DEFAULT_SELL_PRESETS],
-  // Source of truth for tip presets lives in
-  // keyboards/settings-actions.ts so the normaliser, the UI
-  // fallbacks, and the session defaults can never drift apart.
-  executionTipPresetsGwei: [...DEFAULT_TIP_PRESETS_GWEI],
-  executionTipGwei: DEFAULT_TIP_PRESETS_GWEI[0],
+  // Source of truth for the speed-preset list lives in
+  // keyboards/settings-actions.ts so the resolver and the session
+  // default can never drift apart.
+  executionTipGwei: SPEED_PRESET_GWEI[0],
   degenMode: true,
 });
 

@@ -656,9 +656,8 @@ describe("confirmTrade idempotency wiring", () => {
       quotedOut: 1n,
       minOut: 1n,
     });
-    // Active tip 0.15 gwei → 150_000_000 wei.
+    // Active tip 0.15 gwei (Fast preset) → 150_000_000 wei.
     const { ctx } = await fakeCtx({
-      executionTipPresetsGwei: [0.5, 0.15, 0.1],
       executionTipGwei: 0.15,
     });
     const { nonce } = stageBuy({
