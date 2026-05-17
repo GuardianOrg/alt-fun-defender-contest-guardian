@@ -50,8 +50,9 @@ const SKELETON_ROW_COUNT = 3;
 // scroll for this section (`flex-shrink: 0` — see RightPanel.module.css)
 // so an unbounded list would push MY POSITIONS / RECENT TRADES off
 // screen. Top-5 keeps the panel a compact "closest-to-graduation"
-// highlight — anyone who wants the full set can click the GRADUATING
-// tab in the main table.
+// highlight — this is the only surface that lists graduating tokens
+// (the lifecycle tab was retired), so the slice doubles as the user's
+// quickest path to "what's about to flip".
 const GRADUATING_SOON_LIMIT = 5;
 
 /**

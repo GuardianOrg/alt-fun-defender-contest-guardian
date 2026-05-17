@@ -2,9 +2,15 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-left: auto;
-  padding: 0.4rem 1.2rem 0.4rem 0.4rem;
+  margin-left: 0;
+  padding: 0.8rem;
   flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
 }
 
 .triggerWrap {
@@ -239,34 +245,4 @@
 .clearButton:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
-}
-
-/* Below 1240px the rail wraps below the lifecycle tabs (see the matching
- * media query in `CommandBar.module.css`). The inline `margin-left:
- * auto` no longer applies because the rail is now a row of its own,
- * so drop it and let the rail align flush-left with the rest of the
- * bar's content. `overflow-x: auto` (mirroring `.tabs` in
- * `CommandBar.module.css`) lets the triggers scroll sideways on
- * viewports too narrow to fit them in a single row, with the
- * scrollbar suppressed so the look stays consistent with the tabs
- * band above.
- *
- * The popover that drops below each trigger doesn't get clipped by
- * this overflow box even though `overflow-x: auto` forces
- * `overflow-y` to also compute to `auto` (CSS spec rule): the
- * popover is rendered with `position: fixed` and live-anchored to
- * the trigger via `getBoundingClientRect()` in `FilterPopover`, so
- * it escapes the rail's containing block via the viewport.
- */
-@media (max-width: 1239px) {
-  .rail {
-    margin-left: 0;
-    padding: 0.8rem;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .rail::-webkit-scrollbar {
-    display: none;
-  }
 }
