@@ -1,12 +1,14 @@
 import type { Conversation } from "@grammyjs/conversations";
 
 import type { AppContext } from "../bot.js";
-import { wrapWithCtxPhrase as wrap } from "./anti-phishing.js";
+import { withAntiPhishing } from "./anti-phishing.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
 } from "./conversation-commands.js";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   PIN_DO_NOT_MATCH_REPLY,
   PIN_FLOW_CONFIRM_PROMPT,
   PIN_INVALID_FORMAT_REPLY,
@@ -14,7 +16,6 @@ import {
   PIN_NO_PIN_ON_FILE_REPLY,
   PIN_VERIFY_PROMPT,
   PIN_WRONG_RETRY_REPLY,
-  getCtxLanguage,
   t,
 } from "./i18n.js";
 import { backHomeMarkup, type MessageRef, safeEditMessageById } from "./nav.js";
@@ -23,6 +24,22 @@ import {
   sweepWorkflow,
   trackWorkflowMessage,
 } from "./workflow-stack-conversation.js";
+
+/**
+ * Read the live session's language + anti-phishing phrase off the
+ * outside ctx via `conversation.external`. The replay-time `ctx`
+ * passed into conversation bodies has no session backing, so both
+ * `getCtxLanguage(ctx)` and `ctxAntiPhishingPhrase(ctx)` silently
+ * fall back to English when called from within a conversation —
+ * the original i18n + anti-phishing regression behind this file.
+ */
+export const readConvLocale = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<{ lang: Language; phrase: string | null }> =>
+  conversation.external((outside) => ({
+    lang: outside.session?.language ?? DEFAULT_LANGUAGE,
+    phrase: outside.session?.antiPhishingPhrase ?? null,
+  }));
 
 /**
  * PIN-flow helpers shared by `/wallet` and the legacy `/security`
@@ -73,14 +90,22 @@ export const formatHoursRemaining = (
  */
 const tryEditOriginPrompt = async (
   conversation: Conversation<AppContext, AppContext>,
-  ctx: AppContext,
   origin: MessageRef,
   prompt: string,
+  lang: Language,
+  phrase: string | null,
 ): Promise<boolean> =>
+  // `lang` + `phrase` are threaded in from the outside ctx by the
+  // caller. Reading them off the captured replay-time `ctx` here would
+  // collapse to English even for users who picked Simplified Chinese
+  // and would also drop the user's anti-phishing phrase.
   conversation.external((outside) =>
-    safeEditMessageById(outside, origin, wrap(ctx, prompt), {
-      reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
-    }),
+    safeEditMessageById(
+      outside,
+      origin,
+      withAntiPhishing(prompt, phrase, lang),
+      { reply_markup: backHomeMarkup(lang) },
+    ),
   );
 
 /**
@@ -102,13 +127,19 @@ export const askNewPin = async (
   prompt: string,
   origin?: MessageRef,
 ): Promise<string> => {
-  const lang = getCtxLanguage(ctx);
+  const { lang, phrase } = await readConvLocale(conversation);
   let editedOrigin = false;
   if (origin) {
-    editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
+    editedOrigin = await tryEditOriginPrompt(
+      conversation,
+      origin,
+      prompt,
+      lang,
+      phrase,
+    );
   }
   if (!editedOrigin) {
-    const askMsg = await ctx.reply(wrap(ctx, prompt), {
+    const askMsg = await ctx.reply(withAntiPhishing(prompt, phrase, lang), {
       reply_markup: backHomeMarkup(lang),
     });
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -124,7 +155,7 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
+        withAntiPhishing(t(PIN_INVALID_FORMAT_REPLY, lang), phrase, lang),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -134,7 +165,7 @@ export const askNewPin = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, t(PIN_FLOW_CONFIRM_PROMPT, lang)),
+    withAntiPhishing(t(PIN_FLOW_CONFIRM_PROMPT, lang), phrase, lang),
     { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -147,7 +178,7 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
+        withAntiPhishing(t(PIN_DO_NOT_MATCH_REPLY, lang), phrase, lang),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -171,14 +202,20 @@ export const verifyExistingPin = async (
   actionLabel: string,
   origin?: MessageRef,
 ): Promise<boolean> => {
-  const lang = getCtxLanguage(ctx);
+  const { lang, phrase } = await readConvLocale(conversation);
   let editedOrigin = false;
   const prompt = t(PIN_VERIFY_PROMPT, lang)(actionLabel);
   if (origin) {
-    editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
+    editedOrigin = await tryEditOriginPrompt(
+      conversation,
+      origin,
+      prompt,
+      lang,
+      phrase,
+    );
   }
   if (!editedOrigin) {
-    const askMsg = await ctx.reply(wrap(ctx, prompt), {
+    const askMsg = await ctx.reply(withAntiPhishing(prompt, phrase, lang), {
       reply_markup: backHomeMarkup(lang),
     });
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -200,18 +237,26 @@ export const verifyExistingPin = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, t(PIN_LOCKED_REPLY, lang)(mins, actionLabel)),
+        withAntiPhishing(
+          t(PIN_LOCKED_REPLY, lang)(mins, actionLabel),
+          phrase,
+          lang,
+        ),
       );
       return false;
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx, t(PIN_NO_PIN_ON_FILE_REPLY, lang)),
+        withAntiPhishing(t(PIN_NO_PIN_ON_FILE_REPLY, lang), phrase, lang),
       );
       return false;
     }
     const retry = await ctx.reply(
-      wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
+      withAntiPhishing(
+        t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
+        phrase,
+        lang,
+      ),
       { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
