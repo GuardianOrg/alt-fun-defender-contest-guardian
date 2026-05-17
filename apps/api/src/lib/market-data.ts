@@ -11,6 +11,7 @@ import {
   fetchTokenOnchain as readTokenOnchain,
   fetchTokensOnchainByAddresses as readTokensOnchainByAddresses,
   fetchTrendingCandidatesByVolume as readTrendingCandidatesByVolume,
+  quantizeTrailing24hCutoffSec,
   type TrendingVolumeCandidate,
 } from "./indexer-reads.js";
 import { readLiveLtRates } from "./lt-directory-reads.js";
@@ -652,7 +653,16 @@ export async function buildBatchFromTokens(
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const cutoffSec = nowSec - 86_400;
+  // Quantised to a 30s bucket so the cutoff parameter passed to every
+  // downstream query (`fetchHistoricalCurveSnapshots`,
+  // `fetchHistoricalLtRates`, `fetchLtRatesAtLaunches`, the old/new
+  // token partition, `buildPastPriceInputs`) is stable for the duration
+  // of the bucket. Postgres re-uses the prepared plan across the bucket
+  // and the same logical request hits the same SQL row set, so an
+  // in-Worker cache miss still produces a deterministic payload. Drift
+  // on the "24h" label is at most 30s, well inside the noise floor for
+  // `change24h`. Issue #1035.
+  const cutoffSec = quantizeTrailing24hCutoffSec(nowSec);
 
   // Partition tokens by whether they've been live for the full 24h window.
   // Old tokens use the 24h-ago reference; new tokens use their launch state

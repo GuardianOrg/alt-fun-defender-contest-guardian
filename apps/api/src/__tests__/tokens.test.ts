@@ -57,6 +57,10 @@ vi.mock("../lib/indexer-reads.js", () => ({
   fetchGraduatedTokensOnchain: async () => [],
   fetchNonGraduatedTokensOnchain: async () => [],
   fetchTrendingCandidatesByVolume: async () => [],
+  // Pure helper — keep the real implementation so `market-data.ts`'s
+  // cutoff math behaves exactly as in prod under this test.
+  quantizeTrailing24hCutoffSec: (nowSec: number) =>
+    Math.floor((nowSec - 86_400) / 30) * 30,
 }));
 
 // --- BounceTech DB mock ---
