@@ -743,4 +743,37 @@ describe("Address → buy menu intercept (issue #821)", () => {
     );
     expect(errorEdit).toBeDefined();
   });
+
+  it("address intercept clears any prior nav stack so Back on the buy card cannot pop into a stale parent", async () => {
+    // Pasting a contract address is a fresh entry point — the user is
+    // pivoting onto a buy card unrelated to whatever sub-menu they were
+    // in before. Without this clear, a later Back tap on the buy card
+    // would pop into a screen the user has long since moved away from.
+    // Symmetric with /start (the other entry point).
+    const h = await harnessWithWallet();
+    wireMocks(fetchSpy);
+    // Re-seed session with a populated navStack on top of what
+    // `harnessWithWallet` already wrote.
+    await h.kv.put(
+      `session:${USER_ID}`,
+      JSON.stringify({
+        slippageBps: 100,
+        defaultBuyUsdc: 20,
+        degenMode: false,
+        navStack: [
+          {
+            text: "stale parent",
+            keyboard: [[{ text: "x", callback_data: "x" }]],
+          },
+        ],
+      }),
+    );
+
+    await h.run(messageUpdate(TOKEN_ADDR, 50));
+
+    const raw = (await h.kv.get(`session:${USER_ID}`)) as string | null;
+    expect(raw).not.toBeNull();
+    const session = JSON.parse(raw!) as { navStack?: unknown[] };
+    expect(session.navStack ?? []).toEqual([]);
+  });
 });

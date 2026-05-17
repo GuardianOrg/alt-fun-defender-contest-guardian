@@ -16,7 +16,7 @@ import {
   t,
 } from "./i18n.js";
 import { logger } from "./logger.js";
-import { backHomeRow } from "./nav.js";
+import { backHomeRow, clearNavStack } from "./nav.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
@@ -154,6 +154,14 @@ export const showBuyCardForAddress = async (
     onPlaceholderReady?: () => void;
   } = {},
 ): Promise<void> => {
+  // Address intercept is a fresh entry point — the user pasted a
+  // contract address either as a bare message or to pivot out of an
+  // unrelated wizard, so any prior nav snapshots no longer describe a
+  // screen they want to back into. Clearing here keeps Back on the new
+  // buy card from popping into a stale parent menu the user has long
+  // since moved away from. Symmetric with /start (the other entry
+  // point) — see `commands/start.ts`.
+  clearNavStack(ctx.session);
   // Tear the prior card down before sending the new placeholder. Done
   // sequentially (not in parallel with the send) so the chat order is:
   // delete-old → send-new → delete-user-paste, and the user never sees
