@@ -445,6 +445,66 @@ describe("i18n module", () => {
         "0xabc",
       ),
     ).toContain("代币：");
+
+    // /withdraw confirmation summary labels
+    expect(i18n.WITHDRAW_SUMMARY_ASSET_LABEL.English("USDC")).toBe(
+      "• Asset: USDC",
+    );
+    expect(
+      t(i18n.WITHDRAW_SUMMARY_ASSET_LABEL, "SimplifiedChinese")("USDC"),
+    ).toBe("• 资产：USDC");
+    expect(i18n.WITHDRAW_SUMMARY_AMOUNT_LABEL.English("1", "USDC")).toBe(
+      "• Amount: 1 USDC",
+    );
+    expect(
+      t(i18n.WITHDRAW_SUMMARY_AMOUNT_LABEL, "SimplifiedChinese")("1", "USDC"),
+    ).toBe("• 金额：1 USDC");
+    expect(i18n.WITHDRAW_SUMMARY_AVAILABLE_LABEL.English("5 USDC")).toBe(
+      "• Available balance: 5 USDC",
+    );
+    expect(
+      t(i18n.WITHDRAW_SUMMARY_AVAILABLE_LABEL, "SimplifiedChinese")("5 USDC"),
+    ).toBe("• 可用余额：5 USDC");
+    expect(i18n.WITHDRAW_SUMMARY_DESTINATION_LABEL.English("0xabc")).toBe(
+      "• Destination: 0xabc",
+    );
+    expect(
+      t(i18n.WITHDRAW_SUMMARY_DESTINATION_LABEL, "SimplifiedChinese")("0xabc"),
+    ).toBe("• 目标地址：0xabc");
+
+    // /wallet reveal + import/delete completion
+    expect(i18n.WALLET_EXPORT_REVEAL_ADDRESS_LABEL.English("0xabc")).toBe(
+      "Address: 0xabc",
+    );
+    expect(
+      t(i18n.WALLET_EXPORT_REVEAL_ADDRESS_LABEL, "SimplifiedChinese")("0xabc"),
+    ).toBe("地址：0xabc");
+    expect(i18n.WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL.English("0xkey")).toBe(
+      "Private key: 0xkey",
+    );
+    expect(
+      t(i18n.WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, "SimplifiedChinese")(
+        "0xkey",
+      ),
+    ).toBe("私钥：0xkey");
+    expect(i18n.WALLET_IMPORT_CAP_REACHED_REPLY.English(10)).toContain(
+      "Wallet cap reached (10)",
+    );
+    expect(
+      t(i18n.WALLET_IMPORT_CAP_REACHED_REPLY, "SimplifiedChinese")(10),
+    ).toContain("已达到钱包数量上限（10）");
+    expect(i18n.WALLET_IMPORTED_HEADER.English("0xab…cd")).toBe(
+      "Imported 0xab…cd.",
+    );
+    expect(
+      t(i18n.WALLET_IMPORTED_HEADER, "SimplifiedChinese")("0xab…cd"),
+    ).toBe("已导入 0xab…cd。");
+    expect(i18n.WALLET_DELETED_HEADER.English("0xab…cd")).toBe(
+      "Deleted 0xab…cd.",
+    );
+    expect(t(i18n.WALLET_DELETED_HEADER, "SimplifiedChinese")("0xab…cd")).toBe(
+      "已删除 0xab…cd。",
+    );
   });
 
   it("renders round-2 i18n keys (positions row labels, track sides, chart, PIN action labels, inline withdraw errors)", () => {

@@ -2552,3 +2552,45 @@ export const WITHDRAW_ASSET_BALANCE_LINE = {
   SimplifiedChinese: (usdcBalance: string, hypeBalance: string) =>
     `您当前持有 ${usdcBalance} 和 ${hypeBalance}。`,
 } as const;
+export const WITHDRAW_SUMMARY_ASSET_LABEL = {
+  English: (asset: string) => `• Asset: ${asset}`,
+  SimplifiedChinese: (asset: string) => `• 资产：${asset}`,
+} as const;
+export const WITHDRAW_SUMMARY_AMOUNT_LABEL = {
+  English: (amount: string, asset: string) => `• Amount: ${amount} ${asset}`,
+  SimplifiedChinese: (amount: string, asset: string) =>
+    `• 金额：${amount} ${asset}`,
+} as const;
+export const WITHDRAW_SUMMARY_AVAILABLE_LABEL = {
+  English: (balance: string) => `• Available balance: ${balance}`,
+  SimplifiedChinese: (balance: string) => `• 可用余额：${balance}`,
+} as const;
+export const WITHDRAW_SUMMARY_DESTINATION_LABEL = {
+  English: (destination: string) => `• Destination: ${destination}`,
+  SimplifiedChinese: (destination: string) => `• 目标地址：${destination}`,
+} as const;
+
+// ─── /wallet — reveal + import/delete completion copy ──────────────
+
+export const WALLET_EXPORT_REVEAL_ADDRESS_LABEL = {
+  English: (address: string) => `Address: ${address}`,
+  SimplifiedChinese: (address: string) => `地址：${address}`,
+} as const;
+export const WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL = {
+  English: (privateKey: string) => `Private key: ${privateKey}`,
+  SimplifiedChinese: (privateKey: string) => `私钥：${privateKey}`,
+} as const;
+export const WALLET_IMPORT_CAP_REACHED_REPLY = {
+  English: (cap: number) =>
+    `Wallet cap reached (${cap}). Delete one first, then try importing again.`,
+  SimplifiedChinese: (cap: number) =>
+    `已达到钱包数量上限（${cap}）。请先删除一个钱包，然后重试导入。`,
+} as const;
+export const WALLET_IMPORTED_HEADER = {
+  English: (shortAddress: string) => `Imported ${shortAddress}.`,
+  SimplifiedChinese: (shortAddress: string) => `已导入 ${shortAddress}。`,
+} as const;
+export const WALLET_DELETED_HEADER = {
+  English: (shortAddress: string) => `Deleted ${shortAddress}.`,
+  SimplifiedChinese: (shortAddress: string) => `已删除 ${shortAddress}。`,
+} as const;

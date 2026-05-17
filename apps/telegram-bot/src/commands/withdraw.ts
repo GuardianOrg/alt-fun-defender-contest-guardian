@@ -73,6 +73,10 @@ import {
   WITHDRAW_INVALID_DESTINATION_REPLY,
   WITHDRAW_PIN_PROMPT,
   WITHDRAW_SUBMITTED_RECEIPT_HTML,
+  WITHDRAW_SUMMARY_AMOUNT_LABEL,
+  WITHDRAW_SUMMARY_ASSET_LABEL,
+  WITHDRAW_SUMMARY_AVAILABLE_LABEL,
+  WITHDRAW_SUMMARY_DESTINATION_LABEL,
   WITHDRAW_SUMMARY_HEADER,
   WITHDRAW_TAP_CONFIRM_HINT,
   WITHDRAW_WHICH_ASSET_PROMPT,
@@ -335,10 +339,15 @@ const renderSummary = (
   const lines = [
     t(WITHDRAW_SUMMARY_HEADER, lang),
     "",
-    `• Asset: ${args.asset}`,
-    `• Amount: ${formatAmount(args.amountRaw, args.asset)} ${args.asset}`,
-    `• Available balance: ${formatBalance(balance, args.asset)}`,
-    `• Destination: ${args.to}`,
+    t(WITHDRAW_SUMMARY_ASSET_LABEL, lang)(args.asset),
+    t(WITHDRAW_SUMMARY_AMOUNT_LABEL, lang)(
+      formatAmount(args.amountRaw, args.asset),
+      args.asset,
+    ),
+    t(WITHDRAW_SUMMARY_AVAILABLE_LABEL, lang)(
+      formatBalance(balance, args.asset),
+    ),
+    t(WITHDRAW_SUMMARY_DESTINATION_LABEL, lang)(args.to),
   ];
   if (balance !== null && args.amountRaw > balance) {
     lines.push("", t(WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY, lang));

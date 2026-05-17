@@ -48,8 +48,13 @@ import {
   PIN_ACTION_LABEL_PIN_CHANGE,
   PIN_SET_NOW_SEND_ONCE_MORE_PROMPT,
   WALLET_ACTIVE_LEGEND,
+  WALLET_DELETED_HEADER,
   WALLET_EMPTY_CREATE_HINT,
   WALLET_EMPTY_IMPORT_HINT,
+  WALLET_EXPORT_REVEAL_ADDRESS_LABEL,
+  WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL,
+  WALLET_IMPORT_CAP_REACHED_REPLY,
+  WALLET_IMPORTED_HEADER,
   WALLET_LIST_HEADER,
   WALLET_NO_WALLETS_YET_REPLY,
   WALLET_PICK_ACTIVE_PROMPT,
@@ -793,8 +798,8 @@ const exportKeyConversation = async (
   const revealBody = [
     t(WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY, lang),
     "",
-    `Address: ${wallet.address}`,
-    `Private key: ${privateKey}`,
+    t(WALLET_EXPORT_REVEAL_ADDRESS_LABEL, lang)(wallet.address),
+    t(WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, lang)(privateKey),
   ].join("\n");
 
   const revealMessage = await ctx.reply(wrap(ctx, revealBody), {
@@ -933,7 +938,7 @@ const importWalletConversation = async (
     if (result.kind === "cap") {
       await ctx.reply(
         wrap(ctx,
-          `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first, then try importing again.`,
+          t(WALLET_IMPORT_CAP_REACHED_REPLY, lang)(MAX_WALLETS_PER_USER),
         ),
       );
       await sweepWorkflow(conversation);
@@ -946,7 +951,7 @@ const importWalletConversation = async (
     );
     await ctx.reply(
       wrap(ctx,
-        `Imported ${truncateAddress(wallet.address)}.\n\n${state.text}`,
+        `${t(WALLET_IMPORTED_HEADER, lang)(truncateAddress(wallet.address))}\n\n${state.text}`,
       ),
       { reply_markup: state.reply_markup },
     );
@@ -1083,7 +1088,7 @@ const deleteWalletConversation = async (
   );
   await ctx.reply(
     wrap(ctx,
-      `Deleted ${truncateAddress(walletRecord.address)}.\n\n${state.text}`,
+      `${t(WALLET_DELETED_HEADER, lang)(truncateAddress(walletRecord.address))}\n\n${state.text}`,
     ),
     { reply_markup: state.reply_markup },
   );
