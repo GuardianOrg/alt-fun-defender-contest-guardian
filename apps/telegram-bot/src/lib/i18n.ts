@@ -717,7 +717,7 @@ export const HELP_WALLET_HTML = {
     "",
     "私钥使用每用户独立密钥经 AES-256-GCM 加密。主密钥永不存储；一个用户的密文无法用另一用户的派生密钥解密。",
     "",
-    "充值：在 HyperEVM 上向您的活动钱包地址（/start 中显示）发送 USDC 或 HYPE。USDC 为交易货币；HYPE 用于支付 Gas。",
+    "充值：在 HyperEVM 上向您的活动钱包地址（/start 中显示）发送 USDC 或 HYPE。USDC 为交易货币；HYPE 用于支付矿工费。",
   ].join("\n"),
 } as const;
 
@@ -754,7 +754,7 @@ export const HELP_TRADING_HTML = {
     "",
     "<b>常见失败原因</b>",
     "• <i>滑点超出</i> — 在 /settings 中提高滑点，或分批小额卖出。",
-    "• <i>余额不足</i> — 买入需要充值 USDC，Gas 需要充值 HYPE。",
+    "• <i>余额不足</i> — 买入需要充值 USDC，矿工费需要充值 HYPE。",
     "• <i>LT 铸造已暂停</i> — 该 LT 被 BounceTech 暂时禁用买入；卖出仍可正常进行。",
     "• <i>超时</i> — 网络拥堵；请在 /settings 中提高优先级费用。",
     "",
@@ -820,7 +820,7 @@ export const HELP_PNL_HTML = {
     "• Alt Fun 协议 + 创建者费用（0.75%）",
     `• ${BOT_NAME} 费用（0.5%，若您有推荐人则其中 0.1% 支付给推荐人）`,
     "• BounceTech LT 铸造 / 赎回费用",
-    "• 以 HYPE 支付的 Gas",
+    "• 以 HYPE 支付的矿工费",
     "",
     "因此 /positions 中显示的是您实际收到的金额，而非毛额名义价值。如需审计具体交易，请在 HyperEVM 区块浏览器中查看交易确认中的 tx hash。",
   ].join("\n"),
@@ -1181,7 +1181,7 @@ export const TRADE_ROUTING_NOT_CONFIGURED_REPLY = {
 } as const;
 export const INSUFFICIENT_HYPE_FOR_GAS_REPLY = {
   English: "Insufficient HYPE for gas — top up the wallet and retry.",
-  SimplifiedChinese: "HYPE 不足以支付 Gas——请向钱包充值后重试。",
+  SimplifiedChinese: "HYPE 不足以支付矿工费——请向钱包充值后重试。",
 } as const;
 export const TOAST_CONFIRM_CLEARED = {
   English: "Cancelled",
@@ -1423,7 +1423,7 @@ export const START_BALANCE_LABEL = {
 } as const;
 export const START_GAS_BALANCE_LABEL = {
   English: (hype: string) => `Gas balance: ${hype} HYPE`,
-  SimplifiedChinese: (hype: string) => `Gas 余额：${hype} HYPE`,
+  SimplifiedChinese: (hype: string) => `矿工费余额：${hype} HYPE`,
 } as const;
 export const TAP_TO_COPY_HINT = {
   English: "(Tap to copy)",
@@ -1597,7 +1597,7 @@ export const WITHDRAW_TAP_CONFIRM_HINT = {
 } as const;
 export const WITHDRAW_INSUFFICIENT_BALANCE_REPLY = {
   English: "Insufficient balance for the requested amount + gas.",
-  SimplifiedChinese: "余额不足以支付提币金额 + Gas。",
+  SimplifiedChinese: "余额不足以支付提币金额 + 矿工费。",
 } as const;
 export const WITHDRAW_PIN_PROMPT = {
   English: "Send your 6-digit PIN to authorise the withdraw.",
