@@ -212,6 +212,49 @@ describe("revalidateInBackground", () => {
     }
   });
 
+  it("aborts the refresh-fetch when it exceeds the timeout", async () => {
+    // `revalidateInBackground` must arm an `AbortController` — an
+    // unbounded refresh would eat worker subrequest time across the
+    // invocation. We simulate a hanging upstream by returning a
+    // Promise that only resolves when the controller's signal aborts.
+    const originalFetch = globalThis.fetch;
+    let observedAbort: Event | undefined;
+    let observedSignal: AbortSignal | undefined;
+    (globalThis as { fetch: typeof fetch }).fetch = (async (
+      input: RequestInfo | URL,
+    ) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      observedSignal = req.signal;
+      return new Promise<Response>((_, reject) => {
+        req.signal.addEventListener("abort", (event) => {
+          observedAbort = event;
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+    }) as typeof fetch;
+
+    vi.useFakeTimers();
+    try {
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.get("/api/v1/tokens", async (c) => {
+        const refresh = revalidateInBackground(c);
+        // Advance past the timeout so the controller fires before we
+        // await — verifies the abort path is reached and absorbed.
+        await vi.advanceTimersByTimeAsync(10_000);
+        await refresh;
+        return c.json({ ok: true });
+      });
+
+      const res = await app.request("/api/v1/tokens", {}, makeEnv());
+      expect(res.status).toBe(200);
+      expect(observedSignal).toBeDefined();
+      expect(observedAbort).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    }
+  });
+
   it("absorbs refresh-fetch failures rather than throwing", async () => {
     const originalFetch = globalThis.fetch;
     (globalThis as { fetch: typeof fetch }).fetch = (async () => {

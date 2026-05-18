@@ -173,6 +173,18 @@ export async function putWithSwr(
 }
 
 /**
+ * Hard ceiling on the SWR refresh self-fetch. Picked well under
+ * Cloudflare's 30s subrequest budget so a stuck refresh can't leak
+ * `waitUntil` time across the worker invocation — same rule
+ * `apps/api/AGENTS.md → Outbound timeout discipline` applies to every
+ * outbound fetch from this code base. The refresh is best-effort: the
+ * user already got a stale serve, so a short timeout that drops the
+ * occasional hang is strictly better than letting one bad call
+ * monopolise refresh slots.
+ */
+const REVALIDATION_TIMEOUT_MS = 8_000;
+
+/**
  * Trigger a background self-fetch to refresh a stale entry. The
  * request mirrors the original URL but carries
  * {@link SWR_REVALIDATE_HEADER} so the edge-cache middleware skips its
@@ -180,23 +192,37 @@ export async function putWithSwr(
  * runs the cold path and writes both fresh + stale copies via
  * {@link putWithSwr}.
  *
- * Errors are swallowed: this runs inside `waitUntil`, so a refresh
- * failure must not poison the user-facing stale response that's already
- * been returned. The next user hit just gets another stale serve with
- * another refresh attempt.
+ * Hard-capped at {@link REVALIDATION_TIMEOUT_MS} via an
+ * {@link AbortController}: an unbounded refresh would eat the worker's
+ * subrequest budget and `waitUntil` allowance — see the
+ * `apps/api/AGENTS.md → Outbound timeout discipline` table for the
+ * matching rule on user-path fetches. The user has already received
+ * the stale body by the time this runs, so an abort just means the
+ * next caller eats one extra stale serve before a successful refresh.
+ *
+ * Errors (including {@link AbortError}) are swallowed: this runs
+ * inside `waitUntil`, so a refresh failure must not poison the
+ * user-facing stale response that's already been returned. The next
+ * user hit just gets another stale serve with another refresh attempt.
  */
 export async function revalidateInBackground(c: Context): Promise<void> {
   const headers = new Headers(c.req.raw.headers);
   headers.set(SWR_REVALIDATE_HEADER, "1");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REVALIDATION_TIMEOUT_MS);
   try {
     await fetch(
       new Request(c.req.url, {
         method: "GET",
         headers,
+        signal: controller.signal,
       }),
     );
   } catch {
-    // Background refresh — failures are absorbed. See JSDoc.
+    // Background refresh — failures (including AbortError on timeout)
+    // are absorbed. See JSDoc.
+  } finally {
+    clearTimeout(timer);
   }
 }
 
