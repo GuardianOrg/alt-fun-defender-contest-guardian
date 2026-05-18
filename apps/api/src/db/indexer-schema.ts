@@ -1,3 +1,4 @@
+import { desc } from "drizzle-orm";
 import {
   pgSchema,
   text,
@@ -76,7 +77,7 @@ export const indexerToken = ponderSchema.table(
     ),
     // Backs fetchMostRecentTokenAddresses (registration-backfill cron).
     // Matching definition in apps/indexer/ponder.schema.ts — keep in lockstep.
-    index("token_block_number_index").on(table.blockNumber),
+    index("token_block_number_index").on(desc(table.blockNumber)),
   ],
 );
 
