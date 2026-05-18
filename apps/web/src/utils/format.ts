@@ -185,11 +185,11 @@ export function getErrorMessage(e: unknown): string {
   if (raw.includes("0xb06ebf3d") || lower.includes("faileddeployment")) {
     return (
       "Another launch claimed that address before yours landed. " +
-      "Click Launch again — we'll mine a fresh address automatically."
+      "Click Launch again - we'll mine a fresh address automatically."
     );
   }
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
-    return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";
+    return "Wallet timed out - please try again. If using a mobile wallet, make sure the app is open.";
   }
   if (
     lower.includes("user rejected") ||
@@ -199,7 +199,7 @@ export function getErrorMessage(e: unknown): string {
     return "Transaction was rejected in your wallet.";
   }
   if (lower.includes("slippageexceeded") || raw.includes("SlippageExceeded")) {
-    return "Price moved too much — try increasing slippage or reducing the amount.";
+    return "Price moved too much - try increasing slippage or reducing the amount.";
   }
   return e instanceof Error ? e.message : "Transaction failed";
 }

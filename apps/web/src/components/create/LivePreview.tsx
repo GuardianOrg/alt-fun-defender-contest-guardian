@@ -210,7 +210,7 @@ export default function LivePreview({
               ) : vanityStatus === "error" ? (
                 <div className={styles.addressValue}>miner failed</div>
               ) : (
-                <div className={styles.addressValue}>—</div>
+                <div className={styles.addressValue}>-</div>
               )}
             </div>
           </div>
@@ -234,7 +234,7 @@ export default function LivePreview({
                   : styles.chartChgBadgeUp,
               )}
             >
-              {hasChgData ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%` : "—"}
+              {hasChgData ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%` : "-"}
             </div>
           </div>
           <div className={styles.chartBody}>
@@ -261,7 +261,7 @@ export default function LivePreview({
           >
             {ltName}
           </b>{" "}
-          — if {assetDisplay} {isLong ? "rises" : "falls"} 10%, your token pumps{" "}
+          - if {assetDisplay} {isLong ? "rises" : "falls"} 10%, your token pumps{" "}
           ~{leverage * 10}% with zero buys.
         </div>
 
