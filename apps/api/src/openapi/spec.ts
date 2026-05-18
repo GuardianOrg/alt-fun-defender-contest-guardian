@@ -725,7 +725,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
     },
 
     // ─── Referrals ──────────────────────────────────────────
-    "/api/v1/referrals/{wallet}": {
+    "/api/v1/referrals-v2/{wallet}": {
       get: {
         tags: ["Referrals"],
         summary: "Get referral data",
