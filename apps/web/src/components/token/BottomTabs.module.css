@@ -294,10 +294,36 @@
   white-space: nowrap;
 }
 
-.holderCreator {
-  font-size: 11px;
-  color: var(--amber);
-  margin-left: 0.4rem;
+/* Compact lifecycle/role pill rendered inline next to a holder's
+ * shortened address. Geometry mirrors `GraduatedPill` (10px mono,
+ * uppercase, 0.08em tracking, 3px border-radius, 1px tonal border)
+ * so the two surfaces read as the same component family. The shimmer
+ * sweep is intentionally omitted — these pills tag a static property
+ * of the row (burn destination, contract owner) rather than a finished
+ * milestone, and a row-of-rows of shimmering pills would just create
+ * visual noise in the table. */
+.holderTagBase {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.8rem;
+  padding: 0.2rem 0.4rem 0.1rem;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.holderTag {
+  composes: holderTagBase;
+  color: var(--mint);
+  background: var(--mint-bg);
+  border-color: var(--border-2);
 }
 
 /* The bar visualisation no longer lives inside a fixed grid column, so
