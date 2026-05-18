@@ -53,6 +53,14 @@ if (!DATABASE_URL) {
 
 const ITERATIONS = Number.parseInt(process.env.ITERATIONS ?? "5", 10);
 const SAMPLE = Number.parseInt(process.env.SAMPLE ?? "20", 10);
+if (!Number.isFinite(ITERATIONS) || ITERATIONS <= 0) {
+  console.error("ITERATIONS must be a positive integer");
+  process.exit(1);
+}
+if (!Number.isFinite(SAMPLE) || SAMPLE <= 0) {
+  console.error("SAMPLE must be a positive integer");
+  process.exit(1);
+}
 const sql = neon(DATABASE_URL);
 
 type QueryResult = { rows: Record<string, unknown>[]; ms: number };
@@ -153,6 +161,7 @@ async function checkParity(addresses: string[]): Promise<void> {
     console.log(`  ✓ ${addresses.length} addresses match`);
   } else {
     console.error(`  ✗ ${mismatched}/${addresses.length} addresses diverge`);
+    process.exitCode = 1;
   }
 }
 
