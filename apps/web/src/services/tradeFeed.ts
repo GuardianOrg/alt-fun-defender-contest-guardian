@@ -172,12 +172,26 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       console.warn("[tradeFeed] poll failed:", err);
     } finally {
       polling = false;
-      // A reconnect (or any other trigger) came in while we were
-      // mid-flight — fire the refresh now instead of waiting up to a
-      // full cadence for the next scheduled tick.
-      if (pendingPollRequest && !cancelled) {
-        pendingPollRequest = false;
-        reschedulePoll(0);
+      if (!cancelled) {
+        // Single source of truth for re-arming the timer: a reconnect
+        // (or any other trigger) that landed mid-flight gets an
+        // immediate refresh, otherwise we drop back to the standard
+        // cadence. Previously the cadence reschedule lived on the
+        // timer's outer `.finally(...)` and ran *after* this block,
+        // so the `reschedulePoll(0)` we'd queue here for a pending
+        // request was silently overwritten by the long-delay
+        // reschedule a microtask later — the pending refresh waited
+        // up to a full WS-open cadence (15 s) instead of firing now.
+        if (pendingPollRequest) {
+          pendingPollRequest = false;
+          reschedulePoll(0);
+        } else {
+          reschedulePoll(
+            ws?.isConnected
+              ? POLL_INTERVAL_WS_OPEN_MS
+              : POLL_INTERVAL_WS_CLOSED_MS,
+          );
+        }
       }
     }
   };
@@ -194,6 +208,8 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   // every trigger through `reschedulePoll` collapses those races: at
   // most one timer is queued at a time, and `poll()`'s own re-entry
   // guard + `pendingPollRequest` flag handle the in-flight overlap.
+  // Cadence rescheduling lives entirely inside `poll()`'s `finally`
+  // block — see the comment there.
   const reschedulePoll = (delay: number) => {
     if (cancelled) return;
     if (pollTimer !== null) {
@@ -202,12 +218,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     }
     pollTimer = setTimeout(() => {
       pollTimer = null;
-      void poll().finally(() => {
-        if (cancelled) return;
-        reschedulePoll(
-          ws?.isConnected ? POLL_INTERVAL_WS_OPEN_MS : POLL_INTERVAL_WS_CLOSED_MS,
-        );
-      });
+      void poll();
     }, delay);
   };
 
@@ -317,9 +328,21 @@ export function subscribeTokenTrades(
       console.warn("[tradeFeed] token poll failed:", err);
     } finally {
       polling = false;
-      if (pendingPollRequest && !cancelled) {
-        pendingPollRequest = false;
-        reschedulePoll(0);
+      if (!cancelled) {
+        // See `subscribeFeed`'s mirror block for the full rationale —
+        // re-arm the timer here (immediate for a pending request,
+        // cadence-based otherwise) so the cadence reschedule can't
+        // overwrite the pending-request reschedule a microtask later.
+        if (pendingPollRequest) {
+          pendingPollRequest = false;
+          reschedulePoll(0);
+        } else {
+          reschedulePoll(
+            ws?.isConnected
+              ? POLL_INTERVAL_WS_OPEN_MS
+              : POLL_INTERVAL_WS_CLOSED_MS,
+          );
+        }
       }
     }
   };
@@ -334,12 +357,7 @@ export function subscribeTokenTrades(
     }
     timer = setTimeout(() => {
       timer = null;
-      void poll().finally(() => {
-        if (cancelled) return;
-        reschedulePoll(
-          ws?.isConnected ? POLL_INTERVAL_WS_OPEN_MS : POLL_INTERVAL_WS_CLOSED_MS,
-        );
-      });
+      void poll();
     }, delay);
   };
 

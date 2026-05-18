@@ -147,14 +147,25 @@ export function useTokens(
   const result = useInfiniteTokens(filter, tableFilters, sort);
   // Preserve the old `useQuery<Token[]>` shape so SearchModal /
   // RightPanel / DevSimulator continue to destructure `{ data, isLoading }`
-  // unchanged. `result.data` is the raw `useInfiniteQuery` `{ pages }`
-  // payload — truthy iff the first page has resolved, so a successful
-  // empty-result fetch surfaces as `data: []` (not `undefined`) and
-  // the consumer-side empty-state branch fires correctly instead of
-  // rendering a stuck skeleton.
+  // unchanged. `result.data.pages[0]` is truthy iff the first page has
+  // resolved, so a successful empty-result fetch surfaces as `data: []`
+  // (not `undefined`) and the consumer-side empty-state branch fires
+  // correctly instead of rendering a stuck skeleton.
+  //
+  // Critically, snapshot the *first page only* — `useTokens()` shares
+  // its TanStack Query cache entry with `useInfiniteTokens` (used by
+  // the home-page `TokenTable`, which paginates). Returning
+  // `result.tokens` here would leak the table's accumulated pages
+  // into every compact-panel consumer, re-rendering them on every
+  // infinite-scroll tick with a steadily-growing list (and breaking
+  // the documented "first page" contract above). `pages[0]` is
+  // reference-stable across `fetchNextPage` calls (TanStack Query
+  // appends new pages without recreating prior entries) so the memo
+  // only recomputes on actual page-0 refetches, not pagination ticks.
+  const firstPage = result.data?.pages[0];
   const data = useMemo(
-    () => (result.data ? result.tokens : undefined),
-    [result.data, result.tokens],
+    () => (firstPage ? dedupeTokensByAddress(firstPage) : undefined),
+    [firstPage],
   );
   return { ...result, data };
 }
