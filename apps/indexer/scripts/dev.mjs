@@ -6,11 +6,8 @@
  * process leaked).
  *
  * Without this guard, Ponder silently falls back to the next free port
- * (42070, 42071, …) and the API keeps hitting the dead instance on 42069
- * via the `PONDER_URL` in `apps/api/.dev.vars`. The web app then sits in a
- * "loading forever" state with no obvious error — see
- * `apps/api/src/lib/ponder-client.ts` for the corresponding health-check
- * tightening that detects the same scenario from the API side.
+ * (42070, 42071, …) so the `/healthz` probe a developer expects on 42069
+ * keeps hitting the dead instance with no obvious error.
  *
  * The probe is a Node-native TCP listen attempt. No dependencies; ~5ms.
  */
@@ -56,10 +53,10 @@ if (!free) {
     "  Refusing to start: Ponder would otherwise fall back to a different\n",
   );
   process.stderr.write(
-    `  port and the API (\`PONDER_URL=http://localhost:${PORT}\`) would keep\n`,
+    `  port and any client expecting ${PORT} (e.g. \`/healthz\`) would keep\n`,
   );
   process.stderr.write(
-    "  hitting the dead instance — producing a silent \"loading forever\" UI.\n",
+    "  hitting the dead instance silently.\n",
   );
   process.stderr.write("\n");
   process.stderr.write("  To fix:\n");

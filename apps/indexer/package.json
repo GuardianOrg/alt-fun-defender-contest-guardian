@@ -10,8 +10,7 @@
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ test/",
-    "test": "vitest run --passWithNoTests",
-    "test:smoke": "node scripts/smoke-test.mjs"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@launchpad/shared": "*",
