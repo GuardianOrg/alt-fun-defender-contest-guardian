@@ -3,6 +3,16 @@ name: CodeQL
 on:
   pull_request:
     branches: [main]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.js'
+      - '**/*.jsx'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - 'package-lock.json'
+      - '**/package.json'
+      - '.github/workflows/codeql.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +35,23 @@ jobs:
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
+          ram: 6144
+          threads: 0
+          config: |
+            paths-ignore:
+              - '**/node_modules'
+              - '**/dist'
+              - '**/build'
+              - '**/.next'
+              - '**/.turbo'
+              - '**/*.min.js'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - 'apps/indexer/generated'
+              - 'packages/shared/src/abis'
+              - 'scripts'
+              - 'docs'
 
       - uses: github/codeql-action/analyze@v4
         with:
