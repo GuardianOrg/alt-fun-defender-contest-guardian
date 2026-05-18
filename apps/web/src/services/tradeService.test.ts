@@ -59,6 +59,9 @@ describe("tradeService.getHolders", () => {
       {
         rank: 1,
         address: "0x12…78",
+        // Full wallet is preserved alongside the truncated display form so
+        // the holders tab can link out to the block explorer.
+        walletFull: "0x1234000000000000000000000000000000005678",
         tokens: "1.0",
         percentSupply: 1,
         isCreator: false,
