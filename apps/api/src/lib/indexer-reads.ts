@@ -26,6 +26,7 @@ import {
   indexerTokenHourlyMetrics,
   indexerTokenSnapshot,
   indexerWalletBotPosition,
+  indexerWalletPosition,
 } from "../db/indexer-schema.js";
 
 import { describeError } from "./log-error.js";
@@ -1662,6 +1663,228 @@ export async function fetchTokenMeta(
       address: address.toLowerCase(),
     });
     return "unavailable";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Direct-DB replacements for the remaining Ponder GraphQL call sites.
+// Each function below is the additive counterpart to a Ponder GraphQL fetch
+// in graduation-keeper.ts / auto-graduation-buyer.ts / registration-backfill.ts
+// / creators.ts. Callers are migrated in a follow-up PR after A/B parity
+// verification; these helpers ship first so the server side is ready.
+// ---------------------------------------------------------------------------
+
+/** Row shape returned by `fetchPendingGraduationTokens`. */
+export interface PendingGraduationTokenRow {
+  address: string;
+  pendingGraduationAt: string | null;
+}
+
+/**
+ * Tokens currently in phase 1 (`pendingGraduation = true, graduated = false`),
+ * oldest-first. Direct-DB replacement for `fetchPendingTokens` in
+ * `graduation-keeper.ts`, which previously called the Ponder GraphQL
+ * `tokens(where: { pendingGraduation: true, graduated: false }, orderBy:
+ * "pendingGraduationAt", orderDirection: "asc", limit: 50)` query.
+ *
+ * Returns `null` on DB error so callers can skip the tick rather than
+ * retrying with stale data.
+ */
+export async function fetchPendingGraduationTokens(
+  db: Database,
+): Promise<PendingGraduationTokenRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        address: indexerToken.address,
+        pendingGraduationAt: indexerToken.pendingGraduationAt,
+      })
+      .from(indexerToken)
+      .where(
+        and(
+          eq(indexerToken.pendingGraduation, true),
+          eq(indexerToken.graduated, false),
+        ),
+      )
+      .orderBy(asc(indexerToken.pendingGraduationAt))
+      .limit(50);
+    return rows.map((r) => ({
+      address: r.address,
+      pendingGraduationAt: r.pendingGraduationAt,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchPendingGraduationTokens_failed",
+      error,
+      {},
+    );
+    return null;
+  }
+}
+
+/** Row shape returned by `fetchCurvePhaseTokens`. */
+export interface CurvePhaseTokenRow {
+  address: string;
+}
+
+/**
+ * Curve-phase tokens (`graduated = false, pendingGraduation = false`) ordered
+ * by `ltReserve DESC` so the closest-to-threshold tokens are checked first.
+ * Direct-DB replacement for `fetchCurveTokens` in `auto-graduation-buyer.ts`,
+ * which previously called `tokens(where: { graduated: false,
+ * pendingGraduation: false }, orderBy: "ltReserve", orderDirection: "desc",
+ * limit: N)`.
+ */
+export async function fetchCurvePhaseTokens(
+  db: Database,
+  limit: number,
+): Promise<CurvePhaseTokenRow[] | null> {
+  try {
+    const rows = await db
+      .select({ address: indexerToken.address })
+      .from(indexerToken)
+      .where(
+        and(
+          eq(indexerToken.graduated, false),
+          eq(indexerToken.pendingGraduation, false),
+        ),
+      )
+      .orderBy(desc(indexerToken.ltReserve))
+      .limit(limit);
+    return rows.map((r) => ({ address: r.address }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchCurvePhaseTokens_failed",
+      error,
+      { limit },
+    );
+    return null;
+  }
+}
+
+/** Row shape returned by `fetchNonZeroWalletZapPositions`. */
+export interface WalletZapPositionRow {
+  tokenAddress: string;
+}
+
+/**
+ * Zap positions with `zapTokenAmount > 0` for a given wallet. Direct-DB
+ * replacement for `fetchWalletPositions` in `auto-graduation-buyer.ts`,
+ * which previously called `walletPositions(where: { wallet, zapTokenAmount_gt:
+ * "0" }, limit: N)` against the Ponder GraphQL layer.
+ *
+ * Note: `ponder_views.wallet_position` tracks only Zap-mediated buys/sells,
+ * distinct from `wallet_bot_position` (BotFeeRouter) and `token_balance`
+ * (raw ERC-20 transfers).
+ */
+export async function fetchNonZeroWalletZapPositions(
+  db: Database,
+  wallet: string,
+  limit: number,
+): Promise<WalletZapPositionRow[] | null> {
+  try {
+    const rows = await db
+      .select({ tokenAddress: indexerWalletPosition.tokenAddress })
+      .from(indexerWalletPosition)
+      .where(
+        and(
+          eq(indexerWalletPosition.wallet, wallet.toLowerCase()),
+          gt(indexerWalletPosition.zapTokenAmount, "0"),
+        ),
+      )
+      .orderBy(asc(indexerWalletPosition.tokenAddress))
+      .limit(limit);
+    return rows.map((r) => ({ tokenAddress: r.tokenAddress }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchNonZeroWalletZapPositions_failed",
+      error,
+      { wallet: wallet.toLowerCase(), limit },
+    );
+    return null;
+  }
+}
+
+/** Row shape returned by `fetchMostRecentTokenAddresses`. */
+export interface RecentTokenAddressRow {
+  address: string;
+}
+
+/**
+ * The N most-recently launched tokens by `blockNumber DESC`. Direct-DB
+ * replacement for `fetchRecentLaunches` in `registration-backfill.ts`,
+ * which previously called `tokens(orderBy: "blockNumber", orderDirection:
+ * "desc", limit: N)` against the Ponder GraphQL layer.
+ *
+ * The backfill computes the diff against PostgreSQL in memory and registers
+ * any missing rows — cheap because the limit is small and the typical case
+ * is "everything already registered, nothing to do".
+ *
+ * No secondary tie-break: the original Ponder query had none, so we match
+ * that behaviour exactly to keep A/B parity during the migration window.
+ * Same-block order is Postgres heap order in both cases — stable enough for
+ * the set-difference logic the backfill runs against this result.
+ */
+export async function fetchMostRecentTokenAddresses(
+  db: Database,
+  limit: number,
+): Promise<RecentTokenAddressRow[] | null> {
+  try {
+    const rows = await db
+      .select({ address: indexerToken.address })
+      .from(indexerToken)
+      .orderBy(desc(indexerToken.blockNumber))
+      .limit(limit);
+    return rows.map((r) => ({ address: r.address }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchMostRecentTokenAddresses_failed",
+      error,
+      { limit },
+    );
+    return null;
+  }
+}
+
+/** Row shape returned by `fetchCreatorVolumesByAddresses`. */
+export interface CreatorVolumeRow {
+  address: string;
+  volumeUsd: string;
+}
+
+/**
+ * `volumeUsd` for a set of token addresses. Direct-DB replacement for the
+ * Ponder GraphQL call in `creators.ts` `GET /:address` which previously
+ * called `tokens(where: { address_in: $addresses }, limit: $limit)` to
+ * sum lifetime trading volume across a creator's tokens.
+ *
+ * Returns an empty array (not `null`) when `addresses` is empty so the
+ * caller can skip the query without changing its downstream logic.
+ */
+export async function fetchCreatorVolumesByAddresses(
+  db: Database,
+  addresses: string[],
+  limit: number,
+): Promise<CreatorVolumeRow[] | null> {
+  if (addresses.length === 0) return [];
+  try {
+    const lowered = addresses.map((a) => a.toLowerCase());
+    const rows = await db
+      .select({
+        address: indexerToken.address,
+        volumeUsd: indexerToken.volumeUsd,
+      })
+      .from(indexerToken)
+      .where(inArray(indexerToken.address, lowered))
+      .limit(limit);
+    return rows.map((r) => ({ address: r.address, volumeUsd: r.volumeUsd }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchCreatorVolumesByAddresses_failed",
+      error,
+      { count: addresses.length, limit },
+    );
+    return null;
   }
 }
 
