@@ -95,6 +95,7 @@ export default function HoldersTab({
               const wallet = h.walletFull.toLowerCase();
               const isBurnt = wallet === DEAD_ADDRESS;
               const isOwner = !!ownerAddress && wallet === ownerAddress;
+              const displayAddress = isBurnt ? "0x…dead" : h.address;
               return (
                 <tr key={h.rank} className={styles.holderTableRow}>
                   <td className={styles.tdRank}>{h.rank}</td>
@@ -106,7 +107,7 @@ export default function HoldersTab({
                       rel="noopener noreferrer"
                       aria-label={`View ${h.walletFull} on HyperEVMScan`}
                     >
-                      {h.address}
+                      {displayAddress}
                       <svg
                         width="10"
                         height="10"
