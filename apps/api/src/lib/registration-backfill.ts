@@ -18,7 +18,8 @@
  * inserts first wins, the loser's call returns "exists".
  */
 
-import { createPonderQuery } from "./ponder-client.js";
+import { createDb } from "../db/client.js";
+import { fetchMostRecentTokenAddresses } from "./indexer-reads.js";
 import {
   RegistrationError,
   broadcastNewToken,
@@ -35,21 +36,22 @@ import type { AppBindings } from "./types.js";
 const MAX_REGISTRATIONS_PER_TICK = 10;
 
 /**
- * Pull this many freshest tokens from Ponder's GraphQL layer. The diff
- * against PostgreSQL is then computed in JS — cheap because the cap is
- * small and the typical case is "everything's already registered, nothing
- * to do". When we outgrow this number per minute, we should switch to a
- * cursor-based sweep keyed on `block_number`.
+ * Pull this many freshest tokens from the indexer's `ponder_views.token`
+ * table. The diff against PostgreSQL is then computed in JS — cheap because
+ * the cap is small and the typical case is "everything's already registered,
+ * nothing to do". When we outgrow this number per minute, we should switch
+ * to a cursor-based sweep keyed on `block_number`.
  */
 const PONDER_FETCH_LIMIT = 50;
 
-interface PonderTokenRow {
-  address: string;
-}
-
 export async function runRegistrationBackfill(env: AppBindings): Promise<void> {
-  const recent = await fetchRecentLaunches(env.PONDER_URL);
+  const db = createDb(env.DATABASE_URL);
+  const recent = await fetchMostRecentTokenAddresses(db, PONDER_FETCH_LIMIT);
   if (recent === null) {
+    // Null = DB read failed. Event name preserved so existing log alerts
+    // still match — semantically still "indexer unreachable" even though
+    // the failure now surfaces from the direct read rather than the
+    // GraphQL hop.
     log("warn", "registration_backfill_ponder_unreachable", {});
     return;
   }
@@ -103,25 +105,6 @@ export async function runRegistrationBackfill(env: AppBindings): Promise<void> {
       considered: recent.length,
     });
   }
-}
-
-async function fetchRecentLaunches(
-  ponderUrl: string | undefined,
-): Promise<PonderTokenRow[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{ tokens: { items: PonderTokenRow[] } }>(
-    `query {
-      tokens(
-        limit: ${PONDER_FETCH_LIMIT}
-        orderBy: "blockNumber"
-        orderDirection: "desc"
-      ) {
-        items { address }
-      }
-    }`,
-  );
-  if (data === null) return null;
-  return data.tokens.items;
 }
 
 function log(

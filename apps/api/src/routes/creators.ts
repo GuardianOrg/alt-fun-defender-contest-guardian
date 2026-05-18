@@ -6,18 +6,15 @@ import { createDb } from "../db/client.js";
 import { tokens, userProfiles } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
-import { fetchCreatorEarnings } from "../lib/indexer-reads.js";
+import {
+  fetchCreatorEarnings,
+  fetchCreatorVolumesByAddresses,
+} from "../lib/indexer-reads.js";
 import { usdcRawToUsd } from "../lib/token-enrich.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const creators = new Hono<{ Bindings: AppBindings }>();
-
-interface PonderTokenVolume {
-  address: string;
-  volumeUsd: string;
-}
 
 const VOLUME_QUERY_PAGE_SIZE = 1000;
 
@@ -143,23 +140,20 @@ creators.get("/:address", async (c) => {
     // Single indexed lookup against the per-token `volumeUsd` counter.
     // Capped to PAGE_SIZE so a creator with thousands of tokens doesn't
     // explode the query — terminal-API callers in that situation should
-    // page through `tokens` directly.
-    const queryPonder = createPonderQuery(c.env.PONDER_URL);
-    const volumeData = await queryPonder<{
-      tokens: { items: PonderTokenVolume[] } | null;
-    }>(
-      `query ($addresses: [String!]!, $limit: Int!) {
-        tokens(where: { address_in: $addresses }, limit: $limit) {
-          items {
-            address
-            volumeUsd
-          }
-        }
-      }`,
-      { addresses: tokenAddresses, limit: VOLUME_QUERY_PAGE_SIZE },
+    // page through `tokens` directly. Helper short-circuits when the
+    // address list is empty; we already gated on `creatorTokens.length > 0`
+    // above but the lower layer is defensive too.
+    const volumeRows = await fetchCreatorVolumesByAddresses(
+      db,
+      tokenAddresses,
+      VOLUME_QUERY_PAGE_SIZE,
     );
 
-    for (const t of volumeData?.tokens?.items ?? []) {
+    // Null = indexer DB read failed. Skip the aggregate rather than 503ing
+    // the whole creator profile — the page still renders with the
+    // PostgreSQL-sourced profile + tokens list and a `totalVolume: "0"`
+    // sentinel. Matches the prior GraphQL-null behaviour (`?? []`).
+    for (const t of volumeRows ?? []) {
       totalVolume += BigInt(t.volumeUsd ?? "0");
     }
   }

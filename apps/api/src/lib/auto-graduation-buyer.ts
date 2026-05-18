@@ -95,7 +95,11 @@ import {
   ZapAbi,
 } from "@launchpad/shared";
 
-import { createPonderQuery } from "./ponder-client.js";
+import { createDb } from "../db/client.js";
+import {
+  fetchCurvePhaseTokens,
+  fetchNonZeroWalletZapPositions,
+} from "./indexer-reads.js";
 import type { AppBindings } from "./types.js";
 
 /**
@@ -127,7 +131,7 @@ const MAX_TRIGGERS_PER_TICK = 5;
 const MAX_SELLS_PER_TICK = 5;
 
 /**
- * Pre-filter pool size pulled from Ponder for the buy phase. We
+ * Pre-filter pool size pulled from the indexer for the buy phase. We
  * multicall `canGraduate` against this set every tick to find
  * triggerable tokens. 500 is comfortably more than the live token
  * count today; if we ever outgrow it we should switch to a
@@ -136,7 +140,7 @@ const MAX_SELLS_PER_TICK = 5;
 const CURVE_TOKEN_FETCH_LIMIT = 500;
 
 /**
- * Pre-filter pool size pulled from Ponder for the sell phase. The
+ * Pre-filter pool size pulled from the indexer for the sell phase. The
  * keeper's wallet only ever holds positions it acquired itself
  * (legacy holdings from the previous `Zap.buy`-trigger flow); the
  * current `triggerGraduation` flow doesn't accumulate any. 200 is
@@ -170,13 +174,6 @@ const ERC20_BALANCE_ABI = parseAbi([
   "function allowance(address, address) view returns (uint256)",
 ]);
 
-interface CurveToken {
-  address: `0x${string}`;
-}
-
-interface WalletPosition {
-  tokenAddress: `0x${string}`;
-}
 
 /**
  * Single keeper sweep. Idempotent — a second invocation in the same
@@ -281,8 +278,12 @@ async function runTriggerPhase(
   wallet: WalletClientT,
   startNonce: number,
 ): Promise<number> {
-  const candidates = await fetchCurveTokens(env.PONDER_URL);
+  const db = createDb(env.DATABASE_URL);
+  const candidates = await fetchCurvePhaseTokens(db, CURVE_TOKEN_FETCH_LIMIT);
   if (candidates === null) {
+    // Null = DB read failed. Keep the existing event name so on-call alerts
+    // don't need to be rewired during the migration — semantically still
+    // "indexer unreachable", just over a different transport.
     log("warn", "auto_buyer_ponder_unreachable", { phase: "trigger" });
     return startNonce;
   }
@@ -295,6 +296,9 @@ async function runTriggerPhase(
   // (c) is the actual signal. `Bonding.triggerGraduation` re-checks
   // all three on-chain so a stale-by-one-block `true` here just gets
   // rejected with a clean `NotGraduatable` revert.
+  // Indexer stores addresses lowercased; viem/multicall accept any valid
+  // 20-byte hex regardless of casing, so cast at the boundary and skip the
+  // extra `getAddress(...)` per row.
   const canGraduateResults = await publicClient.multicall({
     multicallAddress: MULTICALL3_ADDRESS,
     allowFailure: true,
@@ -302,7 +306,7 @@ async function runTriggerPhase(
       address: CONTRACT_ADDRESSES.bonding as `0x${string}`,
       abi: CAN_GRADUATE_ABI,
       functionName: "canGraduate" as const,
-      args: [t.address] as const,
+      args: [t.address as `0x${string}`] as const,
     })),
   });
 
@@ -311,7 +315,7 @@ async function runTriggerPhase(
     const r = canGraduateResults[i];
     if (r && r.status === "success" && r.result === true) {
       const candidate = candidates[i];
-      if (candidate) triggerable.push(candidate.address);
+      if (candidate) triggerable.push(candidate.address as `0x${string}`);
     }
   }
 
@@ -371,12 +375,25 @@ async function runSellPhase(
   bot: `0x${string}`,
   startNonce: number,
 ): Promise<number> {
-  const positions = await fetchWalletPositions(env.PONDER_URL, bot);
-  if (positions === null) {
+  // `fetchNonZeroWalletZapPositions` lower-cases the wallet at the boundary,
+  // so passing the checksummed `account.address` is safe.
+  const db = createDb(env.DATABASE_URL);
+  const rawPositions = await fetchNonZeroWalletZapPositions(
+    db,
+    bot,
+    POSITION_FETCH_LIMIT,
+  );
+  if (rawPositions === null) {
     log("warn", "auto_buyer_ponder_unreachable", { phase: "sell" });
     return startNonce;
   }
-  if (positions.length === 0) return startNonce;
+  if (rawPositions.length === 0) return startNonce;
+  // Helper returns `tokenAddress: string` (indexer storage is lowercased).
+  // Cast to viem's hex-address shape once so downstream multicall + write
+  // sites stay typed without an extra `getAddress(...)` per row.
+  const positions = rawPositions.map((p) => ({
+    tokenAddress: p.tokenAddress as `0x${string}`,
+  }));
 
   // Three reads per token. Split across two multicalls — one for the
   // ERC20 reads (balance + allowance), one for `Bonding.isGraduating`.
@@ -526,57 +543,6 @@ async function runSellPhase(
   }
 
   return nonce;
-}
-
-async function fetchCurveTokens(
-  ponderUrl: string | undefined,
-): Promise<CurveToken[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{
-    tokens: { items: CurveToken[] };
-  }>(
-    `query {
-      tokens(
-        where: { graduated: false, pendingGraduation: false }
-        limit: ${CURVE_TOKEN_FETCH_LIMIT}
-        orderBy: "ltReserve"
-        orderDirection: "desc"
-      ) {
-        items {
-          address
-        }
-      }
-    }`,
-  );
-  if (data === null) return null;
-  return data.tokens.items;
-}
-
-async function fetchWalletPositions(
-  ponderUrl: string | undefined,
-  bot: `0x${string}`,
-): Promise<WalletPosition[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  // Ponder lower-cases hex addresses internally; the keeper's
-  // `account.address` is checksum-cased. Normalise here so the WHERE
-  // clause matches even if viem swaps the casing convention later.
-  const data = await queryPonder<{
-    walletPositions: { items: WalletPosition[] };
-  }>(
-    `query Positions($wallet: String!) {
-      walletPositions(
-        where: { wallet: $wallet, zapTokenAmount_gt: "0" }
-        limit: ${POSITION_FETCH_LIMIT}
-      ) {
-        items {
-          tokenAddress
-        }
-      }
-    }`,
-    { wallet: bot.toLowerCase() },
-  );
-  if (data === null) return null;
-  return data.walletPositions.items;
 }
 
 /**

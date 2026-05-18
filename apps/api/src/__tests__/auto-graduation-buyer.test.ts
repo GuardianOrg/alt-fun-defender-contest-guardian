@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { runAutoGraduationBuyer } from "../lib/auto-graduation-buyer.js";
-
-import type { AppBindings } from "../lib/types.js";
-
 // --- Viem boundary mock ---
 //
 // The keeper does three things at viem's surface:
@@ -34,9 +30,34 @@ vi.mock("viem", async () => {
   };
 });
 
-// --- Ponder boundary mock ---
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+// --- Indexer-reads boundary mock ---
+//
+// The keeper now talks to Postgres via two helpers in
+// `lib/indexer-reads.ts` (replacing the legacy Ponder GraphQL hop in
+// PR #1073). Mock the helpers directly so each test stages exactly the
+// row shapes the keeper sees, and the DB client stays untouched —
+// matches the same boundary the keeper relies on in production.
+const mockFetchCurvePhaseTokens = vi.fn();
+const mockFetchNonZeroWalletZapPositions = vi.fn();
+
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchCurvePhaseTokens: mockFetchCurvePhaseTokens,
+  fetchNonZeroWalletZapPositions: mockFetchNonZeroWalletZapPositions,
+}));
+
+// `createDb` is the constructor the keeper calls to obtain its Drizzle
+// handle; stub it to a sentinel so the helpers above receive *some* db
+// argument without spinning up a real connection. The mocks above
+// ignore the argument entirely.
+vi.mock("../db/client.js", () => ({
+  createDb: () => ({ __db: true }),
+}));
+
+const { runAutoGraduationBuyer } = await import(
+  "../lib/auto-graduation-buyer.js"
+);
+
+import type { AppBindings } from "../lib/types.js";
 
 /**
  * Derive a deterministic 32-byte private key from a small integer seed.
@@ -61,34 +82,23 @@ function makeDeterministicTestPrivateKey(seed: number): `0x${string}` {
 const TEST_PRIVATE_KEY = makeDeterministicTestPrivateKey(1);
 const OTHER_TEST_PRIVATE_KEY = makeDeterministicTestPrivateKey(2);
 
-/**
- * Shape of the JSON body the keeper POSTs to Ponder. Used by the
- * `mockFetch` callbacks below to route between the curve-token query
- * and the wallet-position query without inline type assertions.
- */
-interface PonderRequestBody {
-  query: string;
-}
-
 const baseEnv = {
   AUTO_GRADUATION_BUYER_PRIVATE_KEY: TEST_PRIVATE_KEY,
-  PONDER_URL: "http://test-ponder",
+  DATABASE_URL: "postgres://test",
   HYPEREVM_RPC_URL: "http://stub-rpc:1",
 } as unknown as AppBindings;
-
-function ponderResponse(data: unknown) {
-  return {
-    ok: true,
-    json: () => Promise.resolve({ data }),
-  };
-}
 
 beforeEach(() => {
   mockGetTransactionCount.mockReset();
   mockReadContract.mockReset();
   mockMulticall.mockReset();
   mockWriteContract.mockReset();
-  mockFetch.mockReset();
+  mockFetchCurvePhaseTokens.mockReset();
+  mockFetchNonZeroWalletZapPositions.mockReset();
+  // Default both phases to an empty result so a test that only stages
+  // one of them doesn't accidentally hit `undefined.length`.
+  mockFetchCurvePhaseTokens.mockResolvedValue([]);
+  mockFetchNonZeroWalletZapPositions.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -112,6 +122,7 @@ describe("runAutoGraduationBuyer — gating", () => {
     expect(mockGetTransactionCount).not.toHaveBeenCalled();
     expect(mockMulticall).not.toHaveBeenCalled();
     expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockFetchCurvePhaseTokens).not.toHaveBeenCalled();
   });
 
   it("aborts immediately when the auto-buy and finalize keys derive to the same wallet", async () => {
@@ -133,13 +144,13 @@ describe("runAutoGraduationBuyer — gating", () => {
     expect(mockGetTransactionCount).not.toHaveBeenCalled();
     expect(mockMulticall).not.toHaveBeenCalled();
     expect(mockWriteContract).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetchCurvePhaseTokens).not.toHaveBeenCalled();
   });
 
   it("proceeds when the finalize key resolves to a different wallet", async () => {
     // Symmetric counterpart to the same-wallet test: with the keys
     // resolving to two distinct addresses, the guard must NOT trip
-    // and the keeper must move on to its normal Ponder + RPC reads.
+    // and the keeper must move on to its normal indexer + RPC reads.
     // This pins the guard's branch direction so a future refactor
     // can't accidentally invert it (e.g. by typo'ing `===` for `!==`)
     // without test feedback.
@@ -150,52 +161,37 @@ describe("runAutoGraduationBuyer — gating", () => {
     } as unknown as AppBindings;
 
     mockGetTransactionCount.mockResolvedValue(0);
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          data: { tokens: { items: [] }, walletPositions: { items: [] } },
-        }),
-    });
 
     await runAutoGraduationBuyer(env);
 
     // Distinct wallets → guard passes → nonce read happens → no work
-    // because Ponder returned empty for both phases.
+    // because both helpers returned empty.
     expect(mockGetTransactionCount).toHaveBeenCalledTimes(1);
+    expect(mockFetchCurvePhaseTokens).toHaveBeenCalledTimes(1);
+    expect(mockFetchNonZeroWalletZapPositions).toHaveBeenCalledTimes(1);
   });
 
-  it("aborts the trigger phase when Ponder is unreachable but still runs the sell phase", async () => {
+  it("aborts the trigger phase when the indexer is unreachable but still runs the sell phase", async () => {
     mockGetTransactionCount.mockResolvedValue(7);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      // Curve-token fetch fails; positions fetch succeeds with empty.
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return { ok: false, json: () => Promise.resolve({}) };
-      }
-      return ponderResponse({ walletPositions: { items: [] } });
-    });
+    // Trigger phase: helper returns `null` to signal a DB read failure
+    // (matches the legacy GraphQL-null behaviour). Sell phase still
+    // succeeds with an empty position set.
+    mockFetchCurvePhaseTokens.mockResolvedValue(null);
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([]);
 
     await runAutoGraduationBuyer(baseEnv);
 
-    // Trigger phase aborted before any RPC reads (Ponder returned null).
+    // Trigger phase aborted before any RPC reads (helper returned null).
     expect(mockMulticall).not.toHaveBeenCalled();
     expect(mockReadContract).not.toHaveBeenCalled();
     expect(mockWriteContract).not.toHaveBeenCalled();
 
-    // BUT — and this is the point of the test — a Ponder failure
-    // on the trigger-phase fetch must NOT short-circuit the sell
-    // phase. The sell phase must still query Ponder for any legacy
-    // positions accumulated by the previous `Zap.buy`-trigger flow
-    // so they get unwound. Assert the sell-phase fetch fired by
-    // checking mockFetch saw a body containing the `walletPositions`
-    // query.
-    const sellFetchSeen = mockFetch.mock.calls.some((call) => {
-      const init = call[1] as RequestInit;
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      return body.query.includes("walletPositions");
-    });
-    expect(sellFetchSeen).toBe(true);
+    // BUT — and this is the point of the test — a trigger-phase
+    // indexer failure must NOT short-circuit the sell phase. The sell
+    // phase must still query the indexer for any legacy positions
+    // accumulated by the previous `Zap.buy`-trigger flow so they get
+    // unwound.
+    expect(mockFetchNonZeroWalletZapPositions).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -203,24 +199,17 @@ describe("runAutoGraduationBuyer — trigger phase", () => {
   it("submits one Bonding.triggerGraduation per `canGraduate=true` token, capped at MAX_TRIGGERS_PER_TICK", async () => {
     // Eight candidates — five expected to clear the per-tick cap, the
     // sixth held back for the next tick. Two of the eight report
-    // `canGraduate=false` (e.g. their LT just dropped between Ponder
-    // freshness and the multicall) and must be filtered out.
+    // `canGraduate=false` (e.g. their LT just dropped between the
+    // indexer read and the multicall) and must be filtered out.
     const candidates = Array.from(
       { length: 8 },
       (_, i) => `0x${(i + 1).toString(16).padStart(40, "0")}` as `0x${string}`,
     );
 
     mockGetTransactionCount.mockResolvedValue(100);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({
-          tokens: { items: candidates.map((address) => ({ address })) },
-        });
-      }
-      // Sell phase has nothing to do.
-      return ponderResponse({ walletPositions: { items: [] } });
-    });
+    mockFetchCurvePhaseTokens.mockResolvedValue(
+      candidates.map((address) => ({ address })),
+    );
 
     // Multicall responses (in order):
     //   1) `canGraduate` — first 6 are `true`, last 2 are `false`.
@@ -286,15 +275,7 @@ describe("runAutoGraduationBuyer — trigger phase", () => {
     const candidate = "0x000000000000000000000000000000000000000a" as const;
 
     mockGetTransactionCount.mockResolvedValue(50);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({
-          tokens: { items: [{ address: candidate }] },
-        });
-      }
-      return ponderResponse({ walletPositions: { items: [] } });
-    });
+    mockFetchCurvePhaseTokens.mockResolvedValue([{ address: candidate }]);
     mockMulticall
       .mockResolvedValueOnce([{ status: "success", result: true }])
       .mockResolvedValueOnce([])
@@ -334,15 +315,9 @@ describe("runAutoGraduationBuyer — trigger phase", () => {
     ] as const;
 
     mockGetTransactionCount.mockResolvedValue(900);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({
-          tokens: { items: candidates.map((address) => ({ address })) },
-        });
-      }
-      return ponderResponse({ walletPositions: { items: [] } });
-    });
+    mockFetchCurvePhaseTokens.mockResolvedValue(
+      candidates.map((address) => ({ address })),
+    );
     mockMulticall
       .mockResolvedValueOnce(
         candidates.map(() => ({ status: "success", result: true })),
@@ -375,6 +350,33 @@ describe("runAutoGraduationBuyer — trigger phase", () => {
     expect(mockWriteContract.mock.calls[1]![0].nonce).toBe(900); // retry reuses
     expect(mockWriteContract.mock.calls[2]![0].nonce).toBe(901);
   });
+
+  it("passes the bot's checksummed wallet straight through to the position helper (lower-casing happens inside)", async () => {
+    // Regression guard for the PR #1073 migration: the legacy GraphQL
+    // path explicitly called `.toLowerCase()` at the boundary because
+    // Ponder stores wallets lowercased. The new helper does the same
+    // internally, so the keeper just forwards `account.address`
+    // verbatim. Pin the contract here so a future refactor that drops
+    // the helper's internal lower-case doesn't silently start returning
+    // zero positions for every checksum-cased wallet.
+    mockGetTransactionCount.mockResolvedValue(0);
+    mockFetchCurvePhaseTokens.mockResolvedValue([]);
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([]);
+
+    await runAutoGraduationBuyer(baseEnv);
+
+    expect(mockFetchNonZeroWalletZapPositions).toHaveBeenCalledTimes(1);
+    const args = mockFetchNonZeroWalletZapPositions.mock.calls[0]!;
+    // args[0] is the db sentinel, args[1] is the wallet, args[2] is the
+    // POSITION_FETCH_LIMIT pre-filter cap.
+    const wallet = args[1] as string;
+    expect(wallet).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    // Helper lower-cases internally — but the keeper passes the
+    // viem-derived checksum, which contains at least one upper-case
+    // hex char for any non-pathological key. (Seed=1 maps to a
+    // mixed-case address.)
+    expect(wallet).not.toBe(wallet.toLowerCase());
+  });
 });
 
 describe("runAutoGraduationBuyer — sell phase", () => {
@@ -382,15 +384,9 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     const heldToken = "0x000000000000000000000000000000000000beef" as const;
 
     mockGetTransactionCount.mockResolvedValue(200);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({ tokens: { items: [] } });
-      }
-      return ponderResponse({
-        walletPositions: { items: [{ tokenAddress: heldToken }] },
-      });
-    });
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([
+      { tokenAddress: heldToken },
+    ]);
 
     // Multicall order: ERC20 batch (balance, allowance), then
     // isGraduating batch.
@@ -414,15 +410,9 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     const heldToken = "0x000000000000000000000000000000000000c0de" as const;
 
     mockGetTransactionCount.mockResolvedValue(300);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({ tokens: { items: [] } });
-      }
-      return ponderResponse({
-        walletPositions: { items: [{ tokenAddress: heldToken }] },
-      });
-    });
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([
+      { tokenAddress: heldToken },
+    ]);
     mockMulticall
       .mockResolvedValueOnce([
         { status: "success", result: 12345n }, // current balance
@@ -443,8 +433,8 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     const call = mockWriteContract.mock.calls[0]![0];
     expect(call.functionName).toBe("sell");
     expect(call.args[0]).toBe(heldToken);
-    // Sells the full on-chain balance (NOT what Ponder reported — the
-    // multicall `balanceOf` is the source of truth for the amount).
+    // Sells the full on-chain balance (NOT what the indexer reported —
+    // the multicall `balanceOf` is the source of truth for the amount).
     expect(call.args[1]).toBe(12345n);
     // `minUsdcOut = 0` — the bot is unwinding a triggering position,
     // not optimising for price. Slippage doesn't matter.
@@ -456,15 +446,9 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     const heldToken = "0x000000000000000000000000000000000000abcd" as const;
 
     mockGetTransactionCount.mockResolvedValue(400);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({ tokens: { items: [] } });
-      }
-      return ponderResponse({
-        walletPositions: { items: [{ tokenAddress: heldToken }] },
-      });
-    });
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([
+      { tokenAddress: heldToken },
+    ]);
     mockMulticall
       .mockResolvedValueOnce([
         { status: "success", result: 999n }, // balance
@@ -487,19 +471,13 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     expect(mockWriteContract.mock.calls[1]![0].nonce).toBe(401);
   });
 
-  it("skips positions with a zero on-chain balance even if Ponder reports them", async () => {
+  it("skips positions with a zero on-chain balance even if the indexer reports them", async () => {
     const heldToken = "0x000000000000000000000000000000000000dead" as const;
 
     mockGetTransactionCount.mockResolvedValue(500);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({ tokens: { items: [] } });
-      }
-      return ponderResponse({
-        walletPositions: { items: [{ tokenAddress: heldToken }] },
-      });
-    });
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue([
+      { tokenAddress: heldToken },
+    ]);
     mockMulticall
       .mockResolvedValueOnce([
         { status: "success", result: 0n }, // zero balance
@@ -529,17 +507,9 @@ describe("runAutoGraduationBuyer — sell phase", () => {
     );
 
     mockGetTransactionCount.mockResolvedValue(700);
-    mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string) as PonderRequestBody;
-      if (body.query.includes("graduated: false, pendingGraduation: false")) {
-        return ponderResponse({ tokens: { items: [] } });
-      }
-      return ponderResponse({
-        walletPositions: {
-          items: positions.map((tokenAddress) => ({ tokenAddress })),
-        },
-      });
-    });
+    mockFetchNonZeroWalletZapPositions.mockResolvedValue(
+      positions.map((tokenAddress) => ({ tokenAddress })),
+    );
     // Each position: non-zero balance, allowance already maxed
     // (skip approve), not graduating.
     mockMulticall
@@ -569,9 +539,9 @@ describe("runAutoGraduationBuyer — sell phase", () => {
       expect(call.nonce).toBe(700 + j);
     }
 
-    // The first 5 positions hit (in Ponder's returned order — no
-    // ordering knob in the sell-phase Ponder query, so it's
-    // whatever the indexer provides). Confirms the cap takes
+    // The first 5 positions hit (in the indexer's returned order —
+    // `fetchNonZeroWalletZapPositions` sorts by `token_address asc`,
+    // which the helper docstring pins). Confirms the cap takes
     // effect by truncation, not by random sampling.
     const sellTokens = mockWriteContract.mock.calls
       .slice(0, 5)
