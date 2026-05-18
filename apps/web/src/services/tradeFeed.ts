@@ -13,6 +13,24 @@ import { getWebSocketClient } from "./websocket";
 import type { Trade, TradeBroadcast } from "./types";
 
 /**
+ * REST poll cadence while the WS connection is healthy. With WS pushing
+ * live trades as they happen, the REST poll is a slow safety net — long
+ * enough to be cheap, short enough that a wedged WS still surfaces
+ * trades within ~one cadence.
+ */
+const POLL_INTERVAL_WS_OPEN_MS = 15_000;
+
+/**
+ * REST poll cadence while the WS connection is down or hasn't yet
+ * opened. Tighter than the WS-open cadence so a tab without a working
+ * WS stays semi-live, but still loose enough to avoid the back-to-back
+ * `/api/v1/trades` bursts the previous immediate-fire + 3s-rescheduled
+ * shape produced during the WS handshake (see audit in the "duplicate
+ * /api/v1/trades bursts" task).
+ */
+const POLL_INTERVAL_WS_CLOSED_MS = 5_000;
+
+/**
  * Convert a raw WS trade broadcast into the client's formatted `Trade`.
  *
  * The trade-feed only consumes the **`Zap:Buy` / `Zap:Sell`** variant of
@@ -86,10 +104,23 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let polling = false;
+  // Set when a fresh-poll trigger (typically a WS reconnect) lands
+  // while `poll()` is already in flight. The in-flight poll's `finally`
+  // block honours the request once it resolves, so a reconnect's
+  // refresh is never silently dropped just because the regular tick
+  // happened to run a few hundred ms before it. Without this, the
+  // polling-guard early-return would swallow the reconnect's refresh
+  // until the next 15 s tick.
+  let pendingPollRequest = false;
 
   const poll = async () => {
-    if (cancelled || polling) return;
+    if (cancelled) return;
+    if (polling) {
+      pendingPollRequest = true;
+      return;
+    }
     polling = true;
+    pendingPollRequest = false;
     try {
       // `routerTrade` covers both curve and post-graduation trades (any
       // `Zap.buy/sell` regardless of execution venue), so a single poll
@@ -141,28 +172,72 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       console.warn("[tradeFeed] poll failed:", err);
     } finally {
       polling = false;
+      if (!cancelled) {
+        // Single source of truth for re-arming the timer: a reconnect
+        // (or any other trigger) that landed mid-flight gets an
+        // immediate refresh, otherwise we drop back to the standard
+        // cadence. Previously the cadence reschedule lived on the
+        // timer's outer `.finally(...)` and ran *after* this block,
+        // so the `reschedulePoll(0)` we'd queue here for a pending
+        // request was silently overwritten by the long-delay
+        // reschedule a microtask later — the pending refresh waited
+        // up to a full WS-open cadence (15 s) instead of firing now.
+        if (pendingPollRequest) {
+          pendingPollRequest = false;
+          reschedulePoll(0);
+        } else {
+          reschedulePoll(
+            ws?.isConnected
+              ? POLL_INTERVAL_WS_OPEN_MS
+              : POLL_INTERVAL_WS_CLOSED_MS,
+          );
+        }
+      }
     }
   };
 
-  void poll();
-  const schedulePoll = () => {
+  // Single source of truth for the polling cadence: cancels any
+  // pending timer and starts a fresh one. Previously the code path
+  // mixed an unconditional `void poll()` on subscribe with a separate
+  // `schedulePoll` recursion AND a parallel `void poll()` on every WS
+  // reconnect, which produced two near-simultaneous `/api/v1/trades`
+  // requests on first paint (immediate fire + 3 s rescheduled tick
+  // during the WS handshake) and another race window every reconnect
+  // (parallel poll + scheduled tick landing inside 50 ms of each
+  // other). See the "duplicate /api/v1/trades bursts" audit. Funnelling
+  // every trigger through `reschedulePoll` collapses those races: at
+  // most one timer is queued at a time, and `poll()`'s own re-entry
+  // guard + `pendingPollRequest` flag handle the in-flight overlap.
+  // Cadence rescheduling lives entirely inside `poll()`'s `finally`
+  // block — see the comment there.
+  const reschedulePoll = (delay: number) => {
     if (cancelled) return;
+    if (pollTimer !== null) {
+      clearTimeout(pollTimer);
+      pollTimer = null;
+    }
     pollTimer = setTimeout(() => {
-      void poll().finally(schedulePoll);
-    }, ws?.isConnected ? 15_000 : 3_000);
+      pollTimer = null;
+      void poll();
+    }, delay);
   };
-  schedulePoll();
 
-  // Re-poll immediately when the WS reconnects (e.g. after a tab wake,
+  // Initial fetch fires immediately — the WS only pushes live trades
+  // (no snapshot/backfill on subscribe), so the recent-trades feed
+  // depends on this REST call to populate its initial rows.
+  reschedulePoll(0);
+
+  // Re-poll when the WS reconnects (e.g. after a tab wake,
   // captive-portal blip, NAT eviction). The regular 15s cadence would
   // otherwise leave the feed stale for up to a full cycle before live
   // events resume, and any trades broadcast WHILE the socket was
-  // wedged are visible only via REST until then. Issue #824. Triggers
-  // the existing `poll` helper rather than a bespoke fetch so the
-  // dedupe set + name-cache plumbing stays in one place.
+  // wedged are visible only via REST until then. Issue #824. We
+  // *reschedule* through the shared timer (rather than firing a
+  // parallel `void poll()`) so a reconnect that lands 50 ms before a
+  // scheduled tick coalesces into one request instead of two.
   if (ws) {
     unsubReconnect = ws.onReconnect(() => {
-      void poll();
+      reschedulePoll(0);
     });
   }
 
@@ -207,10 +282,19 @@ export function subscribeTokenTrades(
 
   let cancelled = false;
   let polling = false;
+  // Same role as `subscribeFeed`'s `pendingPollRequest` — see that
+  // helper's JSDoc for the rationale.
+  let pendingPollRequest = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   const poll = async () => {
-    if (cancelled || polling) return;
+    if (cancelled) return;
+    if (polling) {
+      pendingPollRequest = true;
+      return;
+    }
     polling = true;
+    pendingPollRequest = false;
     try {
       // Same rationale as `subscribeFeed`: `routerTrade` is the only
       // graduation-aware trade source. Curve-phase trades still live there
@@ -244,25 +328,52 @@ export function subscribeTokenTrades(
       console.warn("[tradeFeed] token poll failed:", err);
     } finally {
       polling = false;
+      if (!cancelled) {
+        // See `subscribeFeed`'s mirror block for the full rationale —
+        // re-arm the timer here (immediate for a pending request,
+        // cadence-based otherwise) so the cadence reschedule can't
+        // overwrite the pending-request reschedule a microtask later.
+        if (pendingPollRequest) {
+          pendingPollRequest = false;
+          reschedulePoll(0);
+        } else {
+          reschedulePoll(
+            ws?.isConnected
+              ? POLL_INTERVAL_WS_OPEN_MS
+              : POLL_INTERVAL_WS_CLOSED_MS,
+          );
+        }
+      }
     }
   };
 
-  void poll();
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const schedulePoll = () => {
+  // Single-timer polling cadence — see `subscribeFeed`'s
+  // `reschedulePoll` JSDoc for the rationale.
+  const reschedulePoll = (delay: number) => {
     if (cancelled) return;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
     timer = setTimeout(() => {
-      void poll().finally(schedulePoll);
-    }, ws?.isConnected ? 15_000 : 5_000);
+      timer = null;
+      void poll();
+    }, delay);
   };
-  schedulePoll();
+
+  // Initial fetch fires immediately — the WS doesn't backfill, so
+  // populating the per-token trade list depends on this REST call.
+  reschedulePoll(0);
 
   // Re-poll on WS reconnect so the per-token tab catches any trades
   // that fired while the socket was wedged. Same rationale as
-  // `subscribeFeed` above (issue #824).
+  // `subscribeFeed` above (issue #824) — reschedule through the
+  // shared timer instead of firing a parallel `void poll()` so a
+  // reconnect that lands close to a scheduled tick coalesces into
+  // one request.
   if (ws) {
     unsubReconnect = ws.onReconnect(() => {
-      void poll();
+      reschedulePoll(0);
     });
   }
 

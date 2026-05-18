@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { subscribeMockTokens } from "../dev/mockFeed";
 import {
@@ -65,22 +65,109 @@ export function dedupeTokensByAddress(tokens: readonly Token[]): Token[] {
 }
 
 /**
- * Token list for the home page + search modal. The server handles all
- * sorting — including the trending score — so the client just consumes the
- * order the API returns. That keeps the ranking honest at any catalogue
- * size (previously, sorting client-side over a 100-token window would
- * silently drop out-of-window trending tokens).
+ * `undefined` and `"trending"` produce the same server-side response —
+ * both resolve to `sort=trending` in `filterToApiOptions` (see
+ * `tokenService.ts`). Normalising the value before it lands in the
+ * query key lets a caller that omits the filter (`useTokens()` from
+ * `SearchModal`) share a single cache entry with one that passes
+ * `"trending"` explicitly (`useInfiniteTokens("trending", …)` from
+ * `TokenTable`). Without this, the two callers used to fire parallel
+ * `/api/v1/tokens?sort=trending` requests on every paint and every
+ * background refetch.
+ *
+ * Exported so the normalisation can be unit-tested without spinning
+ * up a `QueryClient`.
+ */
+export function normalizeTokenFilter(
+  filter: TokenFilter | undefined,
+): TokenFilter {
+  return filter ?? "trending";
+}
+
+/**
+ * Background-refetch fallback for the token catalogue.
+ *
+ * Active refresh is driven by `useTokenListLiveFeed`, which invalidates
+ * the `["tokens-infinite", …]` cache (and `["market-data"]`) on every
+ * WS `trade` broadcast — throttled to 1 s — so on a tab with a healthy
+ * WS connection the catalogue is already kept live without any
+ * `refetchInterval` ticking at all. This fallback exists for the
+ * degraded paths where the WS-driven path can't carry the update:
+ *
+ *   - `VITE_WS_URL` unset (local dev without the API Worker, preview
+ *     builds without a WS endpoint) — the `useTokenListLiveFeed` effect
+ *     no-ops.
+ *   - The user's WS connection is wedged longer than the
+ *     visibility/online wake probe takes to detect.
+ *   - Backend writes that don't fan out a `trade` broadcast at all —
+ *     admin moderation (`useTokenModeration`), `graduation`-channel
+ *     events handled by `useGraduationFeed`'s own invalidator.
+ *
+ * Previously this hook polled every 10 s on top of the WS-driven
+ * invalidations, which doubled the request rate against
+ * `/api/v1/tokens` for every user without buying any extra liveness.
+ * 60 s is "we'll catch a missed event within a minute" — plenty for
+ * the degraded paths above, where the alternative is no refresh until
+ * the user reloads the page.
+ */
+const FALLBACK_REFETCH_MS = 60_000;
+
+/**
+ * Single-shot view over the home-page token catalogue.
+ *
+ * Delegates to `useInfiniteTokens` so consumers that only need the top
+ * of the list (the SearchModal trending strip, the RightPanel
+ * "graduating soon" panel, the DevSimulator's token dropdown) share
+ * the same TanStack Query cache entry as the home-page table when the
+ * `(filter, tableFilters, sort)` tuple matches.
+ *
+ * The previous shape ran a parallel `useQuery` with a `["tokens", …]`
+ * key against the same `/api/v1/tokens` endpoint, so on a homepage
+ * with the SearchModal mounted (it always is, since `useSearchModal`
+ * runs unconditionally) and the table on trending we'd fire two
+ * `/api/v1/tokens?sort=trending` requests on first paint and again on
+ * every 10 s refetch interval. The audit captured in the "duplicate
+ * /api/v1/trades and /api/v1/tokens bursts" task. After this change
+ * SearchModal + TokenTable on `trending` collapse onto one request;
+ * RightPanel's `useTokens("graduating")` still owns its own cache
+ * entry (the table is rarely on the `graduating` tab) but pays the
+ * same single-shot cost as before.
+ *
+ * The returned `data` is the first page (≤ `TOKENS_PAGE_SIZE` rows) —
+ * enough for SearchModal's `slice(0, 5)` trending strip and
+ * RightPanel's `slice(0, GRADUATING_SOON_LIMIT)` (≤ 8) graduating
+ * list. Consumers that need the full catalogue should use
+ * `useInfiniteTokens` directly.
  */
 export function useTokens(
   filter?: TokenFilter,
   tableFilters?: TokenTableFiltersInput,
   sort: TokenSort = "default",
 ) {
-  return useQuery({
-    queryKey: ["tokens", filter, tableFiltersKey(tableFilters), sort],
-    queryFn: () => tokenService.getTokens(filter, tableFilters, sort),
-    refetchInterval: 10_000,
-  });
+  const result = useInfiniteTokens(filter, tableFilters, sort);
+  // Preserve the old `useQuery<Token[]>` shape so SearchModal /
+  // RightPanel / DevSimulator continue to destructure `{ data, isLoading }`
+  // unchanged. `result.data.pages[0]` is truthy iff the first page has
+  // resolved, so a successful empty-result fetch surfaces as `data: []`
+  // (not `undefined`) and the consumer-side empty-state branch fires
+  // correctly instead of rendering a stuck skeleton.
+  //
+  // Critically, snapshot the *first page only* — `useTokens()` shares
+  // its TanStack Query cache entry with `useInfiniteTokens` (used by
+  // the home-page `TokenTable`, which paginates). Returning
+  // `result.tokens` here would leak the table's accumulated pages
+  // into every compact-panel consumer, re-rendering them on every
+  // infinite-scroll tick with a steadily-growing list (and breaking
+  // the documented "first page" contract above). `pages[0]` is
+  // reference-stable across `fetchNextPage` calls (TanStack Query
+  // appends new pages without recreating prior entries) so the memo
+  // only recomputes on actual page-0 refetches, not pagination ticks.
+  const firstPage = result.data?.pages[0];
+  const data = useMemo(
+    () => (firstPage ? dedupeTokensByAddress(firstPage) : undefined),
+    [firstPage],
+  );
+  return { ...result, data };
 }
 
 /**
@@ -107,12 +194,16 @@ export function useInfiniteTokens(
   tableFilters?: TokenTableFiltersInput,
   sort: TokenSort = "default",
 ) {
+  // Normalise `undefined` → `"trending"` so `useTokens()` (search modal)
+  // shares the cache with `useInfiniteTokens("trending", …)` (table).
+  // See `normalizeTokenFilter` JSDoc.
+  const normalizedFilter = normalizeTokenFilter(filter);
   const filtersKey = tableFiltersKey(tableFilters);
   const query = useInfiniteQuery({
-    queryKey: ["tokens-infinite", filter, filtersKey, sort],
+    queryKey: ["tokens-infinite", normalizedFilter, filtersKey, sort],
     queryFn: ({ pageParam }) =>
       tokenService.getTokensPage(
-        filter,
+        normalizedFilter,
         pageParam,
         TOKENS_PAGE_SIZE,
         tableFilters,
@@ -126,7 +217,7 @@ export function useInfiniteTokens(
       if (lastPage.length < TOKENS_PAGE_SIZE) return undefined;
       return allPages.length * TOKENS_PAGE_SIZE;
     },
-    refetchInterval: 10_000,
+    refetchInterval: FALLBACK_REFETCH_MS,
   });
 
   // Dev-only easter egg: tokens injected via `DevSimulator` get

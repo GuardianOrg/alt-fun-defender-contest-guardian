@@ -11,7 +11,9 @@ import { hideTokenApi, unhideTokenApi } from "../services/api";
  * within the window go through silently.
  *
  * Cache invalidation: after a successful action we invalidate the
- * `token` and `tokens` query namespaces so the home-page list and
+ * `token` (single-token detail) and `tokens-infinite` (catalogue —
+ * shared between `useTokens` and `useInfiniteTokens`, see
+ * `useTokens.ts` JSDoc) query namespaces so the home-page list and
  * detail page reflect the new state without a manual refresh. For
  * non-holders the detail-page query will surface as "not found" 404
  * after a hide — that's the public lens (see `/tokens/:address` route).
@@ -26,7 +28,7 @@ export function useTokenModeration(tokenAddress: string | undefined) {
 
   function invalidateAfterMutation() {
     queryClient.invalidateQueries({ queryKey: ["token", tokenAddress] });
-    queryClient.invalidateQueries({ queryKey: ["tokens"] });
+    queryClient.invalidateQueries({ queryKey: ["tokens-infinite"] });
   }
 
   async function buildAuth() {

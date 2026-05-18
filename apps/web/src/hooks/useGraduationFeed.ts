@@ -38,8 +38,12 @@ export function useGraduationFeed(address: string | undefined): void {
         // The webhook payload includes the phase (`"graduating"` /
         // `"graduated"`) but we don't need to inspect it — every event
         // means the token row's lifecycle moved, so always re-fetch.
+        // `useTokens` and `useInfiniteTokens` share the
+        // `["tokens-infinite", …]` namespace (see `useTokens.ts`
+        // JSDoc), so one invalidation refreshes both the home-table
+        // and the RightPanel "graduating soon" list.
         queryClient.invalidateQueries({ queryKey: ["token", address] });
-        queryClient.invalidateQueries({ queryKey: ["tokens"] });
+        queryClient.invalidateQueries({ queryKey: ["tokens-infinite"] });
       },
       normalized,
     );
