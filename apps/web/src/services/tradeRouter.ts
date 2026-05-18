@@ -67,8 +67,13 @@ const BPS_DENOM = 10_000;
 const HYPER_EVM_RPC =
   import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
+// `batch: true` matches `config/wagmi.ts`. Quote pathways fan out 3–5
+// independent `readContract` calls per quote (`getReserves`,
+// `exchangeRate`, `k`, `tokenBalance`, `previewLtUntilGraduation`); with
+// batching the same `Promise.all` lands as a single JSON-RPC batch
+// instead of 3–5 separate HTTP POSTs.
 const publicClient = createPublicClient({
-  transport: http(HYPER_EVM_RPC),
+  transport: http(HYPER_EVM_RPC, { batch: true }),
 });
 
 export type TransactionStep =
