@@ -34,9 +34,8 @@
 # Alt-Svc store for 24h and steers subsequent HTTPS requests at QUIC.
 # On networks where UDP/443 is blocked, filtered, or aggressively rate-
 # limited (UK ISPs are a known offender — same regulatory environment
-# that drives the `GB` entry in `DEFAULT_BLOCKED` in
-# `src/hooks/useIsGeoBlocked.ts`), the QUIC handshake hangs silently
-# and the browser parks every API call in
+# that drives the `GB` entry in [[geo-block-default-blocked]]), the
+# QUIC handshake hangs silently and the browser parks every API call in
 # "Stalled" for minutes before falling back to TCP. Setting the header
 # to the special token `clear` (RFC 7838 §3.1) actively invalidates the
 # browser's cached alternative-service entries for this origin in
