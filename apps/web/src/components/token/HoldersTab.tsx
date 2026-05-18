@@ -9,12 +9,26 @@ import type { Holder } from "../../services/types";
 // reads as populated and the table height stays stable.
 const HOLDER_SKELETON_COUNT = 8;
 
-// Canonical EIP-7528 "burn" address. Any tokens sent here are
-// unrecoverable — surface this prominently in the holders list so the
-// reader understands the supply has been permanently retired (e.g. the
-// LP-reserve dust burned at graduation, or a creator burning their seed
-// buy as a supply sink).
-const DEAD_ADDRESS = "0x000000000000000000000000000000000000dead";
+// Canonical "burn" sinks — addresses with no known private key, so
+// tokens transferred here are unrecoverable. Our own contracts burn
+// via OZ's `_burn` (which reduces `totalSupply` rather than transferring
+// to a sink), but holders can — and do — manually send tokens to either
+// address as a supply-removal signal, so surface both with the same
+// `BURNT` pill. Compared as lowercase strings (see `wallet` below).
+const BURN_ADDRESSES: ReadonlySet<string> = new Set([
+  "0x000000000000000000000000000000000000dead",
+  "0x0000000000000000000000000000000000000000",
+]);
+
+// Vanity short-forms shown in place of the upstream `0x00…ad` /
+// `0x00…00` truncations — for these specific addresses the
+// information-bearing characters are at the tail (or non-existent),
+// not the head, so the standard 4+2 truncation actively loses the
+// signal.
+const BURN_DISPLAY_ADDRESS: Record<string, string> = {
+  "0x000000000000000000000000000000000000dead": "0x…dead",
+  "0x0000000000000000000000000000000000000000": "0x00000000…",
+};
 
 interface Props {
   holders: Holder[];
@@ -93,9 +107,15 @@ export default function HoldersTab({
             ))
           : holders.map((h) => {
               const wallet = h.walletFull.toLowerCase();
-              const isBurnt = wallet === DEAD_ADDRESS;
+              const isBurnt = BURN_ADDRESSES.has(wallet);
               const isOwner = !!ownerAddress && wallet === ownerAddress;
-              const displayAddress = isBurnt ? "0x…dead" : h.address;
+              // Burn addresses get a vanity short-form (see
+              // `BURN_DISPLAY_ADDRESS`) — the default `0x00…ad` /
+              // `0x00…00` truncation loses the only character that
+              // distinguishes the two sinks at a glance.
+              const displayAddress = isBurnt
+                ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
+                : h.address;
               return (
                 <tr key={h.rank} className={styles.holderTableRow}>
                   <td className={styles.tdRank}>{h.rank}</td>
