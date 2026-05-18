@@ -58,7 +58,11 @@ export default function BottomTabs({ token }: Props) {
               <div className={styles.tabError}>Failed to load holders</div>
             }
           >
-            <HoldersTab holders={holders} isLoading={holdersLoading} />
+            <HoldersTab
+              holders={holders}
+              isLoading={holdersLoading}
+              creatorAddress={token.creatorAddress}
+            />
           </ErrorBoundary>
         )}
       </div>
