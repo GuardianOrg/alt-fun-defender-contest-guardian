@@ -271,6 +271,39 @@ export function searchTokens(query: string): Promise<ApiToken[]> {
 }
 
 /**
+ * Minimal `{address, name, symbol}` projection for a single token —
+ * backs the in-memory `tokenNames` display-symbol cache. Resolves to
+ * `null` whenever the token isn't (yet) indexed or the request fails;
+ * the cache layer treats both as "no name available right now, keep
+ * the truncated-address fallback rendering and retry later".
+ *
+ * Replaces the browser's previous direct POST to the Ponder GraphQL
+ * endpoint (`apps/web/src/services/ponder.ts`'s `fetchPonderToken`,
+ * removed in this PR). The API route this hits projects the row down
+ * to three columns server-side and is edge-cached for 5 min — names
+ * flip exactly once per token (at `TokenLaunched`), so even minutes
+ * of staleness are harmless to the cache. See `apps/api/src/routes/
+ * tokens/meta.ts` for the route, `apps/api/src/lib/indexer-reads.ts
+ * → fetchTokenMeta` for the DB read.
+ */
+export interface TokenMeta {
+  address: string;
+  name: string;
+  symbol: string;
+}
+
+export async function fetchTokenMeta(address: string): Promise<TokenMeta | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/tokens/${address}/meta`);
+    const json = (await res.json()) as ApiResponse<TokenMeta>;
+    if (json.status !== "success" || json.data === null) return null;
+    return json.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Register a token in the PostgreSQL `tokens` table after its on-chain
  * launch. Address-only — every other field is read from
  * `Bonding.getTokenInfo` server-side, so no signature is required and
@@ -666,10 +699,10 @@ export function fetchSparkline(
  * so the same endpoint covers **both** bonding-curve and post-graduation
  * trades — no special-casing for graduated tokens.
  *
- * Contrast with `PonderTrade` from `services/ponder.ts` (Bonding-only,
- * LT-denominated): keep this one out of `services/ponder.ts` so a
- * graduation regression there doesn't pull the ponder-trades polling
- * path back into use.
+ * The router-trade shape is the canonical client-side trade type — the
+ * legacy Bonding-only `PonderTrade` (browser POSTs to Ponder GraphQL)
+ * was removed when issue #942 retired the last direct-from-browser
+ * indexer call.
  */
 export interface ApiRouterTrade {
   id: string;
@@ -685,10 +718,10 @@ export interface ApiRouterTrade {
   timestamp: string;
   /**
    * Resolved token display symbol (e.g. `"TST"`), populated by the API
-   * by batching a single Ponder `tokens(address_in: …)` query alongside
+   * by batching a single indexer `tokens(address_in: …)` query alongside
    * the trade fetch. Lets the client render the right label on first
-   * paint without a second per-trade Ponder round-trip from
-   * `prefetchTokenName` — which was the race the truncated-address
+   * paint without a second per-trade `/tokens/:address/meta` round-trip
+   * from `prefetchTokenName` — which was the race the truncated-address
    * fallback exposed in issue #703.
    *
    * Optional because (a) older API builds don't return it, and (b) the
