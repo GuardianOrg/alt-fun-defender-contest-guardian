@@ -135,9 +135,12 @@ import {
   editToSubmenu,
   isBenignEditError,
   pushNavSnapshot,
+  registerView,
+  setCurrentView,
   snapshotFromCallback,
   safeEditMessageById,
   type MessageRef,
+  type SubmenuView,
 } from "../lib/nav.js";
 import {
   sweepWorkflow,
@@ -435,7 +438,37 @@ const editToMain = async (ctx: AppContext): Promise<void> => {
   await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
+  // Bubble now shows the wallet panel — tag the session so a forward
+  // nav (e.g. tapping Withdraw on this same bubble) pushes the wallet
+  // view spec onto the nav stack, and Back from the wizard re-renders
+  // the panel from live data (so a wallet that was just created in
+  // the steps above stays visible after Back).
+  setCurrentView(ctx.session, { id: WALLET_MAIN_VIEW_ID });
 };
+
+/** Canonical view id for the /wallet main panel. */
+export const WALLET_MAIN_VIEW_ID = "wallet:main";
+
+/**
+ * Build the wallet panel as a `SubmenuView`. Used both as the
+ * registered builder for refresh-on-Back and by the start-menu
+ * Wallet handler so a single render path produces the bubble's
+ * content from live KV state.
+ */
+const buildWalletMainView = async (
+  ctx: AppContext,
+): Promise<SubmenuView | null> => {
+  if (!ctx.from) return null;
+  const lang = ctxLang(ctx);
+  const state = await renderMainState(ctx.env, ctx.from.id, lang);
+  return {
+    text: wrap(ctx, state.text),
+    inlineKeyboard: state.reply_markup.inline_keyboard,
+    view: { id: WALLET_MAIN_VIEW_ID },
+  };
+};
+
+registerView(WALLET_MAIN_VIEW_ID, buildWalletMainView);
 
 /**
  * Rename conversation: bot prompts for the new label, user replies
@@ -1622,6 +1655,12 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
+    // /wallet opens a fresh bubble (not via editToSubmenu, so nothing
+    // pushes the prior bubble onto the nav stack). Tag the session
+    // anyway so any forward nav from inline buttons on this new
+    // bubble records the wallet view on the parent snapshot — Back
+    // from the wizard then re-renders fresh state via the registry.
+    setCurrentView(ctx.session, { id: WALLET_MAIN_VIEW_ID });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.create, async (ctx) => {
@@ -2045,9 +2084,15 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     }
     if (!(await ensurePrivate(ctx))) return;
     const state = await renderMainState(ctx.env, ctx.from.id, lang);
+    // Tag the submenu with the wallet:main view id so any forward
+    // nav from this bubble (Withdraw, Export, etc.) records the
+    // wallet view on the parent snapshot. Back from the wizard then
+    // re-renders the panel from live KV state — fixes the "created
+    // wallet doesn't reappear after Back" stale-snapshot bug.
     await editToSubmenu(ctx, {
       text: wrap(ctx, state.text),
       inlineKeyboard: state.reply_markup.inline_keyboard,
+      view: { id: WALLET_MAIN_VIEW_ID },
     });
     await ctx.answerCallbackQuery();
   });

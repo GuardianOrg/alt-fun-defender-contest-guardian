@@ -32,7 +32,13 @@ import {
   t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
-import { clearNavStack } from "../lib/nav.js";
+import {
+  START_VIEW_ID,
+  clearNavStack,
+  registerView,
+  setCurrentView,
+  type SubmenuView,
+} from "../lib/nav.js";
 import {
   parseActionStartParam,
   parseStartParam,
@@ -196,6 +202,35 @@ export const buildStartSnapshot = async (
 };
 
 /**
+ * Build the /start view as a `SubmenuView` payload — the shape the
+ * nav-view registry hands back to `renderSubmenuInPlace` when a Back
+ * navigation pops a snapshot tagged with `{ id: "start" }`. Returns
+ * `null` for the same reasons `buildStartSnapshot` does (no active
+ * wallet, missing user); the Back handler then falls back to the
+ * legacy frozen snapshot.
+ */
+const buildStartViewPayload = async (
+  ctx: AppContext,
+): Promise<SubmenuView | null> => {
+  const snap = await buildStartSnapshot(ctx);
+  if (!snap) return null;
+  return {
+    text: snap.text,
+    parseMode: snap.parseMode,
+    inlineKeyboard: snap.keyboard,
+    linkPreviewDisabled: snap.linkPreviewDisabled,
+    view: { id: START_VIEW_ID },
+  };
+};
+
+// Register the start view once at module load so the nav-view
+// registry can re-render it on Back / Home pops without going
+// through the `StartRenderer` callback chain. Idempotent on
+// re-registration so test bots that import this module twice (rare,
+// but happens in hot-reload setups) don't collide.
+registerView(START_VIEW_ID, buildStartViewPayload);
+
+/**
  * Resolve the user's active wallet address, auto-creating the first
  * wallet if the user has none. Returns `null` only when wallet
  * creation throws — the cap branch can't trigger here because we
@@ -267,6 +302,16 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     // the welcome view, but they are equally fresh entry points and
     // must not inherit a stale stack either.
     clearNavStack(ctx.session);
+    // Clear the bubble's view-tag with the stack: the deeplink-action
+    // branches below open a fresh action / track card (not a registered
+    // view), and inheriting the prior bubble's `navCurrentView` would
+    // make a subsequent `editToSubmenu` from there tag its parent
+    // snapshot with the wrong view id — Back would then rebuild a
+    // screen the user never came from. The welcome-screen path resets
+    // this to `{ id: START_VIEW_ID }` after rendering; deeplink paths
+    // leave it cleared (correct — those cards have no registered
+    // builder yet). CodeRabbit #1070.
+    setCurrentView(ctx.session, undefined);
     // Username → userId mapping refreshes on every /start so a sharer
     // who changes their Telegram handle later still resolves cleanly
     // through `ref_<username>` deeplinks. No-op when the user has no
@@ -404,6 +449,11 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       reply_markup: rendered.reply_markup,
       link_preview_options: rendered.link_preview_options,
     });
+    // The new bubble shows the start view — record it so a forward
+    // nav from one of the start-menu buttons attaches `{ id: "start" }`
+    // onto its parent snapshot, letting Back re-render fresh balances
+    // instead of restoring the welcome card frozen at click time.
+    setCurrentView(ctx.session, { id: START_VIEW_ID });
   });
 
   bot.callbackQuery(START_CALLBACK.refresh, async (ctx) => {
@@ -449,6 +499,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       reply_markup: rendered.reply_markup,
       link_preview_options: rendered.link_preview_options,
     });
+    setCurrentView(ctx.session, { id: START_VIEW_ID });
     await ctx.answerCallbackQuery({
       text:
         usdcBalance === null && hypeBalance === null

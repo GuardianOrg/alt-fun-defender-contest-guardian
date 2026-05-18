@@ -7,11 +7,13 @@ import {
   backHomeRow,
   clearNavStack,
   editToSubmenu,
+  getCurrentView,
   isBenignEditError,
   popNavSnapshot,
   pushNavSnapshot,
   replyWithNav,
   safeEditMessageById,
+  setCurrentView,
   type NavSnapshot,
   type NavStackSession,
 } from "../../lib/nav.js";
@@ -422,6 +424,124 @@ describe("editToSubmenu", () => {
       }),
     ).rejects.toThrow("network blip");
     expect(deleteCalled).toBe(false);
+  });
+});
+
+describe("editToSubmenu refresh-on-back tagging", () => {
+  // The "stale prompt after Back" bug class: a parent screen's state
+  // (wallet panel after a create-wallet step, settings panel after a
+  // preset edit, /start after a balance refresh) can move between the
+  // moment the user navigates forward and the moment they tap Back.
+  // Frozen text/keyboard snapshots restore the pre-change view. The
+  // fix attaches the *bubble's current view id* to the snapshot so
+  // Back rebuilds from live data via the registered builder.
+  it("attaches the session's current view id onto the pushed parent snapshot", async () => {
+    const parent = {
+      text: "wallet panel pre-create",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Create wallet", callback_data: "wlt:c" }],
+          [{ text: "Withdraw", callback_data: "wlt:wd" }],
+        ],
+      },
+    };
+    const ctx = makeCtx({ parentMessage: parent });
+    // Simulate the bubble already representing the wallet panel (set
+    // by the start-menu Wallet handler or the /wallet command).
+    setCurrentView(ctx.session, { id: "wallet:main" });
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "withdraw wizard",
+      inlineKeyboard: [backHomeRow()],
+    });
+
+    expect(ctx.session.navStack).toHaveLength(1);
+    const pushed = ctx.session.navStack![0]!;
+    expect(pushed.text).toBe("wallet panel pre-create");
+    expect(pushed.view).toEqual({ id: "wallet:main" });
+  });
+
+  it("does not tag the snapshot when no current view is set (legacy path stays intact)", async () => {
+    // Submenus that pre-date the view registry must still push usable
+    // snapshots — the frozen text/keyboard fallback is the only way
+    // Back can restore them.
+    const parent = {
+      text: "some legacy screen",
+      reply_markup: { inline_keyboard: [] },
+    };
+    const ctx = makeCtx({ parentMessage: parent });
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "deeper",
+      inlineKeyboard: [backHomeRow()],
+    });
+
+    const pushed = ctx.session.navStack?.[0];
+    expect(pushed?.view).toBeUndefined();
+  });
+
+  it("records the new view's id as the bubble's current view", async () => {
+    const ctx = makeCtx();
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "wallet panel",
+      inlineKeyboard: [backHomeRow()],
+      view: { id: "wallet:main" },
+    });
+
+    expect(getCurrentView(ctx.session)).toEqual({ id: "wallet:main" });
+  });
+
+  it("clears the current view when the submenu has none (wizard prompts opt out)", async () => {
+    const ctx = makeCtx();
+    setCurrentView(ctx.session, { id: "wallet:main" });
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "PIN prompt",
+      inlineKeyboard: [backHomeRow()],
+    });
+
+    expect(getCurrentView(ctx.session)).toBeUndefined();
+  });
+
+  it("pushes a view-only fallback snapshot when the parent message is structurally uncaptureable", async () => {
+    // Photo bubbles return null from `snapshotFromCallback` (the
+    // text/keyboard restore path can't apply). If the parent was a
+    // registered view, we still want Back to re-render it — push a
+    // view-tagged snapshot whose text/keyboard fallback is empty so
+    // the only viable restore path is the builder.
+    const ctx = makeCtx(); // no parentMessage → snapshotFromCallback returns null
+    setCurrentView(ctx.session, { id: "wallet:main" });
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "next screen",
+      inlineKeyboard: [backHomeRow()],
+    });
+
+    expect(ctx.session.navStack).toHaveLength(1);
+    expect(ctx.session.navStack![0]!.view).toEqual({ id: "wallet:main" });
+    expect(ctx.session.navStack![0]!.text).toBe("");
+    expect(ctx.session.navStack![0]!.keyboard).toEqual([]);
+  });
+});
+
+describe("setCurrentView / getCurrentView", () => {
+  it("round-trips a view spec on the session", () => {
+    const session: NavStackSession = {};
+    expect(getCurrentView(session)).toBeUndefined();
+    setCurrentView(session, { id: "settings:main", args: { tab: "buy" } });
+    expect(getCurrentView(session)).toEqual({
+      id: "settings:main",
+      args: { tab: "buy" },
+    });
+  });
+
+  it("clears the current view when called with undefined", () => {
+    const session: NavStackSession = {};
+    setCurrentView(session, { id: "x" });
+    setCurrentView(session, undefined);
+    expect(getCurrentView(session)).toBeUndefined();
+    expect(session.navCurrentView).toBeUndefined();
   });
 });
 

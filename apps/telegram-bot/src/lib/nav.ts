@@ -109,11 +109,116 @@ export interface NavSnapshot {
   entities?: MessageEntity[];
   keyboard: InlineKeyboard;
   linkPreviewDisabled?: boolean;
+  /**
+   * Re-render token for the parent view. When set and a builder is
+   * registered under `view.id`, the Back handler rebuilds the view
+   * from live data instead of restoring the frozen `text`/`keyboard`
+   * captured at push time. This is the fix for the "stale prompt
+   * after Back" bug class: e.g. creating a wallet, drilling into
+   * withdraw, then tapping Back used to show the pre-create wallet
+   * panel because the snapshot was captured before the create-wallet
+   * edit. Re-rendering on Back closes that gap for any state that
+   * may have moved since the parent was last drawn.
+   *
+   * `text`/`keyboard` remain populated as a structural fallback for
+   * the rare case where the builder has been removed at runtime or
+   * the registry is otherwise unreachable.
+   */
+  view?: ViewSpec;
 }
+
+/**
+ * Re-render token for a navigable view. `id` looks up the builder
+ * registered via `registerView`; `args` is opaque JSON-serializable
+ * state the builder needs to reconstruct the view (often just empty —
+ * most views derive their state from `ctx.from.id` and the env).
+ */
+export interface ViewSpec {
+  id: string;
+  args?: unknown;
+}
+
+/**
+ * Builder signature for a registered view. Returns the `SubmenuView`
+ * payload to render, or `null` to signal "view unavailable right now"
+ * (e.g. RPC degraded, no active wallet) — caller falls back to the
+ * legacy frozen snapshot when this happens.
+ */
+export type ViewBuilder = (
+  ctx: AppContext,
+  args: unknown,
+) => Promise<SubmenuView | null>;
+
+const VIEW_REGISTRY = new Map<string, ViewBuilder>();
+
+/**
+ * Associate a view id with a builder. Each registered view becomes
+ * eligible for re-render-on-Back: when a snapshot tagged with this
+ * id is popped off the nav stack, the builder is invoked and the
+ * resulting view replaces the bubble — so the user sees current data,
+ * not whatever the parent looked like when it was first pushed.
+ *
+ * Idempotent on re-registration with the same id (test setups and
+ * hot-reload flows benefit from this); the last registration wins.
+ */
+export const registerView = (id: string, builder: ViewBuilder): void => {
+  VIEW_REGISTRY.set(id, builder);
+};
+
+/**
+ * Remove a single view registration. Intended for test teardown — a
+ * test that calls `registerView("test:foo", …)` should call
+ * `unregisterView("test:foo")` in `afterEach` so the stub doesn't
+ * leak into other tests in the suite. Not a full registry clear:
+ * production registrations (e.g. `start`, `wallet:main`) are added
+ * once at module load and never re-added, so clearing them between
+ * tests would leave the registry empty for subsequent tests in the
+ * same process.
+ */
+export const unregisterView = (id: string): void => {
+  VIEW_REGISTRY.delete(id);
+};
+
+/** Lookup helper — exposed for tests and for the Back handler's
+ * "builder gone, fall back to frozen snapshot" branch. */
+export const getRegisteredView = (id: string): ViewBuilder | undefined =>
+  VIEW_REGISTRY.get(id);
 
 export interface NavStackSession {
   navStack?: NavSnapshot[];
+  /**
+   * The view currently occupying the bubble the user is interacting
+   * with. Set by entry points that render a registered view (e.g.
+   * `editToSubmenu` with `view.view` populated, or a command handler
+   * that opens a fresh bubble for that view). Read by `editToSubmenu`
+   * when navigating forward: the outgoing view's spec is attached to
+   * the parent snapshot so Back can re-render it from live data
+   * instead of restoring the frozen capture.
+   *
+   * Cleared by Home (the user is being re-seated on the start screen
+   * which sets it back to `{ id: "start" }` itself).
+   */
+  navCurrentView?: ViewSpec;
 }
+
+/** Replace whichever view is recorded as the current one. Pass
+ * `undefined` to clear (used by Home and by callers that intentionally
+ * step outside the registered-view system — e.g. wizard prompts that
+ * don't have a builder). */
+export const setCurrentView = (
+  session: NavStackSession,
+  view: ViewSpec | undefined,
+): void => {
+  if (view === undefined) {
+    delete session.navCurrentView;
+  } else {
+    session.navCurrentView = view;
+  }
+};
+
+export const getCurrentView = (
+  session: NavStackSession,
+): ViewSpec | undefined => session.navCurrentView;
 
 const ensureStack = (session: NavStackSession): NavSnapshot[] => {
   if (!Array.isArray(session.navStack)) {
@@ -222,6 +327,18 @@ export interface SubmenuView {
   parseMode?: "HTML" | "MarkdownV2";
   inlineKeyboard: InlineKeyboard;
   linkPreviewDisabled?: boolean;
+  /**
+   * Optional registry token identifying this view. When set,
+   * `editToSubmenu` records it as the bubble's current view so that
+   * later Back navigations from a deeper screen re-render this view
+   * from live data via the registered builder — rather than restoring
+   * the text/keyboard captured at push time. Views that change while
+   * the user is away from them (wallet panel after a new wallet is
+   * created, settings panel after a preset is edited, etc.) MUST set
+   * this so the "stale snapshot after Back" bug doesn't recur for
+   * their surface.
+   */
+  view?: ViewSpec;
 }
 
 /**
@@ -260,7 +377,31 @@ export const editToSubmenu = async (
   view: SubmenuView,
 ): Promise<SubmenuResult> => {
   const parent = snapshotFromCallback(ctx);
-  if (parent) pushNavSnapshot(ctx.session, parent);
+  // Tag the parent snapshot with the bubble's current view (if any)
+  // so a later Back into the parent re-renders from live data rather
+  // than restoring the frozen text/keyboard captured here. The
+  // frozen capture stays in place as a structural fallback for the
+  // rare case where the registered builder is missing at pop time.
+  const parentView = getCurrentView(ctx.session);
+  if (parent) {
+    if (parentView) parent.view = parentView;
+    pushNavSnapshot(ctx.session, parent);
+  } else if (parentView) {
+    // Photo/media bubbles return a null snapshot from
+    // `snapshotFromCallback`, but if the parent was a registered view
+    // we can still restore it on Back via the builder — push a
+    // view-only snapshot whose frozen text/keyboard fallback is
+    // empty (the builder is the only restoration path for these).
+    pushNavSnapshot(ctx.session, {
+      text: "",
+      keyboard: [],
+      view: parentView,
+    });
+  }
+  // Record the new view as the bubble's current occupant so any
+  // forward nav from here can tag the parent (now this view) for
+  // refresh-on-back. Cleared when `view.view` is absent.
+  setCurrentView(ctx.session, view.view);
   const reply_markup = { inline_keyboard: view.inlineKeyboard };
   const link_preview_options = view.linkPreviewDisabled
     ? ({ is_disabled: true } as const)
@@ -493,6 +634,51 @@ export const registerNavCallbacks = (
     await exitConversations(ctx);
     const snap = popNavSnapshot(ctx.session);
     if (snap) {
+      // Prefer re-rendering from the registered view when the snapshot
+      // is tagged with one — the user came back to a screen whose
+      // underlying data may have moved since the snapshot was
+      // captured, and showing the frozen version is exactly the bug
+      // this rework fixes.
+      if (snap.view) {
+        const builder = getRegisteredView(snap.view.id);
+        if (builder) {
+          const fresh = await safeBuildView(builder, ctx, snap.view.args);
+          if (fresh) {
+            setCurrentView(ctx.session, snap.view);
+            // Preserve the snapshot if the fresh render path throws
+            // (rare — `renderSubmenuInPlace`'s reply fallback can
+            // still surface a network error). Without the re-push,
+            // a transient Telegram 5xx would silently collapse one
+            // level of Back history on the view-registry path — the
+            // legacy frozen-snapshot branch below already guards
+            // against the same race. CodeRabbit #1070.
+            try {
+              await renderSubmenuInPlace(ctx, fresh);
+            } catch (err) {
+              pushNavSnapshot(ctx.session, snap);
+              throw err;
+            }
+            await ctx.answerCallbackQuery();
+            return;
+          }
+          // Builder returned null (RPC degraded, no active wallet,
+          // etc.) — fall through to the frozen-snapshot path so the
+          // user still gets back to *something* rather than being
+          // stranded on the deeper screen.
+        }
+      }
+      // View-only snapshots have no real frozen payload (text/keyboard
+      // are empty). If we reach this point — builder missing or
+      // returned null — `editMessageToSnapshot` would try to render an
+      // empty message and Telegram would 400 ("message text is
+      // empty"), stranding the user on the deeper screen. Degrade to
+      // Home instead: the user lands somewhere usable, and the broken
+      // snapshot doesn't get a second chance to fail. CodeRabbit #1070.
+      if (isViewOnlySnapshot(snap)) {
+        await renderHome(ctx, renderStart);
+        return;
+      }
+      setCurrentView(ctx.session, snap.view);
       const edited = await editMessageToSnapshot(ctx, snap);
       await ctx.answerCallbackQuery();
       if (!edited) {
@@ -524,8 +710,92 @@ export const registerNavCallbacks = (
 
   bot.callbackQuery(NAV_CALLBACK.home, async (ctx) => {
     await exitConversations(ctx);
+    // `renderHome` will re-set `navCurrentView` via the start
+    // renderer; clear here so an in-flight failure (e.g. start
+    // unavailable) doesn't leave a stale current-view pointing at
+    // whatever sub-screen the user was just in.
+    setCurrentView(ctx.session, undefined);
     await renderHome(ctx, renderStart);
   });
+};
+
+/**
+ * A snapshot is "view-only" when it carries a view reference but no
+ * usable frozen payload (`editToSubmenu`'s photo-bubble branch pushes
+ * exactly this shape). The Back handler must not attempt
+ * `editMessageToSnapshot` against such a record — empty text +
+ * empty keyboard would surface as a Telegram 400 — and instead
+ * degrades to Home when the builder is unavailable.
+ */
+const isViewOnlySnapshot = (snap: NavSnapshot): boolean =>
+  snap.view !== undefined && snap.text === "" && snap.keyboard.length === 0;
+
+/**
+ * Best-effort wrapper around a view builder. Never throws — a builder
+ * that fails returns `null` so the Back handler can fall back to the
+ * legacy frozen-snapshot path, leaving the user with a working route
+ * out of the deeper screen rather than an unhandled callback error.
+ */
+const safeBuildView = async (
+  builder: ViewBuilder,
+  ctx: AppContext,
+  args: unknown,
+): Promise<SubmenuView | null> => {
+  try {
+    return await builder(ctx, args);
+  } catch (err) {
+    logger.warn("nav: view builder threw, falling back to frozen snapshot", {
+      err,
+    });
+    return null;
+  }
+};
+
+/**
+ * Edit-or-fallback render for a `SubmenuView` against the in-flight
+ * callback's bubble — the same edit/delete-and-reply logic as
+ * `editToSubmenu`, but without the parent-push side effects. Used by
+ * the Back handler to repaint the bubble with builder-fresh content
+ * after popping a view-tagged snapshot.
+ */
+const renderSubmenuInPlace = async (
+  ctx: AppContext,
+  view: SubmenuView,
+): Promise<void> => {
+  const reply_markup = { inline_keyboard: view.inlineKeyboard };
+  const link_preview_options = view.linkPreviewDisabled
+    ? ({ is_disabled: true } as const)
+    : undefined;
+  try {
+    await ctx.editMessageText(view.text, {
+      parse_mode: view.parseMode,
+      reply_markup,
+      link_preview_options,
+    });
+    return;
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.warn("nav: renderSubmenuInPlace edit failed, falling back", {
+        err,
+      });
+    }
+  }
+  // Edit failed (deleted message, photo bubble, aged out). Reply
+  // first then delete the stale parent — same order as
+  // `editToSubmenu`'s fallback so a transient send failure never
+  // leaves the user staring at an empty chat.
+  await ctx.reply(view.text, {
+    parse_mode: view.parseMode,
+    reply_markup,
+    link_preview_options,
+  });
+  try {
+    await ctx.deleteMessage();
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.debug("nav: renderSubmenuInPlace delete fallback failed", { err });
+    }
+  }
 };
 
 /**
@@ -553,6 +823,11 @@ export const registerStartMenuConversationEscape = (
   });
 };
 
+/** Canonical view id for the /start home screen. Surface as a
+ * constant rather than a bare string so call sites (start handlers,
+ * tests) tag the bubble consistently. */
+export const START_VIEW_ID = "start";
+
 const renderHome = async (
   ctx: AppContext,
   renderStart: StartRenderer,
@@ -578,6 +853,12 @@ const renderHome = async (
   // endpoint rather than leaving a stale source bubble alongside a
   // new one.
   const edited = await editMessageToSnapshot(ctx, snap);
+  // The bubble now shows the start view — tag the session so a later
+  // forward nav from this bubble (Wallet, Settings, …) attaches the
+  // `start` view spec onto its parent snapshot, and Back from there
+  // re-renders start from live data (fresh balances, fresh address)
+  // instead of restoring whatever the welcome card showed last.
+  setCurrentView(ctx.session, { id: START_VIEW_ID });
   await ctx.answerCallbackQuery();
   if (edited) return;
   const sent = await ctx.reply(snap.text, snapshotEditPayload(snap));
