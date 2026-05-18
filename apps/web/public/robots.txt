@@ -1,0 +1,6 @@
+# Allow all general-purpose crawlers to index the site.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://alt.fun/sitemap.xml

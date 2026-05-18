@@ -1,0 +1,31 @@
+# Cloudflare Pages routing for the SPA.
+#
+# Without this file Pages auto-rewrites every unknown path to
+# `/index.html` with HTTP 200 — which made the site indistinguishable
+# from a wall of duplicate / soft-404 pages to Google. This file makes
+# the distinction explicit:
+#
+#   - Known SPA routes (`/`, `/create`, `/profile`, `/token/<addr>`) are
+#     rewritten to `/index.html` with HTTP 200 so React Router can take
+#     over client-side.
+#   - Everything else falls through to `/404.html` with HTTP 404, so
+#     crawlers see a real 404 status and don't index the page as a
+#     duplicate of the homepage. `404.html` is a copy of `index.html`
+#     written by `scripts/post-build.mjs`, so the SPA shell still
+#     renders the styled `NotFound` component.
+#
+# Static assets (favicons, OG image, /altfun-*.html docs, /audit.pdf,
+# /whitepaper.pdf, hashed `/assets/*` bundles, …) are served from the
+# static-asset layer before `_redirects` is consulted — no need to
+# whitelist them here.
+#
+# Add a new entry whenever a new top-level SPA route is added in
+# `src/app/routes.ts`. Routes nested deeper than the patterns below
+# would need their own splat.
+
+/                /index.html  200
+/create          /index.html  200
+/profile         /index.html  200
+/token/*         /index.html  200
+
+/*               /404.html    404
