@@ -25,6 +25,28 @@
 # attack shapes (`http:` mixed-content exfil, `data:`/`javascript:`
 # script-loaded-as-image), and `script-src 'self'` is what actually
 # stops a moderation-bypassed SVG from executing inline `<script>`.
+#
+# `Alt-Svc: clear`: the zone-level Speed → Protocol Optimization →
+# HTTP/3 toggle is off, but Cloudflare Pages emits `alt-svc: h3=":443";
+# ma=86400` regardless (the toggle only affects Workers / origin-proxied
+# traffic, not Pages-served responses) — there is no Pages-side opt-out
+# in the dashboard. The `h3` advertisement caches in the browser's
+# Alt-Svc store for 24h and steers subsequent HTTPS requests at QUIC.
+# On networks where UDP/443 is blocked, filtered, or aggressively rate-
+# limited (UK ISPs are a known offender — same regulatory environment
+# that drives the `GB` entry in `DEFAULT_BLOCKED` in
+# `src/hooks/useIsGeoBlocked.ts`), the QUIC handshake hangs silently
+# and the browser parks every API call in
+# "Stalled" for minutes before falling back to TCP. Setting the header
+# to the special token `clear` (RFC 7838 §3.1) actively invalidates the
+# browser's cached alternative-service entries for this origin in
+# addition to suppressing future advertisements, so users who already
+# have a poisoned cache from earlier visits get unstuck on their next
+# load instead of waiting out the 24h TTL.
+#
+# Set it on `alt.fun` only (this file ships with the web project).
+# `api.alt.fun` is on a separate zone whose toggle is already off, and
+# its Workers responses already do not include the header.
 
 /*
   X-Content-Type-Options: nosniff
@@ -32,4 +54,5 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Alt-Svc: clear
   Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; frame-src 'self' https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'
