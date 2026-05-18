@@ -9,22 +9,56 @@ import type { Holder } from "../../services/types";
 // reads as populated and the table height stays stable.
 const HOLDER_SKELETON_COUNT = 8;
 
+// Canonical "burn" sinks — addresses with no known private key, so
+// tokens transferred here are unrecoverable. Our own contracts burn
+// via OZ's `_burn` (which reduces `totalSupply` rather than transferring
+// to a sink), but holders can — and do — manually send tokens to either
+// address as a supply-removal signal, so surface both with the same
+// `BURNT` pill. Compared as lowercase strings (see `wallet` below).
+const BURN_ADDRESSES: ReadonlySet<string> = new Set([
+  "0x000000000000000000000000000000000000dead",
+  "0x0000000000000000000000000000000000000000",
+]);
+
+// Vanity short-forms shown in place of the upstream `0x00…ad` /
+// `0x00…00` truncations — for these specific addresses the
+// information-bearing characters are at the tail (or non-existent),
+// not the head, so the standard 4+2 truncation actively loses the
+// signal.
+const BURN_DISPLAY_ADDRESS: Record<string, string> = {
+  "0x000000000000000000000000000000000000dead": "0x…dead",
+  "0x0000000000000000000000000000000000000000": "0x00…00",
+};
+
 interface Props {
   holders: Holder[];
   /** True while `useHolders` is fetching for the first time. */
   isLoading?: boolean;
+  /**
+   * The token's on-chain creator (== `Ownable` owner). When a holder row
+   * matches this address we render an `OWNER` pill so the reader can spot
+   * the dev wallet without cross-referencing the hero. Lowercased for
+   * comparison.
+   */
+  creatorAddress?: string;
 }
 
-export default function HoldersTab({ holders, isLoading = false }: Props) {
+export default function HoldersTab({
+  holders,
+  isLoading = false,
+  creatorAddress,
+}: Props) {
   const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
   const showSkeletons = isLoading && holders.length === 0;
+  const ownerAddress = creatorAddress?.toLowerCase();
 
   // Rendered as a real `<table>` (mirroring `TradesTab`) rather than a
   // CSS grid so the columns size to content and the parent `.tabContent`
   // can scroll horizontally on narrow viewports instead of crushing the
   // wallet column. Cells are `white-space: nowrap` so the wallet address
-  // and creator pill never wrap onto a second line. Header/cell classes
-  // are shared with `TradesTab` to keep the two tabs visually identical.
+  // and OWNER / BURNT pills never wrap onto a second line. Header/cell
+  // classes are shared with `TradesTab` to keep the two tabs visually
+  // identical.
   return (
     <table
       className={styles.holdersTable}
@@ -71,53 +105,80 @@ export default function HoldersTab({ holders, isLoading = false }: Props) {
                 </td>
               </tr>
             ))
-          : holders.map((h) => (
-              <tr key={h.rank} className={styles.holderTableRow}>
-                <td className={styles.tdRank}>{h.rank}</td>
-                <td className={styles.tdWalletCell}>
-                  <a
-                    className={styles.holderAddressLink}
-                    href={`https://hyperevmscan.io/address/${h.walletFull}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`View ${h.walletFull} on HyperEVMScan`}
-                  >
-                    {h.address}
-                    <svg
-                      width="10"
-                      height="10"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className={styles.externalIcon}
-                      aria-hidden="true"
+          : holders.map((h) => {
+              const wallet = h.walletFull.toLowerCase();
+              const isBurnt = BURN_ADDRESSES.has(wallet);
+              const isOwner = !!ownerAddress && wallet === ownerAddress;
+              // Burn addresses get a vanity short-form (see
+              // `BURN_DISPLAY_ADDRESS`) — the default `0x00…ad` /
+              // `0x00…00` truncation loses the only character that
+              // distinguishes the two sinks at a glance.
+              const displayAddress = isBurnt
+                ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
+                : h.address;
+              return (
+                <tr key={h.rank} className={styles.holderTableRow}>
+                  <td className={styles.tdRank}>{h.rank}</td>
+                  <td className={styles.tdWalletCell}>
+                    <a
+                      className={styles.holderAddressLink}
+                      href={`https://hyperevmscan.io/address/${h.walletFull}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`View ${h.walletFull} on HyperEVMScan`}
                     >
-                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                      <polyline points="15 3 21 3 21 9" />
-                      <line x1="10" y1="14" x2="21" y2="3" />
-                    </svg>
-                  </a>
-                  {h.isCreator && (
-                    <span className={styles.holderCreator}>creator</span>
-                  )}
-                </td>
-                <td className={styles.tdTokensCell}>{h.tokens}</td>
-                <td className={styles.tdPercentCell}>{h.percentSupply}%</td>
-                <td className={styles.tdBarCell}>
-                  <div className={styles.barTrack}>
-                    <div
-                      className={cn(styles.barFill, "bar-glow-mint")}
-                      style={{
-                        width: `${(h.percentSupply / maxSupply) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      {displayAddress}
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={styles.externalIcon}
+                        aria-hidden="true"
+                      >
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </a>
+                    {isBurnt && (
+                      <span
+                        className={styles.holderTag}
+                        title="Tokens sent to the burn address — permanently removed from circulating supply"
+                        aria-label="Burnt"
+                      >
+                        BURN ADDRESS
+                      </span>
+                    )}
+                    {isOwner && (
+                      <span
+                        className={styles.holderTag}
+                        title="Token creator / contract owner"
+                        aria-label="Creator"
+                      >
+                        CREATOR
+                      </span>
+                    )}
+                  </td>
+                  <td className={styles.tdTokensCell}>{h.tokens}</td>
+                  <td className={styles.tdPercentCell}>{h.percentSupply}%</td>
+                  <td className={styles.tdBarCell}>
+                    <div className={styles.barTrack}>
+                      <div
+                        className={cn(styles.barFill, "bar-glow-mint")}
+                        style={{
+                          width: `${(h.percentSupply / maxSupply) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
       </tbody>
     </table>
   );
