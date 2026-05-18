@@ -3,6 +3,7 @@ import { useState } from "react";
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { cn } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
@@ -53,10 +54,14 @@ export default function HeroSection({ token }: Props) {
             {hasImage ? (
               <img
                 key={token.image}
-                src={token.image}
+                src={transformImageUrl(token.image, { width: 96 })}
+                srcSet={srcSetFor(token.image, 96) || undefined}
                 alt={token.name}
+                width={96}
+                height={96}
                 className={styles.avatarImage}
                 onError={() => setImgError(true)}
+                decoding="async"
               />
             ) : (
               fallbackEmoji

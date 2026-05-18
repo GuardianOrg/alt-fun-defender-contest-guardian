@@ -5,6 +5,7 @@ import styles from "./TransferOwnershipTab.module.css";
 import { useTransferCreator, validateNewCreator } from "../../hooks/useTransferCreator";
 import { useWallet } from "../../hooks/useWallet";
 import { cn, getErrorMessage, shortenAddress } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import Button from "../shared/Button";
 import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
@@ -195,10 +196,15 @@ function TransferRow({ token, currentCreator, onTransferred }: TransferRowProps)
         <div className={profileStyles.balanceLogoWrap}>
           {token.imageUrl && !imgError ? (
             <img
-              src={token.imageUrl}
+              src={transformImageUrl(token.imageUrl, { width: 64 })}
+              srcSet={srcSetFor(token.imageUrl, 64) || undefined}
               alt=""
+              width={64}
+              height={64}
               className={profileStyles.balanceLogo}
               onError={() => setImgError(true)}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <span

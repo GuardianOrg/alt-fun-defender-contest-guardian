@@ -54,6 +54,38 @@ Per-modal CSS only sets sizing (width / max-height) via `panelClassName` — nev
 
 Inline anchored popovers (e.g. [`SettingsPopup`](src/components/token/SettingsPopup.tsx)) are **not** modals — they don't dim the page or trap focus, and shouldn't use `Modal`.
 
+## Token images (mandatory)
+
+Every `<img>` that renders an R2-served token logo goes through [`transformImageUrl`](src/utils/image.ts) + [`srcSetFor`](src/utils/image.ts) from `src/utils/image.ts`. Cloudflare Image Transformations are enabled on the `alt.fun` zone (Speed → Optimization → Image Resizing); the helper rewrites the request through `/cdn-cgi/image/width=<w>,quality=85,format=auto/<path>` so each render gets a resized AVIF/WebP sized for its slot. Token logos are uploaded at 400×400+ and rendered into 28–96 px squares — the unrewritten PNG/JPEG is the single largest first-paint cost on the home page (~30 logos at 50–200 KB each → ~30 AVIFs at <10 KB each after this helper).
+
+Render-site contract:
+
+- Pass the **CSS pixel width of the rendered slot** to `transformImageUrl`, not 2x. The helper's companion `srcSetFor(src, w)` builds the `1x`/`2x` retina pair automatically — the browser picks `2x` on `devicePixelRatio ≥ 2` displays.
+- Always set explicit `width` and `height` attributes on the `<img>` matching the slot — they prevent CLS while the image decodes and let the browser reserve the box during the network round-trip.
+- Set `loading="lazy"` + `decoding="async"` on off-the-fold sites (token row icons, search results, position rows). Leave the hero avatar / above-the-fold sites eager so the largest contentful paint isn't gated on the lazy queue.
+- Pass `token.image` (or `imageUrl`) unconditionally — the helper short-circuits cleanly for the public `DEFAULT_TOKEN_IMAGE` (root-relative), `blob:` / `data:` upload previews on the create page, foreign origins, and local dev's `localhost:8787` API (the `.alt.fun`-suffix gate). No per-site bypass needed.
+- Omit `srcSet` entirely (`srcSet={srcSetFor(...) || undefined}`) when the helper short-circuits; never feed the browser a `<url> 1x, <url> 2x` line that resolves to the same byte range twice.
+
+Wired sites today — match the width to your slot when adding a new one:
+
+| Site | Slot | Width arg |
+|---|---|---|
+| [`TokenRow`](src/components/terminal/TokenRow.tsx) | 4rem (64px) | `64` |
+| [`HeroSection`](src/components/token/HeroSection.tsx) avatar | 6rem (96px) | `96` |
+| [`ProfileView`](src/components/profile/ProfileView.tsx) balance / rewards rows | 4rem (64px) | `64` |
+| [`TransferOwnershipTab`](src/components/profile/TransferOwnershipTab.tsx) | 4rem (64px) | `64` |
+| [`RightPanel`](src/components/terminal/RightPanel.tsx) position rows | 1.6rem (~26px) | `32` |
+| [`RewardsTab`](src/components/layout/RewardsTab.tsx) token cards | 1.75rem (28px) | `32` |
+| [`SearchTrendingCard`](src/components/layout/SearchTrendingCard.tsx) / [`SearchResultsList`](src/components/layout/SearchResultsList.tsx) | 26–28px | `32` |
+| [`TradePanelInput`](src/components/token/TradePanelInput.tsx) coin icon | ~28px | `32` |
+
+Documented exceptions:
+
+- **The lightbox in `HeroSection`** renders the original image at full screen (`min(90vw, 32rem)`) — left untouched on purpose so the user sees the canonical asset when they click the avatar.
+- **Non-R2 images** (HyperLiquid logo, USDC icon, asset icons, profile faces, Privy chrome) are bundled local assets or third-party icons. The helper is a no-op against foreign hosts so calling it would be safe but pointless — skip it. Don't repurpose this rule for local SVGs / bundled PNGs.
+
+Tests live in [`src/utils/image.test.ts`](src/utils/image.test.ts) and cover every short-circuit branch (default image, blob, data, foreign origin, double-wrap, undefined, local dev). Adding a new opt or a new short-circuit means adding the matching test in the same commit.
+
 ## Progress-bar breakdown (`Token.organicFilled` / `Token.leverageBoost`)
 
 Every graduation progress bar is a two-segment render powered by the API's `curveFilledOrganic` / `curveFilledLeverageBoost` fields:

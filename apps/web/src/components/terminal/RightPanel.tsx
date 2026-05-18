@@ -17,6 +17,7 @@ import {
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
@@ -92,10 +93,15 @@ function PositionRow({
       <div className={styles.positionLogoWrap}>
         {position.image && !imgError ? (
           <img
-            src={position.image}
+            src={transformImageUrl(position.image, { width: 32 })}
+            srcSet={srcSetFor(position.image, 32) || undefined}
             alt=""
+            width={32}
+            height={32}
             className={styles.positionLogo}
             onError={() => setImgError(true)}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <span className={styles.positionLogoFallback} aria-hidden="true">
