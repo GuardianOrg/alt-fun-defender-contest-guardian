@@ -1819,6 +1819,11 @@ export interface RecentTokenAddressRow {
  * The backfill computes the diff against PostgreSQL in memory and registers
  * any missing rows — cheap because the limit is small and the typical case
  * is "everything already registered, nothing to do".
+ *
+ * No secondary tie-break: the original Ponder query had none, so we match
+ * that behaviour exactly to keep A/B parity during the migration window.
+ * Same-block order is Postgres heap order in both cases — stable enough for
+ * the set-difference logic the backfill runs against this result.
  */
 export async function fetchMostRecentTokenAddresses(
   db: Database,
@@ -1828,7 +1833,7 @@ export async function fetchMostRecentTokenAddresses(
     const rows = await db
       .select({ address: indexerToken.address })
       .from(indexerToken)
-      .orderBy(desc(indexerToken.blockNumber), asc(indexerToken.address))
+      .orderBy(desc(indexerToken.blockNumber))
       .limit(limit);
     return rows.map((r) => ({ address: r.address }));
   } catch (error) {

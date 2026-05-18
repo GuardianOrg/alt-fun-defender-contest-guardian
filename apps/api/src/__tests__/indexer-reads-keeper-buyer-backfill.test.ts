@@ -176,14 +176,11 @@ describe("fetchNonZeroWalletZapPositions", () => {
 describe("fetchMostRecentTokenAddresses", () => {
   beforeEach(() => resetCapture());
 
-  it("orders by blockNumber desc then address asc (stable tie-break within same block)", async () => {
+  it("orders by blockNumber desc matching the original Ponder query", async () => {
     const db = createDb("postgres://test");
     await fetchMostRecentTokenAddresses(db, 50);
     expect(orderByCalls).toHaveLength(1);
-    expect(orderByCalls[0]).toEqual([
-      desc(indexerToken.blockNumber),
-      asc(indexerToken.address),
-    ]);
+    expect(orderByCalls[0]).toEqual([desc(indexerToken.blockNumber)]);
   });
 
   it("passes the caller-supplied limit through", async () => {
