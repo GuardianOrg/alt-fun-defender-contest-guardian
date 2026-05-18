@@ -66,7 +66,18 @@ export const indexerToken = ponderSchema.table(
     blockNumber: numeric("block_number").notNull(),
     timestamp: numeric("timestamp").notNull(),
   },
-  (table) => [index("token_creator_index").on(table.creator)],
+  (table) => [
+    index("token_creator_index").on(table.creator),
+    // Backs fetchPendingGraduationTokens (graduation-keeper cron).
+    // Matching definition in apps/indexer/ponder.schema.ts — keep in lockstep.
+    index("token_pending_graduation_index").on(
+      table.pendingGraduation,
+      table.pendingGraduationAt,
+    ),
+    // Backs fetchMostRecentTokenAddresses (registration-backfill cron).
+    // Matching definition in apps/indexer/ponder.schema.ts — keep in lockstep.
+    index("token_block_number_index").on(table.blockNumber),
+  ],
 );
 
 /**

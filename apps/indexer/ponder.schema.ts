@@ -95,6 +95,30 @@ export const token = onchainTable("token", (t) => ({
   // ordering the route's USD-denominated 85% gate consumes; see
   // `routes/tokens/list.ts → fetchNonGraduatedTokensOnchain`).
   curveSupplyIdx: index().on(table.graduated, table.curveSupply),
+  // Backs `fetchPendingGraduationTokens` in `graduation-keeper.ts`:
+  //
+  //   SELECT address, pending_graduation_at FROM ponder_views.token
+  //   WHERE pending_graduation = true AND graduated = false
+  //   ORDER BY pending_graduation_at ASC LIMIT 50
+  //
+  // Without this, Postgres seq-scans the full token catalogue on every
+  // keeper cron tick (once per minute) even though only 0–5 rows ever
+  // match. The composite on (pending_graduation, pending_graduation_at)
+  // lets the planner seek directly to the pending slice and walk it in
+  // ascending timestamp order, capping at LIMIT 50 without a sort step.
+  // graduated is not included — by contract pending_graduation = true
+  // implies graduated = false, so the filter never removes rows.
+  pendingGraduationIdx: index().on(table.pendingGraduation, table.pendingGraduationAt),
+  // Backs `fetchMostRecentTokenAddresses` in `registration-backfill.ts`:
+  //
+  //   SELECT address FROM ponder_views.token
+  //   ORDER BY block_number DESC LIMIT 50
+  //
+  // Without this, every backfill tick (once per minute) seq-scans the
+  // entire token table and runs a top-N heapsort. The DESC index lets
+  // the planner walk the newest rows first and stop at LIMIT 50 with
+  // no sort step, regardless of catalogue size.
+  blockNumberIdx: index().on(table.blockNumber.desc()),
 }));
 
 /** Bonding curve trades with LT amounts and curve state changes. */
