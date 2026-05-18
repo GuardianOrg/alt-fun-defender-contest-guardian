@@ -754,8 +754,8 @@ const runPinVerifyFlow = async (
   lang: Language,
   phrase: string | null,
 ): Promise<PinVerifyOutcome> => {
+  let editedOrigin = false;
   if (pinAlreadySet) {
-    let editedOrigin = false;
     const prompt = t(PIN_AUTHORISE_THE_PROMPT, lang)(actionLabel);
     if (origin) {
       editedOrigin = await tryEditOriginToPrompt(
@@ -812,15 +812,24 @@ const runPinVerifyFlow = async (
       );
       return "unset";
     }
-    const retry = await ctx.reply(
-      withAntiPhishing(
-        t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
-        phrase,
+    const retryPrompt = t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining);
+    const retryEdited =
+      editedOrigin &&
+      origin !== undefined &&
+      (await tryEditOriginToPrompt(
+        conversation,
+        origin,
+        retryPrompt,
         lang,
-      ),
-      { reply_markup: backHomeMarkup(lang) },
-    );
-    await trackWorkflowMessage(conversation, retry.message_id);
+        phrase,
+      ));
+    if (!retryEdited) {
+      const retry = await ctx.reply(
+        withAntiPhishing(retryPrompt, phrase, lang),
+        { reply_markup: backHomeMarkup(lang) },
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+    }
   }
 };
 
