@@ -45,7 +45,7 @@ describe("fetchHistoricalCurveSnapshots — array binding", () => {
     // Template tag calls: first arg is the strings array, subsequent args
     // are interpolated values in order — `${lowered}` then `${cutoffSec}`.
     const call = mockNeonQuery.mock.calls[0];
-    const [, loweredArg, cutoffArg] = call as [
+    const [strings, loweredArg, cutoffArg] = call as [
       readonly string[],
       string[],
       number,
@@ -56,6 +56,16 @@ describe("fetchHistoricalCurveSnapshots — array binding", () => {
       ADDR_B.toLowerCase(),
     ]);
     expect(cutoffArg).toBe(CUTOFF_SEC);
+
+    // The query must be the LATERAL per-address seek, not a
+    // `DISTINCT ON (token_address)` scan. The old shape pulled tens of
+    // thousands of rows and spilled an external-merge sort to disk on Neon;
+    // the LATERAL form uses the `(token_address, timestamp)` index to pull
+    // one row per token. Issue #1064.
+    const joinedSql = strings.join("");
+    expect(joinedSql).toMatch(/CROSS JOIN LATERAL/i);
+    expect(joinedSql).toMatch(/LIMIT 1/i);
+    expect(joinedSql).not.toMatch(/DISTINCT ON/i);
   });
 
   it("maps rows into a lowercased-keyed snapshot map", async () => {
@@ -98,6 +108,24 @@ describe("fetchHistoricalCurveSnapshots — array binding", () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it("dedupes the lowered address array passed to unnest — duplicates and mixed-case variants of the same address collapse to one LATERAL seek", async () => {
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    await fetchHistoricalCurveSnapshots(
+      DATABASE_URL,
+      [ADDR_A, ADDR_A, ADDR_A.toUpperCase(), ADDR_B],
+      CUTOFF_SEC,
+    );
+
+    const [, loweredArg] = mockNeonQuery.mock.calls[0] as [
+      readonly string[],
+      string[],
+      number,
+    ];
+
+    expect(loweredArg).toEqual([ADDR_A.toLowerCase(), ADDR_B.toLowerCase()]);
   });
 
   it("short-circuits on an empty address list without hitting the SQL tag", async () => {

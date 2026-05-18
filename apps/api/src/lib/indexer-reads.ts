@@ -312,9 +312,12 @@ export async function fetchNonGraduatedTokensOnchain(
  * Latest `token_snapshot` row per address with `timestamp <= cutoff`. Used to
  * reconstruct the curve ratio 24h ago for the change24h calculation.
  *
- * Single SQL query using `DISTINCT ON (token_address)` — replaces the legacy
- * `fetchHistoricalCurveSnapshots` which fanned out one aliased GraphQL
- * sub-query per token (capped at 50 per batch, sequential across batches).
+ * Uses a per-address `CROSS JOIN LATERAL ... LIMIT 1` seek on
+ * `(token_address, timestamp DESC)`. The earlier `DISTINCT ON (token_address)`
+ * form pulled tens of thousands of rows per call and spilled an external-merge
+ * sort to disk on Neon (~700ms wall time, the dominant CU consumer on the
+ * fleet). LATERAL pulls one row per token via the existing index — same
+ * pattern as `fetchHistoricalLtRates` in `market-data.ts`. Issue #1064.
  */
 export async function fetchHistoricalCurveSnapshots(
   databaseUrl: string,
@@ -331,38 +334,46 @@ export async function fetchHistoricalCurveSnapshots(
   for (const addr of tokenAddresses) result.set(addr.toLowerCase(), null);
   if (tokenAddresses.length === 0) return result;
 
-  const lowered = tokenAddresses.map((a) => a.toLowerCase());
+  // Dedup before unnest — duplicates in the input drive one extra LATERAL
+  // iteration each (the prior `DISTINCT ON` form was implicitly dedup'd
+  // by its Unique node). The output map is unaffected — same key, same
+  // value on any overwrite — but redundant index seeks aren't free at
+  // larger batches. CodeRabbit feedback on PR #1065.
+  const lowered = Array.from(
+    new Set(tokenAddresses.map((a) => a.toLowerCase())),
+  );
   // Use the **raw** `neon()` SQL tag, not drizzle's `db.execute(sql`...`)`:
   // `drizzle-orm/neon-http` binds a JS array as a single scalar parameter
   // and Postgres then rejects the `::text[]` cast with
-  // `22P02 malformed array literal: "0x..."`, so the catch below swallows
-  // the failure and every old-token `change24h` falls null with
-  // `dataSource: degraded`. The raw neon tag serialises the array as a
-  // proper PG array literal (`{a,b,c}`) and the same query plans
-  // identically. Sibling historical fetches in `market-data.ts`
-  // (`fetchHistoricalLtRates`, `fetchLtRatesAtLaunches`) already use the
-  // raw tag for the same reason — keep this one consistent.
+  // `22P02 malformed array literal: "0x..."`. Raw neon tag serialises the
+  // array as a proper PG array literal (`{a,b,c}`). Sibling historical
+  // fetches in `market-data.ts` (`fetchHistoricalLtRates`,
+  // `fetchLtRatesAtLaunches`) already use the raw tag for the same reason.
   //
   // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
   // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
   // `block.timestamp` at second resolution and ties on multi-trade blocks
-  // (and on a curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the
-  // same block). Without it, `DISTINCT ON (token_address)` picks an
-  // arbitrary tied row at the 24h cutoff and `change24h` wobbles across
-  // requests. Lock the secondary sort to the indexer's primary key
-  // (`${txHash}-${logIndex}`) so the historical reference is deterministic.
+  // (curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the same
+  // block). Locking the secondary sort to the indexer's primary key
+  // (`${txHash}-${logIndex}`) keeps the historical reference deterministic
+  // across requests.
   const sqlClient = neon(databaseUrl);
   try {
     const rows = (await sqlClient`
-      SELECT DISTINCT ON (token_address)
-        token_address,
-        curve_supply::text AS curve_supply,
-        lt_reserve::text AS lt_reserve,
-        timestamp::text AS timestamp
-      FROM ponder_views.token_snapshot
-      WHERE token_address = ANY(${lowered}::text[])
-        AND timestamp <= ${cutoffSec}::numeric
-      ORDER BY token_address, timestamp DESC, id DESC
+      SELECT
+        t.address AS token_address,
+        s.curve_supply::text AS curve_supply,
+        s.lt_reserve::text AS lt_reserve,
+        s.timestamp::text AS timestamp
+      FROM unnest(${lowered}::text[]) AS t(address)
+      CROSS JOIN LATERAL (
+        SELECT curve_supply, lt_reserve, timestamp
+        FROM ponder_views.token_snapshot
+        WHERE token_address = t.address
+          AND timestamp <= ${cutoffSec}::numeric
+        ORDER BY timestamp DESC, id DESC
+        LIMIT 1
+      ) s
     `) as unknown as Array<{
       token_address: string;
       curve_supply: string;
