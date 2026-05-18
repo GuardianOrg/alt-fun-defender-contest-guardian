@@ -178,6 +178,29 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     amtNum > 0 &&
     usdcBalanceNum !== null &&
     amtNum > usdcBalanceNum;
+  // Insufficient token balance for sells. Mirrors `insufficientUsdc` — the
+  // tx would revert against the ERC20 `transferFrom` inside `Zap.sell`
+  // anyway, so we surface a clean error in the form rather than letting
+  // the user pay gas to learn that. Bigint compare via `parseUnits` so an
+  // 18-decimal token balance at the extreme end doesn't lose precision.
+  // `parseUnits` throws on malformed numeric strings; in that case we
+  // fall through to the existing input validation rather than spuriously
+  // flagging "insufficient".
+  const insufficientToken = (() => {
+    if (
+      !isConnected ||
+      mode !== "sell" ||
+      amtNum <= 0 ||
+      maxBalanceWei === null
+    ) {
+      return false;
+    }
+    try {
+      return parseUnits(amount, 18) > maxBalanceWei;
+    } catch {
+      return false;
+    }
+  })();
 
   // Bridge-USDC CTA: surfaced in buy mode whenever the wallet either can't
   // meet the platform minimum buy at all, or can't cover the amount the
@@ -359,10 +382,14 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   // a stale router error (e.g. "Transaction was rejected in your wallet")
   // on top of a fresh input-validation message. Priority, highest first:
   //   1. geoBlock     — hard CDN gate, supersedes everything
-  //   2. exceedsBuffer — sell-side liquidity ceiling (rich warning box)
-  //   3. insufficientUsdc — buy-side wallet balance
-  //   4. belowMinimum / sellBelowMinimum — per-mode minimums
-  //   5. router error — last-attempt failure; lowest because it's the
+  //   2. insufficientToken — sell-side wallet balance. Above `exceedsBuffer`
+  //      because the buffer message is misleading when the user couldn't
+  //      submit the sell in the first place (the quote is computed off the
+  //      typed amount, not the actual balance).
+  //   3. exceedsBuffer — sell-side liquidity ceiling (rich warning box)
+  //   4. insufficientUsdc — buy-side wallet balance
+  //   5. belowMinimum / sellBelowMinimum — per-mode minimums
+  //   6. router error — last-attempt failure; lowest because it's the
   //      stalest signal and is cleared on the next amount edit anyway.
   //
   // Suppressed entirely while a tx is in flight or has just confirmed:
@@ -375,6 +402,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     | { kind: "geoBlock" }
     | { kind: "exceedsBuffer" }
     | { kind: "insufficientUsdc" }
+    | { kind: "insufficientToken" }
     | { kind: "belowMinimum" }
     | { kind: "sellBelowMinimum" }
     | { kind: "txError"; message: string };
@@ -382,6 +410,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const activeError: ActiveError | null = (() => {
     if (suppressValidation) return null;
     if (geoBlockShown) return { kind: "geoBlock" };
+    if (insufficientToken) return { kind: "insufficientToken" };
     if (sellExceedsBuffer && sellQuote) return { kind: "exceedsBuffer" };
     if (insufficientUsdc) return { kind: "insufficientUsdc" };
     if (belowMinimum) return { kind: "belowMinimum" };
@@ -563,6 +592,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           setAmount={handleAmountChange}
           isBusy={isBusy}
           maxBalance={maxBalance}
+          maxBalanceWei={maxBalanceWei}
           sellQuote={sellQuote}
           token={token}
         />
@@ -634,6 +664,13 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Insufficient USDC
+          </div>
+        )}
+
+        {activeError?.kind === "insufficientToken" && (
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
+            Insufficient {ticker} balance
           </div>
         )}
 
@@ -711,6 +748,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             sellBelowMinimum ||
             sellExceedsBuffer ||
             insufficientUsdc ||
+            insufficientToken ||
             (isConnected && amtNum <= 0)
           }
           className={step === "confirmed" ? styles.ctaConfirmed : undefined}
