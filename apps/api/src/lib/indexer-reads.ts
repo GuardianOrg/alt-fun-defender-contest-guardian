@@ -334,7 +334,14 @@ export async function fetchHistoricalCurveSnapshots(
   for (const addr of tokenAddresses) result.set(addr.toLowerCase(), null);
   if (tokenAddresses.length === 0) return result;
 
-  const lowered = tokenAddresses.map((a) => a.toLowerCase());
+  // Dedup before unnest — duplicates in the input drive one extra LATERAL
+  // iteration each (the prior `DISTINCT ON` form was implicitly dedup'd
+  // by its Unique node). The output map is unaffected — same key, same
+  // value on any overwrite — but redundant index seeks aren't free at
+  // larger batches. CodeRabbit feedback on PR #1065.
+  const lowered = Array.from(
+    new Set(tokenAddresses.map((a) => a.toLowerCase())),
+  );
   // Use the **raw** `neon()` SQL tag, not drizzle's `db.execute(sql`...`)`:
   // `drizzle-orm/neon-http` binds a JS array as a single scalar parameter
   // and Postgres then rejects the `::text[]` cast with

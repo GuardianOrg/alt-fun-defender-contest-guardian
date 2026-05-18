@@ -110,6 +110,24 @@ describe("fetchHistoricalCurveSnapshots — array binding", () => {
     expect(result).toBeNull();
   });
 
+  it("dedupes the lowered address array passed to unnest — duplicates and mixed-case variants of the same address collapse to one LATERAL seek", async () => {
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    await fetchHistoricalCurveSnapshots(
+      DATABASE_URL,
+      [ADDR_A, ADDR_A, ADDR_A.toUpperCase(), ADDR_B],
+      CUTOFF_SEC,
+    );
+
+    const [, loweredArg] = mockNeonQuery.mock.calls[0] as [
+      readonly string[],
+      string[],
+      number,
+    ];
+
+    expect(loweredArg).toEqual([ADDR_A.toLowerCase(), ADDR_B.toLowerCase()]);
+  });
+
   it("short-circuits on an empty address list without hitting the SQL tag", async () => {
     const result = await fetchHistoricalCurveSnapshots(
       DATABASE_URL,
