@@ -18,11 +18,10 @@ import { tokenService } from "../services/tokenService";
 import type { Token } from "../services/types";
 
 /**
- * Pull the most-recent cached `Token` for `address` out of any list
- * query the app already has in flight: the home table's flat
- * `["tokens", …]` cache (from `useTokens`) and its infinite-scroll
- * sibling `["tokens-infinite", …]` (from `useInfiniteTokens`). Returns
- * the first match (case-insensitive on address) or `undefined`.
+ * Pull the most-recent cached `Token` for `address` out of the home
+ * table's infinite-scroll cache (`["tokens-infinite", …]`, populated
+ * by `useInfiniteTokens` and shared with `useTokens` per its JSDoc).
+ * Returns the first match (case-insensitive on address) or `undefined`.
  *
  * Used as `placeholderData` for `useToken` so navigating from a list
  * paints the token's image / ticker / name / leverage / mcap on the
@@ -39,17 +38,10 @@ function findCachedTokenInLists(
 ): Token | undefined {
   if (!address) return undefined;
   const target = address.toLowerCase();
-  // `getQueriesData` does prefix matching by default, so `["tokens"]`
-  // matches `["tokens", filter, …]` from `useTokens` but NOT
-  // `["tokens-infinite", …]` (different first segment). We scan both
-  // namespaces explicitly.
-  for (const [, data] of queryClient.getQueriesData<Token[]>({
-    queryKey: ["tokens"],
-  })) {
-    if (!data) continue;
-    const hit = data.find((t) => t.address.toLowerCase() === target);
-    if (hit) return hit;
-  }
+  // `useTokens` and `useInfiniteTokens` now share a single cache entry
+  // under `["tokens-infinite", …]` (see `useTokens.ts` JSDoc). The
+  // previous `["tokens", …]` namespace is no longer populated by any
+  // hook, so scanning it would just be dead work.
   for (const [, data] of queryClient.getQueriesData<{
     pages: Token[][];
   }>({ queryKey: ["tokens-infinite"] })) {

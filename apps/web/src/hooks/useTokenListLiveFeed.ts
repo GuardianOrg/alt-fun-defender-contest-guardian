@@ -87,9 +87,12 @@ export function useTokenListLiveFeed(): void {
     const invalidator = createTradeFeedInvalidator(() => {
       // Refresh the catalogue itself so `curveFilled` /
       // `organicFilled` / `leverageBoost` (the progress bar inputs on
-      // every row) pick up the new trade.
+      // every row) pick up the new trade. `useTokens` and
+      // `useInfiniteTokens` now share this single cache namespace —
+      // see `useTokens.ts` JSDoc for the dedupe rationale — so one
+      // invalidation covers SearchModal, RightPanel, DevSimulator, and
+      // the home-page table.
       queryClient.invalidateQueries({ queryKey: ["tokens-infinite"] });
-      queryClient.invalidateQueries({ queryKey: ["tokens"] });
       // Refresh the per-token mcap + 24h change + 24h volume map. Now
       // a single query (the `useMarketData` hook absorbed the legacy
       // `useTokenPrices` consumers) so one invalidation drives every

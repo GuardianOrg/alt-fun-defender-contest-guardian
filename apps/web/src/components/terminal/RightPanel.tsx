@@ -167,20 +167,19 @@ export default function RightPanel() {
   // Pull the "graduating soon" list straight from the focused
   // `/api/v1/tokens?status=graduating` endpoint rather than fetching
   // the top-100 trending catalogue and filtering it client-side. The
-  // old shape ran a redundant `useTokens()` query with a different
-  // queryKey (`["tokens", undefined, {}]`) than the home table's
-  // `useInfiniteTokens` (`["tokens-infinite", …]`) — every 10s poll
-  // and every WS-driven invalidation fired *both* requests against
-  // `/api/v1/tokens`, just to surface the small ≥85%-filled set the
-  // server can return directly. The status filter is also a more
-  // accurate match for the panel's "GRADUATING SOON" header: the
-  // previous `t.status === "graduating"` filter only matched the
-  // ~60–120s on-chain frozen window, which left the panel empty
-  // almost all the time and silently missed any frozen-window token
-  // that fell outside the trending top-100.
+  // status filter is also a more accurate match for the panel's
+  // "GRADUATING SOON" header: the previous `t.status === "graduating"`
+  // filter only matched the ~60–120s on-chain frozen window, which
+  // left the panel empty almost all the time and silently missed any
+  // frozen-window token that fell outside the trending top-100.
   //
-  // The shared `["tokens"]` invalidation in `useTokenListLiveFeed`
-  // is a prefix matcher, so this query keeps receiving WS-driven
+  // `useTokens` now delegates to the same infinite-scroll cache as the
+  // home-page table (see `useTokens.ts` JSDoc), so when the user
+  // happens to be on the GRADUATING tab this query and the table's
+  // `useInfiniteTokens("graduating", …)` collapse onto a single
+  // `/api/v1/tokens?status=graduating` request. The shared
+  // `["tokens-infinite", …]` invalidation in `useTokenListLiveFeed` is
+  // a prefix matcher, so this query keeps receiving WS-driven
   // refreshes alongside the infinite list with no extra wiring.
   const { data: graduatingTokens } = useTokens("graduating");
   const { isConnected } = useWallet();
