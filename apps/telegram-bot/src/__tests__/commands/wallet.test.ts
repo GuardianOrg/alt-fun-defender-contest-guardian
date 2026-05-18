@@ -1313,6 +1313,22 @@ describe("/wallet command", () => {
       expect(send).toBeUndefined();
     });
 
+    it("Change PIN confirm prompt edits the same panel (no fresh reply)", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      // Enter change-PIN flow and verify current PIN.
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinChange));
+      await h.run(textUpdate("123456", 3));
+      // Send new PIN — bot should edit origin into "Send new 6-digit PIN" then
+      // edit it again into the confirm prompt, never dropping a fresh message.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("654321", 4));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Confirm/);
+      expect(send).toBeUndefined();
+    });
+
     it("Complete PIN reset button edits the panel into the new-PIN prompt", async () => {
       const h = makeBotHarness();
       const pm = buildPm(h);
