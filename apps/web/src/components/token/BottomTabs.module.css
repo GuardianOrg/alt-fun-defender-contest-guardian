@@ -294,15 +294,7 @@
   white-space: nowrap;
 }
 
-/* Compact lifecycle/role pill rendered inline next to a holder's
- * shortened address. Geometry mirrors `GraduatedPill` (10px mono,
- * uppercase, 0.08em tracking, 3px border-radius, 1px tonal border)
- * so the two surfaces read as the same component family. The shimmer
- * sweep is intentionally omitted — these pills tag a static property
- * of the row (burn destination, contract owner) rather than a finished
- * milestone, and a row-of-rows of shimmering pills would just create
- * visual noise in the table. */
-.holderTagBase {
+.holderTag {
   display: inline-flex;
   align-items: center;
   margin-left: 0.8rem;
@@ -317,10 +309,6 @@
   line-height: 1;
   white-space: nowrap;
   flex-shrink: 0;
-}
-
-.holderTag {
-  composes: holderTagBase;
   color: var(--mint);
   background: var(--mint-bg);
   border-color: var(--border-2);
