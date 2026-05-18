@@ -75,7 +75,31 @@ export default function HoldersTab({ holders, isLoading = false }: Props) {
               <tr key={h.rank} className={styles.holderTableRow}>
                 <td className={styles.tdRank}>{h.rank}</td>
                 <td className={styles.tdWalletCell}>
-                  {h.address}
+                  <a
+                    className={styles.holderAddressLink}
+                    href={`https://hyperevmscan.io/address/${h.walletFull}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`View ${h.walletFull} on HyperEVMScan`}
+                  >
+                    {h.address}
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={styles.externalIcon}
+                      aria-hidden="true"
+                    >
+                      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </a>
                   {h.isCreator && (
                     <span className={styles.holderCreator}>creator</span>
                   )}

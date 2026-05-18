@@ -48,6 +48,7 @@ const liveTradeService: ITradeService = {
         .map((h, i) => ({
           rank: i + 1,
           address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
+          walletFull: h.wallet,
           tokens: formatTokenBalance(h.balance),
           percentSupply: h.percentage,
           isCreator: false,

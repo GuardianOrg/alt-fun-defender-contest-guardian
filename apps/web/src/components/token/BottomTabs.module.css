@@ -262,6 +262,26 @@
   white-space: nowrap;
 }
 
+/* Wallet address rendered as an explorer link, mirroring the `.txnLink`
+ * affordance used for the tx hash column in `TradesTab`: inherits the
+ * mint colour from `.tdWalletCell`, inline-flex so the trailing
+ * external-link glyph sits flush with the address, and brightens the
+ * icon on hover. We don't darken/lighten the text on hover because the
+ * mint colour is already the link-affordance signal for this cell. */
+.holderAddressLink {
+  color: inherit;
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.holderAddressLink:hover .externalIcon {
+  opacity: 1;
+}
+
 .tdTokensCell {
   padding: 0.6rem;
   font-variant-numeric: tabular-nums;

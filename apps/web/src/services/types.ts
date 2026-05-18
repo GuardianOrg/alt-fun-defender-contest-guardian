@@ -92,7 +92,15 @@ export interface Asset {
 
 export interface Holder {
   rank: number;
+  /** Shortened wallet address for in-row display (e.g. `0x12…78`). */
   address: string;
+  /**
+   * Full 0x-prefixed wallet address. Mirrors `Trade.walletAddressFull` so
+   * callers that need to link out to a block explorer or copy the raw
+   * address can do so without re-fetching or reconstructing it from the
+   * truncated `address` field.
+   */
+  walletFull: string;
   tokens: string;
   percentSupply: number;
   isCreator: boolean;
