@@ -18,6 +18,7 @@ import {
   formatUsd,
   shortenAddress,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { cycleProfileFace, useProfileFace } from "../../utils/profileFace";
 import Button from "../shared/Button";
 import CopyAddressButton from "../shared/CopyAddressButton";
@@ -414,10 +415,15 @@ function BalanceRow({ token, onClick }: BalanceRowProps) {
         <div className={styles.balanceLogoWrap}>
           {token.image && !imgError ? (
             <img
-              src={token.image}
+              src={transformImageUrl(token.image, { width: 64 })}
+              srcSet={srcSetFor(token.image, 64) || undefined}
               alt=""
+              width={64}
+              height={64}
               className={styles.balanceLogo}
               onError={() => setImgError(true)}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <span className={styles.balanceLogoFallback} aria-hidden="true">
@@ -630,10 +636,15 @@ function RewardsRow({ token, onClick }: RewardsRowProps) {
         <div className={styles.balanceLogoWrap}>
           {token.imageUrl && !imgError ? (
             <img
-              src={token.imageUrl}
+              src={transformImageUrl(token.imageUrl, { width: 64 })}
+              srcSet={srcSetFor(token.imageUrl, 64) || undefined}
               alt=""
+              width={64}
+              height={64}
               className={styles.balanceLogo}
               onError={() => setImgError(true)}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <span className={styles.balanceLogoFallback} aria-hidden="true">

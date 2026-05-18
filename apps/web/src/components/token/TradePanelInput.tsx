@@ -1,6 +1,7 @@
 import styles from "./TradePanel.module.css";
 import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import UsdcIcon from "../icons/UsdcIcon";
@@ -40,7 +41,15 @@ export default function TradePanelInput({
       {mode === "buy" ? (
         <UsdcIcon className={styles.coinImg} />
       ) : token.image ? (
-        <img src={token.image} alt="" className={styles.coinImg} />
+        <img
+          src={transformImageUrl(token.image, { width: 32 })}
+          srcSet={srcSetFor(token.image, 32) || undefined}
+          alt=""
+          width={32}
+          height={32}
+          className={styles.coinImg}
+          decoding="async"
+        />
       ) : (
         token.emoji
       )}

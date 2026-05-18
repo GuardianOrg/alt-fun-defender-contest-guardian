@@ -7,6 +7,7 @@ import {
   formatMcapUsdOrDash,
   formatPercentOrDash,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 
@@ -67,9 +68,14 @@ export default function SearchTrendingCard({
         <div className={styles.trendingCardIcon}>
           {token.image ? (
             <img
-              src={token.image}
+              src={transformImageUrl(token.image, { width: 32 })}
+              srcSet={srcSetFor(token.image, 32) || undefined}
               alt={token.name}
+              width={26}
+              height={26}
               className={styles.trendingCardImg}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             token.emoji

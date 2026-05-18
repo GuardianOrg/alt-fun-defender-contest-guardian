@@ -1,6 +1,7 @@
 import styles from "./EarningsPanel.module.css";
 import { CREATOR_FEE_SHARE_PCT } from "../../config/constants";
 import { cn, formatCurveFilled, formatUsd, shortenAddress } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import Button from "../shared/Button";
 import Skeleton from "../shared/Skeleton";
 
@@ -184,9 +185,14 @@ export default function RewardsTab({
               <div className={styles.tokenCardHeader}>
                 {t.imageUrl ? (
                   <img
-                    src={t.imageUrl}
+                    src={transformImageUrl(t.imageUrl, { width: 32 })}
+                    srcSet={srcSetFor(t.imageUrl, 32) || undefined}
                     alt=""
+                    width={28}
+                    height={28}
                     className={styles.tokenCardImage}
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   <div className={styles.tokenCardImagePlaceholder}>

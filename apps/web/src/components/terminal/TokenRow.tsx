@@ -12,6 +12,7 @@ import {
   formatPercentOrDash,
   isRecentlyDeployed,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierFor } from "../../utils/vanityTier";
 // import VanityEffect from "../effects/VanityEffect";
 import AssetIcon from "../shared/AssetIcon";
@@ -106,10 +107,15 @@ export default function TokenRow({ token, stats, isNew = false }: Props) {
           {token.image && !imgError ? (
             <img
               key={token.image}
-              src={token.image}
+              src={transformImageUrl(token.image, { width: 64 })}
+              srcSet={srcSetFor(token.image, 64) || undefined}
               alt={token.name}
+              width={64}
+              height={64}
               className={styles.tokenImage}
               onError={() => setImgError(true)}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <span className={styles.tokenEmoji}>{token.emoji || "🪙"}</span>

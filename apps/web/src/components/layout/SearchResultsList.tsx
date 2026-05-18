@@ -8,6 +8,7 @@ import {
   formatMcapUsdOrDash,
   formatPercentOrDash,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 
@@ -71,9 +72,14 @@ export default function SearchResultsList({
               <div className={styles.resultIcon}>
                 {t.image ? (
                   <img
-                    src={t.image}
+                    src={transformImageUrl(t.image, { width: 32 })}
+                    srcSet={srcSetFor(t.image, 32) || undefined}
                     alt={t.name}
+                    width={28}
+                    height={28}
                     className={styles.resultIconImg}
+                    loading="lazy"
+                    decoding="async"
                   />
                 ) : (
                   t.emoji

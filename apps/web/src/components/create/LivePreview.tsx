@@ -20,6 +20,7 @@ import {
   getLtDisplayName,
   shortenAddress,
 } from "../../utils/format";
+import { srcSetFor, transformImageUrl } from "../../utils/image";
 import { tierForZeros } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 
@@ -133,12 +134,25 @@ export default function LivePreview({
                  * uploaded the home-page row falls back to the public
                  * `DEFAULT_TOKEN_IMAGE`, so previewing the same asset
                  * here tells the user exactly what their token will
-                 * look like at launch. */}
-                <img
-                  src={imagePreview ?? DEFAULT_TOKEN_IMAGE}
-                  className={styles.tokenImageImg}
-                  alt=""
-                />
+                 * look like at launch. `transformImageUrl` is a no-op
+                 * here — `imagePreview` is a local `blob:` URL pre-
+                 * launch and `DEFAULT_TOKEN_IMAGE` is root-relative —
+                 * but width/height attrs still reserve the box and
+                 * prevent CLS when the blob preview swaps in. */}
+                {(() => {
+                  const src = imagePreview ?? DEFAULT_TOKEN_IMAGE;
+                  return (
+                    <img
+                      src={transformImageUrl(src, { width: 64 })}
+                      srcSet={srcSetFor(src, 64) || undefined}
+                      width={64}
+                      height={64}
+                      className={styles.tokenImageImg}
+                      alt=""
+                      decoding="async"
+                    />
+                  );
+                })()}
               </div>
               <div className={styles.tokenInfo}>
                 <div className={styles.tokenName}>{displayName}</div>
