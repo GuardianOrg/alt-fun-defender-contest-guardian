@@ -44,9 +44,9 @@ The bot consumes the endpoints `apps/api` exposes today, plus three new bot-name
 | `GET /api/v1/tokens/:addr` | Token card on `/buy`, `/sell`, `/track` — name, mcap, `curveFilled`, `curveFilledOrganic`, `curveFilledLeverageBoost`. Mirrors the web row exactly. |
 | `GET /api/v1/chart/:address` | Candle snapshot for `lib/chart.ts` — returns `candles[]`, `currentRatio`, `currentExchangeRate`. **Canonical chart endpoint shared with the web app's `fetchChart` in `apps/web/src/services/api.ts`.** The older `/trades/ohlcv/:address` route also exists but does not return `currentRatio` / `currentExchangeRate`, which are required for the in-progress candle to track the live LT rate; use `/chart` everywhere. |
 | `GET /api/v1/trades/:address` | Per-token trade history for `/track <contract>` (last N trades). |
-| `GET /api/v1/bot/positions/:wallet` | **Bot-only.** Open + realised positions for `/positions`, sourced from `walletBotPosition` (driven by `BotRouterTrade` events). Includes cost basis, current value, unrealised PnL, realised PnL — see *Bot Fee Model → New `apps/api` endpoints*. |
-| `GET /api/v1/balances/:wallet` | **Indexed Alt Fun token balances only** — returns `{address, name, ticker, ltPair, leverage, balance, …}` per held token. Does *not* return native HYPE or USDC. For HYPE / USDC the bot reads `balanceOf` directly via `rpc.ts` (multicall) — see `/wallet` balance display. |
-| `GET /api/v1/bot/referrals/:wallet` | **Bot-only.** Referred count, lifetime earned, current rewards wallet for `/referral`, sourced from `referrerStats` and KV. |
+| `GET /api/v1/bot/positions-v2/:wallet` | **Bot-only.** Open + realised positions for `/positions`, sourced from `walletBotPosition` (driven by `BotRouterTrade` events). Includes cost basis, current value, unrealised PnL, realised PnL — see *Bot Fee Model → New `apps/api` endpoints*. |
+| `GET /api/v1/balances-v2/:wallet` | **Indexed Alt Fun token balances only** — returns `{address, name, ticker, ltPair, leverage, balance, …}` per held token. Does *not* return native HYPE or USDC. For HYPE / USDC the bot reads `balanceOf` directly via `rpc.ts` (multicall) — see `/wallet` balance display. |
+| `GET /api/v1/bot/referrals-v2/:wallet` | **Bot-only.** Referred count, lifetime earned, current rewards wallet for `/referral`, sourced from `referrerStats` and KV. |
 | `POST /api/v1/bot/referrals/:wallet/rewards-wallet` | **Bot-only.** Updates the user's rewards-wallet KV record. Does not touch on-chain attribution — see /referral → Rewards wallet. |
 | `GET /api/v1/stats` | Platform stats for `/help` and ambient context. |
 
@@ -164,8 +164,8 @@ The shared API exposes three new endpoints for the bot. All key on wallet, all r
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/v1/bot/positions/:wallet` | `{ open: [{ token, ticker, balance, costBasisUsdc, currentValueUsdc, unrealisedPnlUsdc, unrealisedPnlPct }], realised: [{ token, ticker, totalCostUsdc, totalProceedsUsdc, realisedPnlUsdc, realisedPnlPct }] }` — driven by `walletBotPosition`. |
-| `GET /api/v1/bot/referrals/:wallet` | `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }` — driven by `referrerStats` plus the rewards-wallet KV record. |
+| `GET /api/v1/bot/positions-v2/:wallet` | `{ open: [{ token, ticker, balance, costBasisUsdc, currentValueUsdc, unrealisedPnlUsdc, unrealisedPnlPct }], realised: [{ token, ticker, totalCostUsdc, totalProceedsUsdc, realisedPnlUsdc, realisedPnlPct }] }` — driven by `walletBotPosition`. |
+| `GET /api/v1/bot/referrals-v2/:wallet` | `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }` — driven by `referrerStats` plus the rewards-wallet KV record. |
 | `POST /api/v1/bot/referrals/:wallet/rewards-wallet` | Body `{ rewardsWallet }`. Updates the bot's KV mapping. **Does not touch on-chain attribution** — past referred users keep paying out to the previously-set wallet only if they retrade after the change; the change applies only to attributions where `ReferralPaid.referrer == newRewardsWallet`. See *Rewards wallet semantics* in `/referral`. |
 
 ### Secrets
@@ -236,7 +236,7 @@ Actions accessible via inline keyboard after `/wallet`:
 | Delete wallet | Remove from index + KV; reassigns active if needed | PIN + confirm |
 | Withdraw | Alias to `/withdraw` flow | PIN + confirm |
 
-Balance display: native HYPE and USDC are read via `rpc.ts` multicall (`eth_getBalance` + `USDC.balanceOf`) — they are **not** in `GET /api/v1/balances/:wallet`, which returns indexed Alt Fun token balances only. Render native HYPE (RPC) + USDC (RPC) + token positions (`/balances` enriches with `name` / `ticker` / `ltPair`).
+Balance display: native HYPE and USDC are read via `rpc.ts` multicall (`eth_getBalance` + `USDC.balanceOf`) — they are **not** in `GET /api/v1/balances-v2/:wallet`, which returns indexed Alt Fun token balances only. Render native HYPE (RPC) + USDC (RPC) + token positions (`/balances-v2` enriches with `name` / `ticker` / `ltPair`).
 
 **Multi-wallet model (Trojan-style).** Users may hold up to `MAX_WALLETS_PER_USER = 10` wallets per Telegram account. One wallet is always *active* (when at least one exists); buy / sell / withdraw use the active wallet as the implicit signer. Modelled after [Trojan's wallets UX](https://docs.trojan.app/telegram-bot-user-guide/settings/wallets), rejected BONKbot's one-wallet-per-account model because the AGENTS.md actions list already commits to Switch + Rename.
 
@@ -327,7 +327,7 @@ Input:
    percent or use Sell X% for a custom integer percent of balance)
 
 Output:
-  - Position summary (token amount, cost basis from /api/v1/bot/positions)
+  - Position summary (token amount, cost basis from /api/v1/bot/positions-v2)
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.75% + HyperSwap LP fee post-grad + bot 0.5%)
   - Quick-sell buttons: 5 user-customisable preset percents (default `10% / 25% / 50% / 75% / 100%`, configurable in `/settings → Sell Settings`) + `Sell X%` (custom-percent prompt, integer 1–100) + `Refresh`. Issue #818.
   - Confirm button (if confirmations enabled)
@@ -388,14 +388,14 @@ Output:
   - No total volume, fees paid, win rate, or best/worst trade.
 ```
 
-Data source: `GET /api/v1/bot/positions/:wallet` (see *Bot Fee Model → New `apps/api` endpoints*). The endpoint reads `walletBotPosition` directly — one DB row per (wallet, token) — so the bot makes a single API call regardless of how many tokens the user holds. No per-token RPC fan-out.
+Data source: `GET /api/v1/bot/positions-v2/:wallet` (see *Bot Fee Model → New `apps/api` endpoints*). The endpoint reads `walletBotPosition` directly — one DB row per (wallet, token) — so the bot makes a single API call regardless of how many tokens the user holds. No per-token RPC fan-out.
 
 PnL math:
 
 - **Cost basis** on a buy = `usdcAmount` debited from the user (from `BotRouterTrade.usdcAmount` for `side='buy'`). This is the gross USDC the user spent, so it already includes the bot fee, the Alt Fun fee, and slippage. No separate fee subtraction needed.
 - **Proceeds** on a sell = USDC actually credited to the user, which is `quotedUsdcOut` minus the router's bot fee skim. The indexer reads this directly off the router event, not from the inner `Zap.sell` return value.
 - **Realised PnL** uses average-cost accounting on partial sells: when the user sells `n` of `N` held tokens, the realised cost for that chunk is `costBasisUsdc × (n / N)`, the realised proceeds are the sell's net USDC, and `realisedPnlUsdc += proceeds - realisedCost`. `costBasisUsdc` is then reduced by `costBasisUsdc × (n / N)` and `tokenBalance` by `n`. Once `tokenBalance` hits zero, the token continues to appear in the *Realised positions* section (with `totalCostUsdc` and `totalProceedsUsdc` accumulating across re-entries).
-- **Unrealised PnL** = `currentValueUsdc - costBasisUsdc`. `currentValueUsdc` is computed **at API read time** in `GET /api/v1/bot/positions/:wallet` by joining the wallet's held tokens against the indexer's per-token `(curveSupply, ltReserve)` and the live BounceTech LT exchange rate — `priceUsd = computeTokenPrice(curveSupply, ltReserve, ltRate)` (bonding curve quote pre-grad, HyperSwap quote post-grad — `HyperSwapPair:Sync` mirrors HyperSwap reserves onto the same columns). The indexer-side `walletBotPosition.currentValueUsdc` (frozen at the user's own last trade) is the fallback when the live mark is unavailable (BounceTech 5xx, indexer outage). The bot still makes a single API call regardless of how many tokens the user holds.
+- **Unrealised PnL** = `currentValueUsdc - costBasisUsdc`. `currentValueUsdc` is computed **at API read time** in `GET /api/v1/bot/positions-v2/:wallet` by joining the wallet's held tokens against the indexer's per-token `(curveSupply, ltReserve)` and the live BounceTech LT exchange rate — `priceUsd = computeTokenPrice(curveSupply, ltReserve, ltRate)` (bonding curve quote pre-grad, HyperSwap quote post-grad — `HyperSwapPair:Sync` mirrors HyperSwap reserves onto the same columns). The indexer-side `walletBotPosition.currentValueUsdc` (frozen at the user's own last trade) is the fallback when the live mark is unavailable (BounceTech 5xx, indexer outage). The bot still makes a single API call regardless of how many tokens the user holds.
 - **Percentages** = `pnl / cost × 100`. Floor at 2 decimal places. When cost is 0 (e.g. fully airdropped position), display `—` instead of `∞%`.
 
 Pagination: positions are sorted by `|unrealisedPnlUsdc|` descending for *Open*, by `realised PnL` descending for *Realised*. Each section paginates at `POSITIONS_PAGE_SIZE = 5` records independently — open spilling into later pages never pushes realised entries out of the message. The *Open Pos* page row is always rendered above the *Realised Pos* row when the section has at least one record (a single page collapses to a non-navigating `Page 1/1 Open Pos` / `Page 1/1 Realised Pos` label so the user can always see which section comes next). The 4096-char Telegram message limit applies; a compact ticker+address fallback kicks in if pathologically large numeric fields would blow it.
@@ -548,7 +548,7 @@ There is **no** claim, withdraw, or payout button. Referrer cuts settle on-chain
 
 #### Stats source
 
-`GET /api/v1/bot/referrals/:wallet` returns `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }`. The two numbers come from `referrerStats` in the shared indexer:
+`GET /api/v1/bot/referrals-v2/:wallet` returns `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }`. The two numbers come from `referrerStats` in the shared indexer:
 
 - `referredCount` = distinct trader wallets where `BotRouterTrade.referrer == this user's rewardsWallet` and `BotRouterTrade.referrerCut > 0` (the bad-referrer-wallet fallback excludes failed-payout trades from the earned total — see below).
 - `lifetimeEarnedUsdc` = `Σ ReferralPaid.amount` for `referrer == this user's rewardsWallet`. Counts only successful on-chain transfers, so it matches the user's actual USDC receipts to the wei.
@@ -904,7 +904,7 @@ src/
 - `apps/api` 503 → "Data temporarily unavailable" reply, no crash
 
 **`commands/sell.test.ts`**
-- Sell 50% of position → correct token amount computed as `tokenAmount × 0.5`, where `tokenAmount` is the live indexed balance from `GET /api/v1/bot/positions/:wallet` (sourced from `walletBotPosition.tokenBalance`). Never compute the sell size from `costBasisUsdc` — that field is cost basis in USDC and has no meaningful unit relationship to the token amount being sold.
+- Sell 50% of position → correct token amount computed as `tokenAmount × 0.5`, where `tokenAmount` is the live indexed balance from `GET /api/v1/bot/positions-v2/:wallet` (sourced from `walletBotPosition.tokenBalance`). Never compute the sell size from `costBasisUsdc` — that field is cost basis in USDC and has no meaningful unit relationship to the token amount being sold.
 - Sell 100% → full position submitted
 - Simulation runs against `BotFeeRouter.sellWithBotFee` (NOT `Zap.sell`); `minUsdcOut` is derived from the post-bot-fee `quotedUsdcOut` so it represents the user's net receipt
 - Slippage bound: quote × (10_000 − slippageBps) / 10_000; floor at 1 wei when quote > 0 and result would round to 0
@@ -936,7 +936,7 @@ src/
 - Self-referral (`ref_<own userId>` or `ref_<own username>`) → blocked; `referrer` stays `null` exactly as if the deeplink had been omitted
 
 **`commands/positions.test.ts`**
-- Single GET to `/api/v1/bot/positions/:wallet` returns both Open and Realised sections — assert no per-token RPC fan-out
+- Single GET to `/api/v1/bot/positions-v2/:wallet` returns both Open and Realised sections — assert no per-token RPC fan-out
 - Open positions render token, balance, cost basis, current value, unrealised PnL ($ + %)
 - Realised positions render token, total cost, total proceeds, realised PnL ($ + %)
 - Cost basis from a buy includes the bot fee (i.e. for a $20 buy, cost basis on the resulting position is $20, not $19.90) — assert against a fixture `BotRouterTrade` event
@@ -947,7 +947,7 @@ src/
 - `apps/api` 503 → "Data temporarily unavailable" reply, no stale-cache fallback
 
 **`commands/referral.test.ts`**
-- Renders link, rewards wallet, referred count, lifetime earned — sourced from `/api/v1/bot/referrals/:wallet`
+- Renders link, rewards wallet, referred count, lifetime earned — sourced from `/api/v1/bot/referrals-v2/:wallet`
 - Default rewards wallet on first /start is the user's active custodial wallet — assert KV write at /start, not lazy on first /referral
 - [Change rewards wallet] wizard: PIN-gated, accepts any HyperEVM address, persists via `POST /api/v1/bot/referrals/:wallet/rewards-wallet`
 - Wizard surfaces a clear warning that past attributions do NOT redirect on rewards-wallet change
@@ -1019,7 +1019,7 @@ cd apps/telegram-bot && npx tsx src/dev.ts
 /security       → set PIN → verify lockout after 5 wrong attempts
 ```
 
-Integration test: confirm bot `/buy` tx appears in `apps/api` trade history within 60s (Ponder indexing latency). Check `GET /api/v1/bot/positions/:wallet` reflects the new position with cost basis equal to the gross USDC spent (i.e. bot fee included). Check `GET /api/v1/bot/referrals/:wallet` for the referrer reflects an incremented `lifetimeEarnedUsdc` matching the on-chain `ReferralPaid` event.
+Integration test: confirm bot `/buy` tx appears in `apps/api` trade history within 60s (Ponder indexing latency). Check `GET /api/v1/bot/positions-v2/:wallet` reflects the new position with cost basis equal to the gross USDC spent (i.e. bot fee included). Check `GET /api/v1/bot/referrals-v2/:wallet` for the referrer reflects an incremented `lifetimeEarnedUsdc` matching the on-chain `ReferralPaid` event.
 
 ---
 

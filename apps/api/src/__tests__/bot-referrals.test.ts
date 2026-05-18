@@ -3,12 +3,6 @@ import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
 
-const mockPonderQuery = vi.fn();
-
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-}));
-
 const { default: botReferrals } = await import("../routes/bot/referrals.js");
 
 const VALID_WALLET = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
@@ -50,128 +44,6 @@ const createApp = (): Hono<{ Bindings: AppBindings }> => {
   app.route("/bot/referrals", botReferrals);
   return app;
 };
-
-describe("GET /bot/referrals/:wallet", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockPonderQuery.mockResolvedValue({ referrerStats: null });
-  });
-
-  it("rejects invalid wallet address", async () => {
-    const res = await createApp().request(
-      "/bot/referrals/not-an-address",
-      {},
-      makeEnv(makeKV()),
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 503 when WALLET_KV binding is missing", async () => {
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(null),
-    );
-    expect(res.status).toBe(503);
-  });
-
-  it("defaults rewardsWallet to queried wallet when KV unset", async () => {
-    const kv = makeKV();
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(kv),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      data: { rewardsWallet: string; referredCount: number };
-    };
-    expect(body.data.rewardsWallet).toBe(VALID_WALLET.toLowerCase());
-    expect(body.data.referredCount).toBe(0);
-  });
-
-  it("returns the stored rewardsWallet override when set", async () => {
-    const kv = makeKV();
-    kv.store.set(
-      `rewards-wallet:${VALID_WALLET.toLowerCase()}`,
-      JSON.stringify({ rewardsWallet: VALID_REWARDS.toLowerCase(), setAt: 1 }),
-    );
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(kv),
-    );
-    const body = (await res.json()) as { data: { rewardsWallet: string } };
-    expect(body.data.rewardsWallet).toBe(VALID_REWARDS.toLowerCase());
-  });
-
-  it("returns zeroed stats when indexer has no row", async () => {
-    mockPonderQuery.mockResolvedValue({ referrerStats: null });
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(makeKV()),
-    );
-    const body = (await res.json()) as {
-      data: {
-        referredCount: number;
-        lifetimeEarnedUsdc: string;
-        badPaymentCount: number;
-        attributionLossCount: number;
-      };
-    };
-    expect(body.data).toMatchObject({
-      referredCount: 0,
-      lifetimeEarnedUsdc: "0",
-      badPaymentCount: 0,
-      attributionLossCount: 0,
-    });
-  });
-
-  it("returns indexer-sourced stats when row exists", async () => {
-    mockPonderQuery.mockResolvedValue({
-      referrerStats: {
-        referredCount: 7,
-        lifetimeEarnedUsdc: "1500000",
-        badPaymentCount: 2,
-        attributionLossCount: 3,
-      },
-    });
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(makeKV()),
-    );
-    const body = (await res.json()) as {
-      data: {
-        referredCount: number;
-        lifetimeEarnedUsdc: string;
-        badPaymentCount: number;
-        attributionLossCount: number;
-      };
-    };
-    expect(body.data).toMatchObject({
-      referredCount: 7,
-      lifetimeEarnedUsdc: "1500000",
-      badPaymentCount: 2,
-      attributionLossCount: 3,
-    });
-  });
-
-  it("collapses indexer outages to zeroed stats rather than 5xx", async () => {
-    mockPonderQuery.mockResolvedValue(null);
-    const res = await createApp().request(
-      `/bot/referrals/${VALID_WALLET}`,
-      {},
-      makeEnv(makeKV()),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      data: { referredCount: number };
-    };
-    expect(body.data.referredCount).toBe(0);
-  });
-});
 
 describe("POST /bot/referrals/:wallet/rewards-wallet", () => {
   beforeEach(() => {
@@ -250,5 +122,14 @@ describe("POST /bot/referrals/:wallet/rewards-wallet", () => {
       makeEnv(null),
     );
     expect(res.status).toBe(503);
+  });
+
+  it("legacy GET /bot/referrals/:wallet is no longer mounted (404)", async () => {
+    const res = await createApp().request(
+      `/bot/referrals/${VALID_WALLET}`,
+      {},
+      makeEnv(makeKV()),
+    );
+    expect(res.status).toBe(404);
   });
 });

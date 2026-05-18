@@ -16,14 +16,11 @@ import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
 import admin from "./routes/admin/index.js";
 import { imagesPublic, imagesPrivate } from "./routes/images.js";
-import balancesRoute from "./routes/balances.js";
 import balancesV2Route from "./routes/balances-v2.js";
 import portfolio from "./routes/portfolio.js";
 import stats from "./routes/stats.js";
 import assets from "./routes/assets.js";
-import referrals from "./routes/referrals.js";
 import referralsV2 from "./routes/referrals-v2.js";
-import botPositions from "./routes/bot/positions.js";
 import botPositionsV2 from "./routes/bot/positions-v2.js";
 import botReferrals from "./routes/bot/referrals.js";
 import botReferralsV2 from "./routes/bot/referrals-v2.js";
@@ -164,15 +161,15 @@ app.route("/api/v1/admin", admin);
 // #509).
 app.route("/api/v1/images", imagesPrivate);
 app.route("/images", imagesPublic);
-app.route("/api/v1/balances", balancesRoute);
 app.route("/api/v1/balances-v2", balancesV2Route);
 app.route("/api/v1/portfolio", portfolio);
 app.route("/api/v1/stats", stats);
 app.route("/api/v1/assets", assets);
-app.route("/api/v1/referrals", referrals);
 app.route("/api/v1/referrals-v2", referralsV2);
-app.route("/api/v1/bot/positions", botPositions);
 app.route("/api/v1/bot/positions-v2", botPositionsV2);
+// `/api/v1/bot/referrals` retains only `POST /:wallet/rewards-wallet` —
+// a KV writer with no v2 sibling. The legacy `GET /:wallet` was retired
+// in favour of `/api/v1/bot/referrals-v2/:wallet`.
 app.route("/api/v1/bot/referrals", botReferrals);
 app.route("/api/v1/bot/referrals-v2", botReferralsV2);
 app.route("/api/v1/holders", holders);
