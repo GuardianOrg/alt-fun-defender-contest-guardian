@@ -154,11 +154,22 @@ export const askNewPin = async (
     );
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
-      const retry = await ctx.reply(
-        withAntiPhishing(t(PIN_INVALID_FORMAT_REPLY, lang), phrase, lang),
-        { reply_markup: backHomeMarkup(lang) },
-      );
-      await trackWorkflowMessage(conversation, retry.message_id);
+      const retryEdited =
+        editedOrigin &&
+        (await tryEditOriginPrompt(
+          conversation,
+          origin!,
+          t(PIN_INVALID_FORMAT_REPLY, lang),
+          lang,
+          phrase,
+        ));
+      if (!retryEdited) {
+        const retry = await ctx.reply(
+          withAntiPhishing(t(PIN_INVALID_FORMAT_REPLY, lang), phrase, lang),
+          { reply_markup: backHomeMarkup(lang) },
+        );
+        await trackWorkflowMessage(conversation, retry.message_id);
+      }
       continue;
     }
     candidate = text;
@@ -190,11 +201,22 @@ export const askNewPin = async (
     );
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
-      const retry = await ctx.reply(
-        withAntiPhishing(t(PIN_DO_NOT_MATCH_REPLY, lang), phrase, lang),
-        { reply_markup: backHomeMarkup(lang) },
-      );
-      await trackWorkflowMessage(conversation, retry.message_id);
+      const retryEdited =
+        editedOrigin &&
+        (await tryEditOriginPrompt(
+          conversation,
+          origin!,
+          t(PIN_DO_NOT_MATCH_REPLY, lang),
+          lang,
+          phrase,
+        ));
+      if (!retryEdited) {
+        const retry = await ctx.reply(
+          withAntiPhishing(t(PIN_DO_NOT_MATCH_REPLY, lang), phrase, lang),
+          { reply_markup: backHomeMarkup(lang) },
+        );
+        await trackWorkflowMessage(conversation, retry.message_id);
+      }
       continue;
     }
     return candidate;
@@ -264,15 +286,23 @@ export const verifyExistingPin = async (
       );
       return false;
     }
-    const retry = await ctx.reply(
-      withAntiPhishing(
-        t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
-        phrase,
+    const retryPrompt = t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining);
+    const retryEdited =
+      editedOrigin &&
+      (await tryEditOriginPrompt(
+        conversation,
+        origin!,
+        retryPrompt,
         lang,
-      ),
-      { reply_markup: backHomeMarkup(lang) },
-    );
-    await trackWorkflowMessage(conversation, retry.message_id);
+        phrase,
+      ));
+    if (!retryEdited) {
+      const retry = await ctx.reply(
+        withAntiPhishing(retryPrompt, phrase, lang),
+        { reply_markup: backHomeMarkup(lang) },
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+    }
   }
 };
 

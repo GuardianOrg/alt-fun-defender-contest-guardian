@@ -427,14 +427,24 @@ describe("/wallet command", () => {
       await h.run(textUpdate("000000", 3));
 
       const calls = capture(fetchSpy);
+      // Wrong-PIN retry edits the origin /wallet bubble in place rather
+      // than dropping a fresh prompt below it — same in-place semantics
+      // as every other PIN-flow prompt.
       const wrongReply = calls.find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           typeof c.body.text === "string" &&
           /Wrong PIN/.test(c.body.text as string),
       );
       expect(wrongReply).toBeDefined();
       expect(wrongReply!.body.text).toMatch(/4 attempts remaining/);
+      const freshWrongReply = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(freshWrongReply).toBeUndefined();
       const reveal = calls.find(
         (c) =>
           c.url.includes("/sendMessage") &&
@@ -946,11 +956,17 @@ describe("/wallet command", () => {
       const calls = capture(fetchSpy);
       const wrongReply = calls.find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           /Wrong PIN/.test(c.body.text as string),
       );
       expect(wrongReply).toBeDefined();
       expect(wrongReply!.body.text).toMatch(/4 attempts remaining/);
+      const freshWrongReply = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(freshWrongReply).toBeUndefined();
       expect(await wm.listWallets(7)).toHaveLength(1);
     });
 
@@ -1311,6 +1327,29 @@ describe("/wallet command", () => {
       const { edit, send } = firstEditOrSend(capture(fetchSpy));
       expect(edit?.body.text).toMatch(/Send the new 6-digit PIN/);
       expect(send).toBeUndefined();
+    });
+
+    it("Change PIN wrong-current-PIN retry edits the same panel (no fresh reply)", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinChange));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("000000", 3));
+      const calls = capture(fetchSpy);
+      const wrongEdit = calls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(wrongEdit).toBeDefined();
+      expect(wrongEdit!.body.text).toMatch(/4 attempts remaining/);
+      const freshWrong = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(freshWrong).toBeUndefined();
     });
 
     it("Change PIN confirm prompt edits the same panel (no fresh reply)", async () => {
