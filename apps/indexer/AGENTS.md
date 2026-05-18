@@ -131,7 +131,8 @@ The columns are deliberately reused (rather than adding `hyperswapTokenReserve` 
 
 `ponder dev` defaults to port `42069` and **silently falls back** to the next
 free port (`42070`, …) if it's taken. A fallback means the indexer GraphQL
-endpoint binds to whatever was on `42069` — usually a stale `ponder dev`
+endpoint binds to the next free port, while callers still targeting `42069`
+hit whatever is already there — usually a stale `ponder dev`
 from a previous session whose PGlite has since closed — producing a silent
 "loading forever" UX with no obvious error for any caller still hitting
 that endpoint.
