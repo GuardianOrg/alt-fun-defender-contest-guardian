@@ -165,11 +165,18 @@ export const registerView = (id: string, builder: ViewBuilder): void => {
   VIEW_REGISTRY.set(id, builder);
 };
 
-/** Test helper — purge the registry between tests so a missing
- * registration in one test doesn't accidentally inherit a stub from
- * a previous test's module-init side effects. */
-export const __resetViewRegistry = (): void => {
-  VIEW_REGISTRY.clear();
+/**
+ * Remove a single view registration. Intended for test teardown — a
+ * test that calls `registerView("test:foo", …)` should call
+ * `unregisterView("test:foo")` in `afterEach` so the stub doesn't
+ * leak into other tests in the suite. Not a full registry clear:
+ * production registrations (e.g. `start`, `wallet:main`) are added
+ * once at module load and never re-added, so clearing them between
+ * tests would leave the registry empty for subsequent tests in the
+ * same process.
+ */
+export const unregisterView = (id: string): void => {
+  VIEW_REGISTRY.delete(id);
 };
 
 /** Lookup helper — exposed for tests and for the Back handler's
@@ -638,7 +645,19 @@ export const registerNavCallbacks = (
           const fresh = await safeBuildView(builder, ctx, snap.view.args);
           if (fresh) {
             setCurrentView(ctx.session, snap.view);
-            await renderSubmenuInPlace(ctx, fresh);
+            // Preserve the snapshot if the fresh render path throws
+            // (rare — `renderSubmenuInPlace`'s reply fallback can
+            // still surface a network error). Without the re-push,
+            // a transient Telegram 5xx would silently collapse one
+            // level of Back history on the view-registry path — the
+            // legacy frozen-snapshot branch below already guards
+            // against the same race. CodeRabbit #1070.
+            try {
+              await renderSubmenuInPlace(ctx, fresh);
+            } catch (err) {
+              pushNavSnapshot(ctx.session, snap);
+              throw err;
+            }
             await ctx.answerCallbackQuery();
             return;
           }
@@ -647,6 +666,17 @@ export const registerNavCallbacks = (
           // user still gets back to *something* rather than being
           // stranded on the deeper screen.
         }
+      }
+      // View-only snapshots have no real frozen payload (text/keyboard
+      // are empty). If we reach this point — builder missing or
+      // returned null — `editMessageToSnapshot` would try to render an
+      // empty message and Telegram would 400 ("message text is
+      // empty"), stranding the user on the deeper screen. Degrade to
+      // Home instead: the user lands somewhere usable, and the broken
+      // snapshot doesn't get a second chance to fail. CodeRabbit #1070.
+      if (isViewOnlySnapshot(snap)) {
+        await renderHome(ctx, renderStart);
+        return;
       }
       setCurrentView(ctx.session, snap.view);
       const edited = await editMessageToSnapshot(ctx, snap);
@@ -688,6 +718,17 @@ export const registerNavCallbacks = (
     await renderHome(ctx, renderStart);
   });
 };
+
+/**
+ * A snapshot is "view-only" when it carries a view reference but no
+ * usable frozen payload (`editToSubmenu`'s photo-bubble branch pushes
+ * exactly this shape). The Back handler must not attempt
+ * `editMessageToSnapshot` against such a record — empty text +
+ * empty keyboard would surface as a Telegram 400 — and instead
+ * degrades to Home when the builder is unavailable.
+ */
+const isViewOnlySnapshot = (snap: NavSnapshot): boolean =>
+  snap.view !== undefined && snap.text === "" && snap.keyboard.length === 0;
 
 /**
  * Best-effort wrapper around a view builder. Never throws — a builder

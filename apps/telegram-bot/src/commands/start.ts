@@ -302,6 +302,16 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     // the welcome view, but they are equally fresh entry points and
     // must not inherit a stale stack either.
     clearNavStack(ctx.session);
+    // Clear the bubble's view-tag with the stack: the deeplink-action
+    // branches below open a fresh action / track card (not a registered
+    // view), and inheriting the prior bubble's `navCurrentView` would
+    // make a subsequent `editToSubmenu` from there tag its parent
+    // snapshot with the wrong view id — Back would then rebuild a
+    // screen the user never came from. The welcome-screen path resets
+    // this to `{ id: START_VIEW_ID }` after rendering; deeplink paths
+    // leave it cleared (correct — those cards have no registered
+    // builder yet). CodeRabbit #1070.
+    setCurrentView(ctx.session, undefined);
     // Username → userId mapping refreshes on every /start so a sharer
     // who changes their Telegram handle later still resolves cleanly
     // through `ref_<username>` deeplinks. No-op when the user has no

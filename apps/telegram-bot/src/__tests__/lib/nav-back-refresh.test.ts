@@ -4,6 +4,7 @@ import { makeBotHarness, type BotTestHarness } from "../helpers/bot.js";
 import {
   NAV_CALLBACK,
   registerView,
+  unregisterView,
   type NavSnapshot,
   type SubmenuView,
 } from "../../lib/nav.js";
@@ -117,6 +118,10 @@ describe("[← Back] re-renders the parent view from live data when tagged", () 
   });
 
   afterEach(() => {
+    // Drop the test's view registration so a later test in this
+    // suite (or another suite running in the same process) can't
+    // inherit a stub by accident. CodeRabbit nitpick on #1070.
+    unregisterView(TEST_VIEW_ID);
     fetchSpy.mockRestore();
   });
 
@@ -167,6 +172,79 @@ describe("[← Back] re-renders the parent view from live data when tagged", () 
     );
     expect(edits).toHaveLength(1);
     expect(edits[0]!.body.text).toBe(STALE_TEXT);
+  });
+
+  it("degrades to Home for a view-only snapshot when the builder returns null (no empty-edit 400)", async () => {
+    // View-only snapshots (text:"", keyboard:[], view:{...}) are
+    // pushed for photo-bubble parents — there's no real frozen
+    // payload to fall back on. If the builder is missing or returns
+    // null, attempting `editMessageText` against "" would 400 with
+    // "message text is empty" and strand the user. The Back handler
+    // must instead route to Home so the user always lands on a
+    // usable screen. CodeRabbit #1070.
+    registerView(TEST_VIEW_ID, async () => null);
+
+    const viewOnlySnapshot: NavSnapshot = {
+      text: "",
+      keyboard: [],
+      view: { id: TEST_VIEW_ID },
+    };
+
+    const h = makeBotHarness();
+    await seedSession(h, [viewOnlySnapshot]);
+
+    await h.run(backCallbackUpdate());
+
+    // No edit was attempted with an empty text/keyboard — the Home
+    // path either edits the bubble to the start view or deletes it
+    // and replies fresh; either way the empty-text edit must not
+    // happen.
+    const emptyEdits = capture(fetchSpy).filter(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        (c.body as { text?: string }).text === "",
+    );
+    expect(emptyEdits).toHaveLength(0);
+  });
+
+  it("re-pushes the snapshot if the fresh render fails so the back-stack doesn't shrink on transient errors", async () => {
+    // The frozen-snapshot branch already guards against this race
+    // (catches the reply-fallback failure and re-pushes); the
+    // view-registry branch must do the same — otherwise a 5xx blip
+    // would silently consume one level of Back history. CodeRabbit
+    // #1070.
+    registerView(TEST_VIEW_ID, async () => ({
+      text: FRESH_TEXT,
+      inlineKeyboard: [[{ text: "x", callback_data: "x" }]],
+    }));
+
+    // Override the fetch mock to fail every edit AND every reply so
+    // both code paths inside `renderSubmenuInPlace` throw.
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/editMessageText") || url.endsWith("/sendMessage")) {
+        throw new Error("network blip");
+      }
+      if (url.startsWith("https://api.telegram.org")) {
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const h = makeBotHarness();
+    await seedSession(h, [taggedSnapshot]);
+
+    // The render throws — the handler does not swallow it, but the
+    // pre-throw cleanup must have re-pushed the snapshot.
+    await h.run(backCallbackUpdate()).catch(() => {});
+
+    const session = (await h.kv.get(`session:${USER_ID}`, {
+      type: "json",
+    })) as { navStack?: NavSnapshot[] } | null;
+    expect(session?.navStack?.length).toBe(1);
+    expect(session?.navStack?.[0]?.view).toEqual({ id: TEST_VIEW_ID });
   });
 
   it("ignores the registry for untagged snapshots and uses the frozen text", async () => {
