@@ -205,7 +205,7 @@ export default function CreateView() {
     if (launchStep === "deploying") return "DEPLOYING…";
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
-    if (vanity.status === "error") return "MINER FAILED — REFRESH";
+    if (vanity.status === "error") return "MINER FAILED - REFRESH";
     if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "⚡ LAUNCH TOKEN";
@@ -266,10 +266,11 @@ export default function CreateView() {
             {pairMintPaused && (
               <div className={styles.warningBanner}>
                 <span className={styles.warningIcon}>⚠</span>
-                BounceTech has paused minting on{" "}
-                {getAssetDisplayName(asset)} {leverage}× {direction}. Launching
-                would revert on the mandatory seed buy — pick a different
-                pair or wait for minting to resume.
+                BounceTech has paused minting on {getAssetDisplayName(
+                  asset,
+                )}{" "}
+                {leverage}× {direction}. Launching would revert on the mandatory
+                seed buy - pick a different pair or wait for minting to resume.
               </div>
             )}
 
@@ -356,7 +357,7 @@ export default function CreateView() {
                 <span className={styles.mintHighlight}>
                   ${seedAmt.toFixed(2)} USDC
                 </span>{" "}
-                is routed atomically through the TX Router — you receive tokens
+                is routed atomically through the TX Router - you receive tokens
                 directly.
               </div>
             )}

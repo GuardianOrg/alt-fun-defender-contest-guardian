@@ -55,7 +55,9 @@ export default function AdminPanel({ token }: Props) {
     <div className={styles.wrapper} data-testid="admin-panel">
       <div className={styles.label}>
         <span className={styles.tag}>admin</span>
-        <span className={styles.hint}>moderation controls — visible to allowlisted wallets only</span>
+        <span className={styles.hint}>
+          moderation controls - visible to allowlisted wallets only
+        </span>
       </div>
       <div className={styles.actions}>
         {error && <span className={styles.error}>{error}</span>}
@@ -85,8 +87,8 @@ export default function AdminPanel({ token }: Props) {
               <span className={styles.confirmTokenName}>
                 {token.ticker} ({token.name})
               </span>{" "}
-              from the home feed, search results, and direct-link page until
-              an admin restores it. The on-chain token is untouched.
+              from the home feed, search results, and direct-link page until an
+              admin restores it. The on-chain token is untouched.
             </p>
             <div className={styles.confirmActions}>
               <Button
