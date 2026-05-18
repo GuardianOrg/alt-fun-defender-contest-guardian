@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { asc, desc } from "drizzle-orm";
 
-import { indexerToken } from "../db/indexer-schema.js";
+import { indexerToken, indexerWalletPosition } from "../db/indexer-schema.js";
 
 // Mirror the mock pattern from indexer-reads-v2-helpers.test.ts: capture
 // every Drizzle builder call so each test can assert on the SQL shape the
@@ -138,6 +138,13 @@ describe("fetchCurvePhaseTokens", () => {
 describe("fetchNonZeroWalletZapPositions", () => {
   beforeEach(() => resetCapture());
 
+  it("orders by tokenAddress asc for stable pagination", async () => {
+    const db = createDb("postgres://test");
+    await fetchNonZeroWalletZapPositions(db, "0xWallet", 200);
+    expect(orderByCalls).toHaveLength(1);
+    expect(orderByCalls[0]).toEqual([asc(indexerWalletPosition.tokenAddress)]);
+  });
+
   it("passes the caller-supplied limit through", async () => {
     const db = createDb("postgres://test");
     await fetchNonZeroWalletZapPositions(db, "0xWallet", 200);
@@ -169,11 +176,14 @@ describe("fetchNonZeroWalletZapPositions", () => {
 describe("fetchMostRecentTokenAddresses", () => {
   beforeEach(() => resetCapture());
 
-  it("orders by blockNumber desc (newest launches first)", async () => {
+  it("orders by blockNumber desc then address asc (stable tie-break within same block)", async () => {
     const db = createDb("postgres://test");
     await fetchMostRecentTokenAddresses(db, 50);
     expect(orderByCalls).toHaveLength(1);
-    expect(orderByCalls[0]).toEqual([desc(indexerToken.blockNumber)]);
+    expect(orderByCalls[0]).toEqual([
+      desc(indexerToken.blockNumber),
+      asc(indexerToken.address),
+    ]);
   });
 
   it("passes the caller-supplied limit through", async () => {

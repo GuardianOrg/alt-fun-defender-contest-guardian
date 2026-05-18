@@ -1792,6 +1792,7 @@ export async function fetchNonZeroWalletZapPositions(
           gt(indexerWalletPosition.zapTokenAmount, "0"),
         ),
       )
+      .orderBy(asc(indexerWalletPosition.tokenAddress))
       .limit(limit);
     return rows.map((r) => ({ tokenAddress: r.tokenAddress }));
   } catch (error) {
@@ -1827,7 +1828,7 @@ export async function fetchMostRecentTokenAddresses(
     const rows = await db
       .select({ address: indexerToken.address })
       .from(indexerToken)
-      .orderBy(desc(indexerToken.blockNumber))
+      .orderBy(desc(indexerToken.blockNumber), asc(indexerToken.address))
       .limit(limit);
     return rows.map((r) => ({ address: r.address }));
   } catch (error) {
