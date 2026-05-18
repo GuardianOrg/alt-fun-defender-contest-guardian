@@ -32,7 +32,13 @@ import {
   t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
-import { clearNavStack } from "../lib/nav.js";
+import {
+  START_VIEW_ID,
+  clearNavStack,
+  registerView,
+  setCurrentView,
+  type SubmenuView,
+} from "../lib/nav.js";
 import {
   parseActionStartParam,
   parseStartParam,
@@ -194,6 +200,35 @@ export const buildStartSnapshot = async (
     linkPreviewDisabled: true,
   };
 };
+
+/**
+ * Build the /start view as a `SubmenuView` payload — the shape the
+ * nav-view registry hands back to `renderSubmenuInPlace` when a Back
+ * navigation pops a snapshot tagged with `{ id: "start" }`. Returns
+ * `null` for the same reasons `buildStartSnapshot` does (no active
+ * wallet, missing user); the Back handler then falls back to the
+ * legacy frozen snapshot.
+ */
+const buildStartViewPayload = async (
+  ctx: AppContext,
+): Promise<SubmenuView | null> => {
+  const snap = await buildStartSnapshot(ctx);
+  if (!snap) return null;
+  return {
+    text: snap.text,
+    parseMode: snap.parseMode,
+    inlineKeyboard: snap.keyboard,
+    linkPreviewDisabled: snap.linkPreviewDisabled,
+    view: { id: START_VIEW_ID },
+  };
+};
+
+// Register the start view once at module load so the nav-view
+// registry can re-render it on Back / Home pops without going
+// through the `StartRenderer` callback chain. Idempotent on
+// re-registration so test bots that import this module twice (rare,
+// but happens in hot-reload setups) don't collide.
+registerView(START_VIEW_ID, buildStartViewPayload);
 
 /**
  * Resolve the user's active wallet address, auto-creating the first
@@ -404,6 +439,11 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       reply_markup: rendered.reply_markup,
       link_preview_options: rendered.link_preview_options,
     });
+    // The new bubble shows the start view — record it so a forward
+    // nav from one of the start-menu buttons attaches `{ id: "start" }`
+    // onto its parent snapshot, letting Back re-render fresh balances
+    // instead of restoring the welcome card frozen at click time.
+    setCurrentView(ctx.session, { id: START_VIEW_ID });
   });
 
   bot.callbackQuery(START_CALLBACK.refresh, async (ctx) => {
@@ -449,6 +489,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       reply_markup: rendered.reply_markup,
       link_preview_options: rendered.link_preview_options,
     });
+    setCurrentView(ctx.session, { id: START_VIEW_ID });
     await ctx.answerCallbackQuery({
       text:
         usdcBalance === null && hypeBalance === null
