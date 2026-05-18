@@ -40,9 +40,23 @@ interface Props {
    * false everywhere else.
    */
   isNew?: boolean;
+  /**
+   * When true, the row's token logo loads eagerly with high fetch
+   * priority. `TokenTable` flips this on for the first few rows
+   * (above-the-fold) so the LCP race isn't gated on the lazy queue;
+   * subsequent rows lazy-load to keep the initial paint cheap (we'd
+   * otherwise fire ~30 parallel R2/CDN requests on first render even
+   * though most rows are off-screen until the user scrolls).
+   */
+  eager?: boolean;
 }
 
-export default function TokenRow({ token, stats, isNew = false }: Props) {
+export default function TokenRow({
+  token,
+  stats,
+  isNew = false,
+  eager = false,
+}: Props) {
   const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
   const isGraduating = token.status === "graduating";
@@ -114,7 +128,8 @@ export default function TokenRow({ token, stats, isNew = false }: Props) {
               height={64}
               className={styles.tokenImage}
               onError={() => setImgError(true)}
-              loading="lazy"
+              loading={eager ? "eager" : "lazy"}
+              fetchPriority={eager ? "high" : "auto"}
               decoding="async"
             />
           ) : (

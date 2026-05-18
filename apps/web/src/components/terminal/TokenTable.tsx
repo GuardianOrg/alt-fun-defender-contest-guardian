@@ -61,6 +61,15 @@ const INITIAL_SKELETON_ROW_COUNT = 8;
 // the initial fold, so a short shimmer block is enough to signal "more
 // inbound" without dominating the scroll position.
 const PAGE_SKELETON_ROW_COUNT = 3;
+// First N rows render their token logo eagerly with `fetchpriority=high`
+// — those rows are above-the-fold across our breakpoints (compact rows,
+// ~60-70px tall) so they're competing for the LCP slot. Everything past
+// this index lazy-loads its logo to keep first paint cheap; the browser
+// was otherwise firing ~30 parallel R2 requests on render even though
+// most rows live below the fold until the user scrolls. Tuned to cover
+// the worst case (short-viewport desktop / mobile) without paying for
+// rows the user can't see.
+const EAGER_ROW_COUNT = 6;
 
 export default function TokenTable() {
   const dispatch = useDispatch();
@@ -87,10 +96,7 @@ export default function TokenTable() {
   // is stable across renders. `useMemo` keeps the array identity
   // stable when `tokens` content is unchanged so the underlying query
   // doesn't refetch on every parent re-render.
-  const addresses = useMemo(
-    () => tokens.map((t) => t.address),
-    [tokens],
-  );
+  const addresses = useMemo(() => tokens.map((t) => t.address), [tokens]);
   const { getStats } = useTokenMarketStatsMap(addresses);
 
   // Highlight newly arrived tokens for ~2s on every tab. The earlier
@@ -194,12 +200,13 @@ export default function TokenTable() {
                 {EMPTY_STATE_MESSAGES[activeFilter]}
               </div>
             ) : (
-              tokens.map((t) => (
+              tokens.map((t, index) => (
                 <TokenRow
                   key={t.address}
                   token={t}
                   stats={getStats(t.address)}
                   isNew={flashingIds.has(getTokenId(t))}
+                  eager={index < EAGER_ROW_COUNT}
                 />
               ))
             )}
