@@ -19,6 +19,7 @@ const DEFAULT_BLOCKED: readonly string[] = [
   "SY",
   "RU",
   "GB",
+  "US",
 ];
 
 const STALE_MS = 5 * 60 * 1000;
@@ -47,9 +48,8 @@ const TRACE_URL = "/cdn-cgi/trace";
  * build time, so a production bundle without the env var set has zero
  * runtime cost and zero behaviour change.
  */
-const OVERRIDE = (
-  import.meta.env.VITE_GEO_COUNTRY_OVERRIDE ?? ""
-).toUpperCase() || null;
+const OVERRIDE =
+  (import.meta.env.VITE_GEO_COUNTRY_OVERRIDE ?? "").toUpperCase() || null;
 
 function parseLoc(body: string): string | null {
   for (const line of body.split("\n")) {
