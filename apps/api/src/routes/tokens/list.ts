@@ -31,6 +31,7 @@ import {
 import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
+import { isRevalidationRequest, putWithSwr } from "../../utils/swr-cache.js";
 
 import type { AppBindings } from "../../lib/types.js";
 
@@ -454,7 +455,19 @@ listRoute.get("/", async (c) => {
     cacheUrl.searchParams.delete("dir");
   }
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
-  if (cache) {
+  // The {@link serveFromEdgeCache} middleware already handles the
+  // canonical-key hit + stale-while-revalidate path before this route
+  // is invoked. We retain a defensive primary-key lookup here for two
+  // narrow cases:
+  //   - SWR refresh self-fetches bypass the middleware to force a cold
+  //     path. They MUST NOT short-circuit on the existing primary
+  //     entry — otherwise the stale-fallback copy never gets rewritten
+  //     and the SWR window collapses. The `isRevalidationRequest`
+  //     guard skips this lookup on those requests.
+  //   - A future caller that mounts the route without the middleware
+  //     (e.g. internal RPC, mis-wired test app) still gets the basic
+  //     caching behaviour.
+  if (cache && !isRevalidationRequest(c)) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached;
   }
@@ -481,7 +494,7 @@ listRoute.get("/", async (c) => {
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
       empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
-      if (cache) await cache.put(cacheKey, empty.clone());
+      if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
@@ -539,7 +552,7 @@ listRoute.get("/", async (c) => {
     if (orderedDbRows.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
       empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
-      if (cache) await cache.put(cacheKey, empty.clone());
+      if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
@@ -615,7 +628,7 @@ listRoute.get("/", async (c) => {
     );
     const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
-    if (cache) await cache.put(cacheKey, response.clone());
+    if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
   }
 
@@ -652,7 +665,7 @@ listRoute.get("/", async (c) => {
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
       empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
-      if (cache) await cache.put(cacheKey, empty.clone());
+      if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
@@ -715,7 +728,7 @@ listRoute.get("/", async (c) => {
     if (candidatesDb.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
       empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
-      if (cache) await cache.put(cacheKey, empty.clone());
+      if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
@@ -794,7 +807,7 @@ listRoute.get("/", async (c) => {
     );
     const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
-    if (cache) await cache.put(cacheKey, response.clone());
+    if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
   }
 
@@ -1004,7 +1017,7 @@ listRoute.get("/", async (c) => {
       : DEGRADED_CACHE_TTL_SECONDS;
     empty.headers.set("Cache-Control", edgeCacheableJsonHeader(emptyTtl));
     if (cache) {
-      await cache.put(cacheKey, empty.clone());
+      await putWithSwr(cache, cacheKey, empty);
     }
     return empty;
   }
@@ -1085,7 +1098,7 @@ listRoute.get("/", async (c) => {
   const ttl = isLive ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
   response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
   if (cache) {
-    await cache.put(cacheKey, response.clone());
+    await putWithSwr(cache, cacheKey, response);
   }
   return response;
 });

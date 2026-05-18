@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Hono } from "hono";
 
 import { serveFromEdgeCache } from "../middleware/edge-cache.js";
+import {
+  SWR_REVALIDATE_HEADER,
+  putWithSwr,
+} from "../utils/swr-cache.js";
+import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
 import type { AppBindings } from "../lib/types.js";
 
 /**
@@ -142,6 +147,125 @@ describe("serveFromEdgeCache middleware", () => {
 
     const res = await app.request("/api/v1/tokens", {}, makeEnv());
     expect(res.status).toBe(200);
+    expect(downstream).toHaveBeenCalledOnce();
+  });
+
+  it("serves the stale-fallback body and schedules a background refresh once the canonical entry expires", async () => {
+    // Seed the cache via `putWithSwr` (canonical + stale-fallback
+    // copy), then evict the canonical entry to mimic `s-maxage`
+    // expiry. The middleware must hand back the stale body
+    // immediately + queue a `waitUntil` self-fetch carrying the
+    // revalidation marker.
+    const store = new Map<string, Response>();
+    const fakeCache = {
+      match: async (req: Request) => {
+        const stored = store.get(req.url);
+        return stored ? stored.clone() : undefined;
+      },
+      put: async (req: Request, res: Response) => {
+        store.set(req.url, res.clone());
+      },
+      delete: async (req: Request) => store.delete(req.url),
+    };
+    (globalThis as { caches?: { default: unknown } }).caches = {
+      default: fakeCache,
+    };
+
+    const primary = new Request("http://localhost/api/v1/tokens?sort=trending", {
+      method: "GET",
+    });
+    const seeded = new Response(JSON.stringify({ body: "stale" }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": edgeCacheableJsonHeader(5),
+      },
+    });
+    await putWithSwr(fakeCache as unknown as Cache, primary, seeded);
+    // Force a canonical-entry miss. The stale-fallback sibling key
+    // (`?__swr_stale=1`) survives, which is what enables the SWR serve.
+    await fakeCache.delete(primary);
+
+    const capturedFetches: Request[] = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      capturedFetches.push(req);
+      return new Response(null, { status: 200 });
+    });
+    const originalFetch = globalThis.fetch;
+    (globalThis as { fetch: typeof fetch }).fetch = fetchSpy as unknown as typeof fetch;
+
+    try {
+      const downstream = vi.fn((c) => c.json({ body: "fresh-but-should-not-run" }));
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.use("/api/v1/*", serveFromEdgeCache);
+      app.get("/api/v1/tokens", downstream);
+
+      const executionCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() };
+      const res = await app.fetch(
+        new Request("http://localhost/api/v1/tokens?sort=trending"),
+        makeEnv(),
+        executionCtx as unknown as ExecutionContext,
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { body: string };
+      expect(body.body).toBe("stale");
+      expect(downstream).not.toHaveBeenCalled();
+      // The middleware must have scheduled exactly one background
+      // refresh — `waitUntil` is the only hook the platform gives us
+      // to keep the fetch alive past the response return.
+      expect(executionCtx.waitUntil).toHaveBeenCalledTimes(1);
+
+      // Drain the queued promise so `fetch` actually runs before we
+      // assert on the captured call.
+      const waited = (executionCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      await waited;
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(capturedFetches).toHaveLength(1);
+      expect(capturedFetches[0].headers.get(SWR_REVALIDATE_HEADER)).toBe("1");
+      expect(capturedFetches[0].url).toContain("sort=trending");
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    }
+  });
+
+  it("bypasses the cache when the SWR revalidation marker is set", async () => {
+    // The background self-fetch from a stale serve carries
+    // `X-SWR-Revalidate: 1`. The middleware must skip its cache
+    // lookup so the refresh request reaches the route handler and
+    // writes a fresh canonical + stale pair.
+    const cacheStore = new Map<string, Response>();
+    cacheStore.set(
+      "http://localhost/api/v1/tokens",
+      new Response(JSON.stringify({ cached: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    (globalThis as { caches?: { default: unknown } }).caches = {
+      default: {
+        match: async (req: Request) => {
+          const hit = cacheStore.get(req.url);
+          return hit ? hit.clone() : undefined;
+        },
+        put: vi.fn(),
+      },
+    };
+
+    const downstream = vi.fn((c) => c.json({ refreshed: true }));
+    const app = new Hono<{ Bindings: AppBindings }>();
+    app.use("/api/v1/*", serveFromEdgeCache);
+    app.get("/api/v1/tokens", downstream);
+
+    const res = await app.request(
+      "/api/v1/tokens",
+      { headers: { [SWR_REVALIDATE_HEADER]: "1" } },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { refreshed: boolean };
+    expect(body.refreshed).toBe(true);
     expect(downstream).toHaveBeenCalledOnce();
   });
 
