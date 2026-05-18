@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 
 import { createDb } from "../../db/client.js";
 import {
@@ -7,18 +8,11 @@ import {
   fetchRouterTradesForAnalytics,
   fetchTokensLaunchedSince,
 } from "../../lib/indexer-reads.js";
-import { createPonderPaginatedQuery } from "../../lib/ponder-client.js";
 import { usdcRawToUsd } from "../../lib/token-enrich.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
-import type {
-  PonderRouterTrade,
-  PonderGraduation,
-  PonderToken,
-  PonderFeeAccrual,
-} from "../../lib/ponder-types.js";
 
 function parseDays(raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
@@ -47,230 +41,13 @@ function buildDaySeries(
 
 const analytics = new Hono<{ Bindings: AppBindings }>();
 
-analytics.get("/dau", async (c) => {
-  const days = parseDays(c.req.query("days"), 30);
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+// Issue #942: the v1 GraphQL-backed handlers were retired. The DB-backed
+// handlers below now serve both the canonical paths and their additive
+// `-v2` siblings (kept as aliases so any consumer already on `-v2` keeps
+// working). `truncated` is always `false` — a single Postgres query
+// returns every row in the window with no paginator cap.
 
-  const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: trades, truncated } = await queryAll<Pick<PonderRouterTrade, "trader" | "timestamp">>(
-    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-      routerTrades(
-        where: { timestamp_gte: $cutoff }
-        limit: $limit, offset: $offset,
-        orderBy: "timestamp", orderDirection: "desc"
-      ) {
-        items { trader timestamp }
-      }
-    }`,
-    "routerTrades",
-    { cutoff: String(cutoff) },
-  );
-
-  const dayWallets = new Map<string, Set<string>>();
-  for (const t of trades) {
-    const day = toDayKey(Number(t.timestamp));
-    let wallets = dayWallets.get(day);
-    if (!wallets) {
-      wallets = new Set();
-      dayWallets.set(day, wallets);
-    }
-    wallets.add(t.trader.toLowerCase());
-  }
-
-  const dayMap = new Map<string, number>();
-  for (const [day, wallets] of dayWallets) {
-    dayMap.set(day, wallets.size);
-  }
-
-  return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
-});
-
-analytics.get("/volume", async (c) => {
-  const days = parseDays(c.req.query("days"), 30);
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-
-  const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: trades, truncated } = await queryAll<Pick<PonderRouterTrade, "usdcAmount" | "timestamp">>(
-    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-      routerTrades(
-        where: { timestamp_gte: $cutoff }
-        limit: $limit, offset: $offset,
-        orderBy: "timestamp", orderDirection: "desc"
-      ) {
-        items { usdcAmount timestamp }
-      }
-    }`,
-    "routerTrades",
-    { cutoff: String(cutoff) },
-  );
-
-  const dayMicroMap = new Map<string, bigint>();
-  for (const t of trades) {
-    const day = toDayKey(Number(t.timestamp));
-    dayMicroMap.set(day, (dayMicroMap.get(day) ?? 0n) + BigInt(t.usdcAmount));
-  }
-
-  // `usdcRawToUsd` splits the bigint into whole-dollar + sub-dollar halves
-  // before casting to Number, pushing the precision ceiling well past
-  // anything we'd see in a single day's USDC volume.
-  const dayMap = new Map<string, number>();
-  for (const [day, microUsdc] of dayMicroMap) {
-    dayMap.set(day, usdcRawToUsd(microUsdc.toString()) ?? 0);
-  }
-
-  return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
-});
-
-analytics.get("/graduations", async (c) => {
-  const days = parseDays(c.req.query("days"), 30);
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-
-  const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-
-  const [gradResult, tokenResult] = await Promise.all([
-    queryAll<PonderGraduation>(
-      `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-        graduations(
-          where: { timestamp_gte: $cutoff }
-          limit: $limit, offset: $offset,
-          orderBy: "timestamp", orderDirection: "desc"
-        ) {
-          items { tokenAddress timestamp }
-        }
-      }`,
-      "graduations",
-      { cutoff: String(cutoff) },
-    ),
-    queryAll<PonderToken>(
-      `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-        tokens(
-          where: { timestamp_gte: $cutoff }
-          limit: $limit, offset: $offset,
-          orderBy: "timestamp", orderDirection: "desc"
-        ) {
-          items { address timestamp }
-        }
-      }`,
-      "tokens",
-      { cutoff: String(cutoff) },
-    ),
-  ]);
-
-  const graduations = gradResult.items;
-  const windowTokens = tokenResult.items;
-  const truncated = gradResult.truncated || tokenResult.truncated;
-
-  const gradDayMap = new Map<string, number>();
-  const launchDayMap = new Map<string, number>();
-  let totalGradTime = 0;
-  let gradCount = 0;
-
-  const tokenLaunchMap = new Map<string, number>();
-  for (const t of windowTokens) {
-    const ts = Number(t.timestamp);
-    tokenLaunchMap.set(t.address.toLowerCase(), ts);
-    const day = toDayKey(ts);
-    launchDayMap.set(day, (launchDayMap.get(day) ?? 0) + 1);
-  }
-  const totalLaunches = windowTokens.length;
-
-  for (const g of graduations) {
-    const ts = Number(g.timestamp);
-    const day = toDayKey(ts);
-    gradDayMap.set(day, (gradDayMap.get(day) ?? 0) + 1);
-    const launchTs = tokenLaunchMap.get(g.tokenAddress.toLowerCase());
-    if (launchTs) {
-      totalGradTime += ts - launchTs;
-      gradCount++;
-    }
-  }
-  const totalGrads = graduations.length;
-
-  return c.json(
-    formatSuccess({
-      daily: buildDaySeries(gradDayMap, days),
-      launches: buildDaySeries(launchDayMap, days),
-      totalLaunches,
-      totalGraduations: totalGrads,
-      graduationRate: totalLaunches > 0 ? gradCount / totalLaunches : 0,
-      avgTimeToGraduationSeconds: gradCount > 0 ? Math.round(totalGradTime / gradCount) : null,
-      truncated,
-    }),
-  );
-});
-
-analytics.get("/revenue", async (c) => {
-  const days = parseDays(c.req.query("days"), 30);
-  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-
-  const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  // Accrual-based (earned, not paid-out). Fees are charged by `Zap`
-  // and recorded in `FeeVault` regardless of claim timing, so revenue tracking
-  // reads accruals directly — this decouples the dashboard from creators
-  // forgetting to claim.
-  const { items: accruals, truncated } = await queryAll<
-    Pick<PonderFeeAccrual, "creatorAmount" | "protocolAmount" | "timestamp">
-  >(
-    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-      feeAccruals(
-        where: { timestamp_gte: $cutoff }
-        limit: $limit, offset: $offset,
-        orderBy: "timestamp", orderDirection: "desc"
-      ) {
-        items { creatorAmount protocolAmount timestamp }
-      }
-    }`,
-    "feeAccruals",
-    { cutoff: String(cutoff) },
-  );
-
-  const protocolDayRaw = new Map<string, bigint>();
-  const creatorDayRaw = new Map<string, bigint>();
-
-  for (const accrual of accruals) {
-    const day = toDayKey(Number(accrual.timestamp));
-    const creatorRaw = BigInt(accrual.creatorAmount);
-    const protocolRaw = BigInt(accrual.protocolAmount);
-
-    if (creatorRaw > 0n) {
-      creatorDayRaw.set(day, (creatorDayRaw.get(day) ?? 0n) + creatorRaw);
-    }
-    if (protocolRaw > 0n) {
-      protocolDayRaw.set(day, (protocolDayRaw.get(day) ?? 0n) + protocolRaw);
-    }
-  }
-
-  // `usdcRawToUsd` splits the bigint into whole-dollar + sub-dollar halves
-  // before casting to Number, pushing the precision ceiling well past
-  // anything we'd see in a single day's fee revenue.
-  const protocolDayMap = new Map<string, number>();
-  for (const [day, raw] of protocolDayRaw) {
-    protocolDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
-  }
-  const creatorDayMap = new Map<string, number>();
-  for (const [day, raw] of creatorDayRaw) {
-    creatorDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
-  }
-
-  return c.json(
-    formatSuccess({
-      protocol: buildDaySeries(protocolDayMap, days),
-      creator: buildDaySeries(creatorDayMap, days),
-      truncated,
-    }),
-  );
-});
-
-// ----------------------------------------------------------------------
-// Additive `-v2` siblings: identical response shape, sourced from the
-// indexer DB directly instead of paginated Ponder GraphQL. Mounted under
-// the same `/admin/analytics` prefix so callers can A/B compare with a
-// path swap. The v1 routes above stay live until the cut-over.
-// `truncated` is always `false` on the v2 routes — a single Postgres
-// query returns every row in the window with no paginator cap.
-// ----------------------------------------------------------------------
-
-analytics.get("/dau-v2", async (c) => {
+async function dauHandler(c: Context<{ Bindings: AppBindings }>) {
   const days = parseDays(c.req.query("days"), 30);
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
@@ -297,9 +74,9 @@ analytics.get("/dau-v2", async (c) => {
   return c.json(
     formatSuccess({ series: buildDaySeries(dayMap, days), truncated: false }),
   );
-});
+}
 
-analytics.get("/volume-v2", async (c) => {
+async function volumeHandler(c: Context<{ Bindings: AppBindings }>) {
   const days = parseDays(c.req.query("days"), 30);
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
@@ -321,9 +98,11 @@ analytics.get("/volume-v2", async (c) => {
   return c.json(
     formatSuccess({ series: buildDaySeries(dayMap, days), truncated: false }),
   );
-});
+}
 
-analytics.get("/graduations-v2", async (c) => {
+async function graduationsHandler(
+  c: Context<{ Bindings: AppBindings }>,
+) {
   const days = parseDays(c.req.query("days"), 30);
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
@@ -374,13 +153,17 @@ analytics.get("/graduations-v2", async (c) => {
       truncated: false,
     }),
   );
-});
+}
 
-analytics.get("/revenue-v2", async (c) => {
+async function revenueHandler(c: Context<{ Bindings: AppBindings }>) {
   const days = parseDays(c.req.query("days"), 30);
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const db = createDb(c.env.DATABASE_URL);
+  // Accrual-based (earned, not paid-out). Fees are charged by `Zap`
+  // and recorded in `FeeVault` regardless of claim timing, so revenue
+  // tracking reads accruals directly — this decouples the dashboard from
+  // creators forgetting to claim.
   const accruals = await fetchFeeAccrualsSince(db, cutoff);
   if (accruals === null) return c.json(formatError("Indexer unavailable"), 503);
 
@@ -416,6 +199,15 @@ analytics.get("/revenue-v2", async (c) => {
       truncated: false,
     }),
   );
-});
+}
+
+analytics.get("/dau", dauHandler);
+analytics.get("/dau-v2", dauHandler);
+analytics.get("/volume", volumeHandler);
+analytics.get("/volume-v2", volumeHandler);
+analytics.get("/graduations", graduationsHandler);
+analytics.get("/graduations-v2", graduationsHandler);
+analytics.get("/revenue", revenueHandler);
+analytics.get("/revenue-v2", revenueHandler);
 
 export default analytics;

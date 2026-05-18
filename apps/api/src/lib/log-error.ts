@@ -1,17 +1,13 @@
 /**
  * Shared error-shaping helpers for the API's structured `console.log`
- * failure shims (`logIndexerReadFailure`, `logPonderFailure`, …). The
- * goal of every helper here is the same: take an arbitrary thrown value
- * — including the deeply-nested wrappers Drizzle's `neon-http` driver
- * produces and the GraphQL fetch failures the Ponder client swallows —
- * and turn it into a JSON-safe payload that Cloudflare log search can
- * pivot on, without dropping the log line on circular structures and
- * without leaking credential-shaped fields on a future driver upgrade.
+ * failure shims (`logIndexerReadFailure`, …). The goal of every helper
+ * here is the same: take an arbitrary thrown value — including the
+ * deeply-nested wrappers Drizzle's `neon-http` driver produces — and
+ * turn it into a JSON-safe payload that Cloudflare log search can pivot
+ * on, without dropping the log line on circular structures and without
+ * leaking credential-shaped fields on a future driver upgrade.
  *
- * Both `apps/api/src/lib/indexer-reads.ts` and
- * `apps/api/src/lib/ponder-client.ts` use these helpers so the two
- * swallow paths produce structurally-identical error payloads. Issue
- * #974, CodeRabbit feedback on PR #983.
+ * Issue #974, CodeRabbit feedback on PR #983.
  */
 
 /**
@@ -24,12 +20,11 @@ const CAUSE_STACK_LINES = 5;
 
 /**
  * Defence-in-depth redaction list for error-sidecar logging. The Neon
- * HTTP / Ponder fetch paths do NOT attach credentials to errors today
- * (the wrappers carry SQL + params or HTTP body, no `Authorization`
- * header / connection string), but a future driver upgrade or a
- * hand-thrown error could. Redacting any key whose name looks
- * credential-shaped before the value lands in Cloudflare logs is cheap
- * insurance.
+ * HTTP path does NOT attach credentials to errors today (the wrapper
+ * carries SQL + params, no `Authorization` header / connection string),
+ * but a future driver upgrade or a hand-thrown error could. Redacting
+ * any key whose name looks credential-shaped before the value lands in
+ * Cloudflare logs is cheap insurance.
  */
 const SENSITIVE_ERROR_KEY_PATTERN =
   /authorization|cookie|token|secret|password|passwd|api[-_]?key|database[-_]?url|connection[-_]?string|dsn/i;

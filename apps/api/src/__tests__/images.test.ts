@@ -116,7 +116,6 @@ function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "",
     OPENAI_API_KEY: "sk-test",
     IMAGES_BUCKET: {
       put: mockR2Put,

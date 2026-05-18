@@ -2,9 +2,6 @@
 # Copy to `.dev.vars` and fill in placeholders marked with `ASK_A_TEAMMATE`.
 # Both files are gitignored.
 
-# Ponder indexer GraphQL URL (local default).
-PONDER_URL=http://localhost:42069
-
 # Neon PostgreSQL — off-chain app DB (profiles, tokens metadata).
 DATABASE_URL=ASK_A_TEAMMATE
 

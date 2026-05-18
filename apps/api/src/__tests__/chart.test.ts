@@ -5,12 +5,9 @@ import type { AppBindings } from "../lib/types.js";
 
 // --- Direct-Postgres indexer-reads mock ---
 //
-// Post-cut-over, the chart route reads chart context + snapshots straight
-// from `ponder_views.*` via `lib/indexer-reads.ts`. The legacy GraphQL
-// helpers (`ponder-client.js`) are stubbed to noop trackers below so the
-// regression-pin test can assert the route never falls back to the
-// retired Ponder HTTP hop on any code path. Mirrors the pattern in
-// `health.test.ts`.
+// The chart route reads chart context + snapshots straight from
+// `ponder_views.*` via `lib/indexer-reads.ts`. Issue #942 retired the
+// legacy GraphQL helpers entirely; the route no longer imports them.
 const mockCheckIndexerHealth = vi.fn();
 const mockFetchTokenChartContext = vi.fn();
 const mockFetchTokenChartSnapshots = vi.fn();
@@ -21,16 +18,6 @@ vi.mock("../lib/indexer-reads.js", () => ({
     mockFetchTokenChartContext(...args),
   fetchTokenChartSnapshots: (...args: unknown[]) =>
     mockFetchTokenChartSnapshots(...args),
-}));
-
-const mockPonderQuery = vi.fn();
-const mockPonderPaginatedQuery = vi.fn();
-const mockCheckPonderHealth = vi.fn();
-
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-  createPonderPaginatedQuery: () => mockPonderPaginatedQuery,
-  checkPonderHealth: (...args: unknown[]) => mockCheckPonderHealth(...args),
 }));
 
 // --- API DB mock (the `tokens` table lookup for `ltPair` fallback) ---
@@ -66,7 +53,6 @@ function makeEnv(): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
@@ -522,9 +508,6 @@ describe("GET /chart/:address", () => {
     const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    expect(mockPonderQuery).not.toHaveBeenCalled();
-    expect(mockPonderPaginatedQuery).not.toHaveBeenCalled();
-    expect(mockCheckPonderHealth).not.toHaveBeenCalled();
     expect(mockCheckIndexerHealth).toHaveBeenCalledTimes(1);
   });
 

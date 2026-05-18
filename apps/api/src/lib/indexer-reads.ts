@@ -55,10 +55,9 @@ import type {
  *   - Postgres planner does the joins/sorts/aggregations the route used to
  *     fake in TypeScript by paginating raw rows.
  *
- * Functions in this module return `null` on caught error (mirroring the
- * legacy `createPonderQuery` contract) so the existing 503-on-null branches
- * in the route handlers still work without restructuring. They never partially
- * succeed — every read is a single Postgres round-trip.
+ * Functions in this module return `null` on caught error so route handlers
+ * can fan a single `null` check into a 503. They never partially succeed —
+ * every read is a single Postgres round-trip.
  *
  * Type-compatibility note: the `PonderTokenOnchain` / `MarketDataItem` /
  * `RouterTradeActivity` shapes are imported from `market-data.ts` to keep the
@@ -959,10 +958,9 @@ export async function fetchCreatorEarnings(
 }
 
 /**
- * Cheap-but-real reachability probe for the indexer DB connection. Mirrors
- * the legacy `checkPonderHealth` semantics: an empty table is fine (returns
- * `true`), a thrown exception is `false`. Used by the `/health` endpoint and
- * the OHLCV pre-check.
+ * Cheap-but-real reachability probe for the indexer DB connection. An empty
+ * table is fine (returns `true`); a thrown exception is `false`. Used by the
+ * `/health` endpoint and the OHLCV pre-check.
  *
  * Touches the `token` row count rather than `SELECT 1` so a Postgres pool
  * that's reachable but starved of capacity still surfaces as `false`.

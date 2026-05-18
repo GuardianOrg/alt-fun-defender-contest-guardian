@@ -130,11 +130,11 @@ The columns are deliberately reused (rather than adding `hyperswapTokenReserve` 
 ## Local dev port discipline
 
 `ponder dev` defaults to port `42069` and **silently falls back** to the next
-free port (`42070`, …) if it's taken. The API reads
-`PONDER_URL=http://localhost:42069` from `apps/api/.dev.vars`, so a fallback
-means the API talks to whatever was on `42069` — usually a stale `ponder dev`
+free port (`42070`, …) if it's taken. A fallback means the indexer GraphQL
+endpoint binds to whatever was on `42069` — usually a stale `ponder dev`
 from a previous session whose PGlite has since closed — producing a silent
-"loading forever" UX with no obvious error.
+"loading forever" UX with no obvious error for any caller still hitting
+that endpoint.
 
 To prevent this we wrap `ponder dev` with `scripts/dev.mjs`, which fails fast
 (non-zero exit, surfaced by turbo) when `42069` is already bound and prints

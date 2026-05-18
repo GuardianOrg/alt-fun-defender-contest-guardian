@@ -201,9 +201,8 @@ trades.get("/ohlcv/:address", async (c) => {
 
   const db = createDb(c.env.DATABASE_URL);
 
-  // Pre-check indexer DB availability before walking the trade history —
-  // matches the legacy `checkPonderHealth` shape so the route still 503s
-  // cleanly when the underlying read path is wedged.
+  // Pre-check indexer DB availability before walking the trade history so
+  // the route 503s cleanly when the underlying read path is wedged.
   const healthy = await checkIndexerHealth(db);
   if (!healthy) {
     return c.json(

@@ -31,10 +31,6 @@ vi.mock("../db/client.js", () => ({
   createDb: () => ({}),
 }));
 
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderPaginatedQuery: () => vi.fn(),
-}));
-
 const { default: analytics } = await import("../routes/admin/analytics.js");
 
 function createApp() {
@@ -48,7 +44,6 @@ function makeEnv(): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
@@ -230,5 +225,88 @@ describe("GET /admin/analytics/graduations-v2", () => {
     expect(body.data.graduationRate).toBeCloseTo(0.5, 6);
     expect(body.data.avgTimeToGraduationSeconds).toBe(3600 * 4);
     expect(body.data.truncated).toBe(false);
+  });
+});
+
+// Issue #942: the v1 GraphQL-backed handlers were retired. The canonical
+// `/dau`, `/volume`, `/graduations`, `/revenue` paths now resolve to the
+// DB-backed handler so external callers on the legacy path see the same
+// response shape (with `truncated: false` since the direct DB read has
+// no paginator cap). Pin every canonical path so a refactor that drops
+// the alias lights up here.
+describe("Canonical analytics paths (DB-backed, served at the legacy URLs)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_NOW);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("dau: counts distinct traders per day on /dau", async () => {
+    const utcDay = (iso: string): number =>
+      Math.floor(new Date(iso).getTime() / 1000);
+    mockFetchRouterTradesForAnalytics.mockResolvedValue([
+      { trader: "0xAAA", usdcAmount: "1", timestamp: String(utcDay("2026-05-15T01:00:00Z")) },
+      { trader: "0xBBB", usdcAmount: "1", timestamp: String(utcDay("2026-05-15T07:00:00Z")) },
+    ]);
+    const res = await createApp().request("/admin/analytics/dau?days=2", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { series: { date: string; value: number }[]; truncated: boolean } };
+    expect(body.data.truncated).toBe(false);
+    expect(body.data.series.find((p) => p.date === "2026-05-15")?.value).toBe(2);
+  });
+
+  it("volume: sums USDC per day on /volume", async () => {
+    const utcDay = (iso: string): number =>
+      Math.floor(new Date(iso).getTime() / 1000);
+    mockFetchRouterTradesForAnalytics.mockResolvedValue([
+      { trader: "0xa", usdcAmount: "1500000", timestamp: String(utcDay("2026-05-15T01:00:00Z")) },
+      { trader: "0xa", usdcAmount: "2500000", timestamp: String(utcDay("2026-05-15T02:00:00Z")) },
+    ]);
+    const res = await createApp().request("/admin/analytics/volume?days=2", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { series: { date: string; value: number }[] } };
+    expect(body.data.series.find((p) => p.date === "2026-05-15")?.value).toBe(4);
+  });
+
+  it("graduations: returns gap-based time-to-graduation on /graduations", async () => {
+    const utcDay = (iso: string): number =>
+      Math.floor(new Date(iso).getTime() / 1000);
+    const launchTs = utcDay("2026-05-14T10:00:00Z");
+    const gradTs = launchTs + 3600 * 4;
+    mockFetchGraduationsSince.mockResolvedValue([
+      { tokenAddress: "0xabc", timestamp: String(gradTs) },
+    ]);
+    mockFetchTokensLaunchedSince.mockResolvedValue([
+      { address: "0xabc", timestamp: String(launchTs) },
+    ]);
+    const res = await createApp().request("/admin/analytics/graduations?days=7", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { totalGraduations: number; avgTimeToGraduationSeconds: number | null; truncated: boolean };
+    };
+    expect(body.data.totalGraduations).toBe(1);
+    expect(body.data.avgTimeToGraduationSeconds).toBe(3600 * 4);
+    expect(body.data.truncated).toBe(false);
+  });
+
+  it("revenue: returns daily accrual buckets on /revenue", async () => {
+    const utcDay = (iso: string): number =>
+      Math.floor(new Date(iso).getTime() / 1000);
+    mockFetchFeeAccrualsSince.mockResolvedValue([
+      { creatorAmount: "1000000", protocolAmount: "2000000", timestamp: String(utcDay("2026-05-15T10:00:00Z")) },
+    ]);
+    const res = await createApp().request("/admin/analytics/revenue?days=2", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        protocol: { date: string; value: number }[];
+        creator: { date: string; value: number }[];
+        truncated: boolean;
+      };
+    };
+    expect(body.data.truncated).toBe(false);
+    expect(body.data.protocol.find((p) => p.date === "2026-05-15")?.value).toBeCloseTo(2, 6);
+    expect(body.data.creator.find((p) => p.date === "2026-05-15")?.value).toBeCloseTo(1, 6);
   });
 });

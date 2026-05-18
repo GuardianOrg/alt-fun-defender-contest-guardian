@@ -13,7 +13,6 @@ export interface AppBindings {
    * `lib/admin-allowlist.ts` for the resolver.
    */
   ADMIN_WALLETS?: string;
-  PONDER_URL: string;
   IMAGES_BUCKET: R2Bucket;
   WEBSOCKET_DO: DurableObjectNamespace;
   /**
