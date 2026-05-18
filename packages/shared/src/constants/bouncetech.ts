@@ -46,7 +46,8 @@ export function getBounceLtImageUrl(symbol: string): string {
 export const HYPERLIQUID_INFO_API = "https://api.hyperliquid.xyz/info" as const;
 export const HYPERLIQUID_WS = "wss://api.hyperliquid.xyz/ws" as const;
 
-export const USDC_ADDRESS = "0xb88339CB7199b77E23DB6E890353E22632Ba630f" as const;
+export const USDC_ADDRESS =
+  "0xb88339CB7199b77E23DB6E890353E22632Ba630f" as const;
 
 /** Alt Fun minimum buy size — higher than BounceTech's $10 floor to provide buffer. */
 export const MIN_USDC_BUY_AMOUNT = 20 as const;
@@ -73,6 +74,7 @@ export interface LiveLeveragedToken extends LeveragedTokenInfo {
   exchangeRate: string;
   totalSupply: string;
   totalAssets: string;
+  baseAssetBalance: string;
 }
 
 /**
@@ -94,7 +96,8 @@ export interface LiveLeveragedToken extends LeveragedTokenInfo {
  * by people who already hold them. Issue #639.
  */
 export const EXCLUDED_UNDERLYING_ASSETS = ["PAXG"] as const;
-export type ExcludedUnderlyingAsset = (typeof EXCLUDED_UNDERLYING_ASSETS)[number];
+export type ExcludedUnderlyingAsset =
+  (typeof EXCLUDED_UNDERLYING_ASSETS)[number];
 
 /**
  * Cheap predicate used by every callsite that reads a token's
@@ -193,7 +196,9 @@ export function getAssetDisplayName(asset: string): string {
  * Return the Hyperliquid `dex` parameter to use when fetching prices /
  * candles for a given asset. `null` means the default (spot/perps) feed.
  */
-export function getHyperliquidDex(asset: string): typeof HYPERLIQUID_XYZ_DEX | null {
+export function getHyperliquidDex(
+  asset: string,
+): typeof HYPERLIQUID_XYZ_DEX | null {
   return (XYZ_DEX_ASSETS as readonly string[]).includes(asset)
     ? HYPERLIQUID_XYZ_DEX
     : null;
@@ -214,11 +219,15 @@ export type SupportedLeverage = (typeof SUPPORTED_LEVERAGES)[number];
  * the behaviour at every other call site that reads the excluded list
  * directly (API token list / search, etc.).
  */
-export function filterSupportedLTs(lts: LiveLeveragedToken[]): LiveLeveragedToken[] {
+export function filterSupportedLTs(
+  lts: LiveLeveragedToken[],
+): LiveLeveragedToken[] {
   return lts.filter(
     (lt) =>
       !isExcludedUnderlying(lt.targetAsset) &&
-      (SUPPORTED_UNDERLYING_ASSETS as readonly string[]).includes(lt.targetAsset) &&
+      (SUPPORTED_UNDERLYING_ASSETS as readonly string[]).includes(
+        lt.targetAsset,
+      ) &&
       (SUPPORTED_LEVERAGES as readonly number[]).includes(lt.targetLeverage),
   );
 }
@@ -233,6 +242,9 @@ export function findLT(
   isLong: boolean,
 ): LeveragedTokenInfo | undefined {
   return lts.find(
-    (lt) => lt.targetAsset === asset && lt.targetLeverage === leverage && lt.isLong === isLong,
+    (lt) =>
+      lt.targetAsset === asset &&
+      lt.targetLeverage === leverage &&
+      lt.isLong === isLong,
   );
 }

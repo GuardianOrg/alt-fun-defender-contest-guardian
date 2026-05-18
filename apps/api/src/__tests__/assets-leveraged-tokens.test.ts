@@ -64,6 +64,7 @@ const baseLt = {
   exchangeRate: "1000000000000000000",
   totalSupply: "0",
   totalAssets: "0",
+  baseAssetBalance: "0",
 };
 
 describe("GET /assets/leveraged-tokens — additive on-chain-mirror endpoint", () => {

@@ -39,6 +39,7 @@ const DIRECTORY: LiveLeveragedToken[] = [
     exchangeRate: "1000000000000000000",
     totalSupply: "0",
     totalAssets: "0",
+    baseAssetBalance: "0",
   },
   {
     address: HYPE_5L,
@@ -52,6 +53,7 @@ const DIRECTORY: LiveLeveragedToken[] = [
     exchangeRate: "1000000000000000000",
     totalSupply: "0",
     totalAssets: "0",
+    baseAssetBalance: "0",
   },
   {
     address: DOGE_3L,
@@ -65,6 +67,7 @@ const DIRECTORY: LiveLeveragedToken[] = [
     exchangeRate: "1000000000000000000",
     totalSupply: "0",
     totalAssets: "0",
+    baseAssetBalance: "0",
   },
 ];
 

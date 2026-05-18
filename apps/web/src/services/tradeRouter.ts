@@ -140,10 +140,32 @@ export interface SellQuote {
   exceedsBuffer: boolean;
 }
 
+/**
+ * Optional off-chain overrides for fields the live quote would otherwise
+ * read directly from chain. Both come from the API layer:
+ *
+ * - `exchangeRateWei` — broadcast on the `price` WS channel by `LtTicker`
+ *   at ~1Hz cadence (the same cadence the trade panel re-quotes at). When
+ *   present, skips the per-quote `LT.exchangeRate()` `eth_call`.
+ * - `baseAssetBalanceWei` — surfaced via `LiveLeveragedToken` from the
+ *   `LtDirectoryPoller`'s 30s mirror of the LT helper. When present,
+ *   skips the per-quote `LT.baseAssetBalance()` `eth_call`. Sell-side
+ *   only — buy quotes don't touch the idle-USDC buffer.
+ *
+ * Both are nullable so callers without WS / API access (tests, dev mock
+ * routes, the rare case where the directory hasn't loaded yet) degrade
+ * cleanly to the RPC path.
+ */
+export interface LtLiveOverrides {
+  exchangeRateWei?: bigint;
+  baseAssetBalanceWei?: bigint;
+}
+
 export interface ITradeRouterService {
   getQuoteBuy(
     curveAddress: string,
     usdcAmount: number,
+    overrides?: LtLiveOverrides,
   ): Promise<BuyQuote | null>;
   /**
    * @param slippage Fractional slippage tolerance (e.g. `0.02` = 2%). Used as
@@ -162,6 +184,7 @@ export interface ITradeRouterService {
      * (not a hard-coded `2`) for 3x/5x tokens to display a faithful net.
      */
     leverage?: number,
+    overrides?: LtLiveOverrides,
   ): Promise<SellQuote | null>;
 }
 
@@ -378,7 +401,7 @@ function getPairContextCached(
 }
 
 const liveTradeRouter: ITradeRouterService = {
-  async getQuoteBuy(curveAddress, usdcAmount) {
+  async getQuoteBuy(curveAddress, usdcAmount, overrides) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
@@ -395,6 +418,23 @@ const liveTradeRouter: ITradeRouterService = {
       // `canGraduate(token)` to true — supply or USD trigger, whichever
       // fires first). Without this the FE would over-quote tokens on a
       // buy that crosses the threshold.
+      //
+      // `exchangeRate` is supplied via `overrides` when the caller is
+      // wired up to the `price` WS channel (the trade panel always is —
+      // see `useLiveTradeQuote`). `LtTicker` broadcasts the rate at ~1Hz
+      // off BounceTech's snapshot DB, which is the same cadence we'd
+      // re-quote at — so the RPC read here is strictly redundant when
+      // the override is present. Fall back to the on-chain read for
+      // callers without a WS subscription (dev / preview / mock paths).
+      const exchangeRatePromise =
+        overrides?.exchangeRateWei !== undefined
+          ? Promise.resolve(overrides.exchangeRateWei)
+          : (publicClient.readContract({
+              address: ltAddress,
+              abi: LeveragedTokenAbi,
+              functionName: "exchangeRate",
+            }) as Promise<bigint>);
+
       const [
         reserves,
         exchangeRate,
@@ -413,11 +453,7 @@ const liveTradeRouter: ITradeRouterService = {
               abi: CurvePairAbi,
               functionName: "getReserves",
             }) as Promise<readonly [bigint, bigint]>),
-        publicClient.readContract({
-          address: ltAddress,
-          abi: LeveragedTokenAbi,
-          functionName: "exchangeRate",
-        }) as Promise<bigint>,
+        exchangeRatePromise,
         graduated
           ? Promise.resolve(0n)
           : (publicClient.readContract({
@@ -595,11 +631,44 @@ const liveTradeRouter: ITradeRouterService = {
     }
   },
 
-  async getQuoteSell(curveAddress, tokenAmount, slippage = 0, leverage = 2) {
+  async getQuoteSell(
+    curveAddress,
+    tokenAmount,
+    slippage = 0,
+    leverage = 2,
+    overrides,
+  ) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
         await getPairContextCached(tokenAddr);
+
+      // See `getQuoteBuy` for the `exchangeRate` override rationale. The
+      // `baseAssetBalance` override is the same idea on a different
+      // cadence: `LtDirectoryPoller` mirrors the LT helper to Postgres
+      // every 30s and `LiveLeveragedToken` exposes it via the
+      // `/leveragedTokens` directory route. 30s freshness on the sell-side
+      // idle-USDC buffer is fine — the buffer changes only when a redeem
+      // lands, and BounceTech's automation refills it in ~10s. Worst-case
+      // drift is the rare cluster of redeems landing inside one polling
+      // window; the slippage-discounted `safeBufferUsdc` below already
+      // builds in headroom for exactly this case.
+      const exchangeRatePromise =
+        overrides?.exchangeRateWei !== undefined
+          ? Promise.resolve(overrides.exchangeRateWei)
+          : (publicClient.readContract({
+              address: ltAddress,
+              abi: LeveragedTokenAbi,
+              functionName: "exchangeRate",
+            }) as Promise<bigint>);
+      const baseAssetBalPromise =
+        overrides?.baseAssetBalanceWei !== undefined
+          ? Promise.resolve(overrides.baseAssetBalanceWei)
+          : (publicClient.readContract({
+              address: ltAddress,
+              abi: LeveragedTokenAbi,
+              functionName: "baseAssetBalance",
+            }) as Promise<bigint>);
 
       const [reserves, exchangeRate, baseAssetBal] = await Promise.all([
         graduated
@@ -613,16 +682,8 @@ const liveTradeRouter: ITradeRouterService = {
               abi: CurvePairAbi,
               functionName: "getReserves",
             }) as Promise<readonly [bigint, bigint]>),
-        publicClient.readContract({
-          address: ltAddress,
-          abi: LeveragedTokenAbi,
-          functionName: "exchangeRate",
-        }) as Promise<bigint>,
-        publicClient.readContract({
-          address: ltAddress,
-          abi: LeveragedTokenAbi,
-          functionName: "baseAssetBalance",
-        }) as Promise<bigint>,
+        exchangeRatePromise,
+        baseAssetBalPromise,
       ]);
 
       const [reserve0, reserve1] = reserves;
