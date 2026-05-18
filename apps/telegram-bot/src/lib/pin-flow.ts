@@ -164,11 +164,24 @@ export const askNewPin = async (
     candidate = text;
   }
 
-  const confirmAsk = await ctx.reply(
-    withAntiPhishing(t(PIN_FLOW_CONFIRM_PROMPT, lang), phrase, lang),
-    { reply_markup: backHomeMarkup(lang) },
-  );
-  await trackWorkflowMessage(conversation, confirmAsk.message_id);
+  // If origin was edited in place for the "send new PIN" prompt, edit
+  // it again for the confirm prompt instead of dropping a fresh reply.
+  const confirmEdited =
+    editedOrigin &&
+    (await tryEditOriginPrompt(
+      conversation,
+      origin!,
+      t(PIN_FLOW_CONFIRM_PROMPT, lang),
+      lang,
+      phrase,
+    ));
+  if (!confirmEdited) {
+    const confirmAsk = await ctx.reply(
+      withAntiPhishing(t(PIN_FLOW_CONFIRM_PROMPT, lang), phrase, lang),
+      { reply_markup: backHomeMarkup(lang) },
+    );
+    await trackWorkflowMessage(conversation, confirmAsk.message_id);
+  }
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
