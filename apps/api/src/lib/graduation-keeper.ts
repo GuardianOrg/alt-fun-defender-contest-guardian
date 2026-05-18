@@ -13,15 +13,18 @@
  *     happy path so the typical token graduates within ~60s of phase 1.
  *
  * What this module does, every cron tick:
- *   1. Query Ponder for tokens with `pendingGraduation: true, graduated: false`.
+ *   1. Query the indexer's `ponder_views.token` table directly for tokens
+ *      with `pendingGraduation: true, graduated: false`. Reads through
+ *      `fetchPendingGraduationTokens`, which talks to the same Neon database
+ *      Ponder writes — same physical rows the GraphQL layer used to expose,
+ *      just without the GraphQL hop.
  *   2. For each, fire-and-forget `finalizeGraduation` from the keeper wallet
  *      with manually-managed nonces. We do NOT wait for receipts —
  *      submission itself is sub-second per tx, but big-block confirmation is
  *      ~60s and waiting sequentially for several of those would push past
  *      the next 1-minute cron tick. The indexer is the source of truth for
- *      "did this finalize land": next tick's GraphQL query naturally filters
- *      out tokens whose `Bonding:TokenGraduated` handler has flipped the
- *      flag.
+ *      "did this finalize land": next tick's read naturally filters out
+ *      tokens whose `Bonding:TokenGraduated` handler has flipped the flag.
  *   3. Log + swallow failures — `finalizeGraduation` reverts cleanly on
  *      already-graduated tokens (race with another caller, e.g. an
  *      arbitrageur who beat us to it), so retries are safe and idempotent.
@@ -41,7 +44,8 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import { BondingAbi, CONTRACT_ADDRESSES, HYPER_EVM } from "@launchpad/shared";
 
-import { createPonderQuery } from "./ponder-client.js";
+import { createDb } from "../db/client.js";
+import { fetchPendingGraduationTokens } from "./indexer-reads.js";
 import type { AppBindings } from "./types.js";
 
 /**
@@ -59,11 +63,6 @@ const chain = {
   rpcUrls: { default: { http: [HYPER_EVM.rpcUrl] } },
 } as const;
 
-interface PendingToken {
-  address: `0x${string}`;
-  pendingGraduationAt: string | null;
-}
-
 /**
  * Single keeper sweep. Idempotent — calling twice in quick succession is
  * fine (the second call's writes will revert on `NotGraduating` because
@@ -77,8 +76,13 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
   }
   const pk = (pkRaw.startsWith("0x") ? pkRaw : `0x${pkRaw}`) as `0x${string}`;
 
-  const pending = await fetchPendingTokens(env.PONDER_URL);
+  const db = createDb(env.DATABASE_URL);
+  const pending = await fetchPendingGraduationTokens(db);
   if (pending === null) {
+    // Null = DB read failed (see helper docstring). Skip this tick rather
+    // than retrying with stale data — matches the prior GraphQL-null
+    // behaviour, and the event name stays the same so existing log alerts
+    // don't have to be rewired.
     log("warn", "keeper_ponder_unreachable", {});
     return;
   }
@@ -90,10 +94,10 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
   const wallet = createWalletClient({ account, chain, transport });
   const publicClient = createPublicClient({ chain, transport });
 
-  // Oldest-first slicing (matches the `pendingGraduationAt asc` ordering on
-  // the GraphQL side). FIFO fairness: when we're behind, the user who's been
-  // staring at the graduating overlay the longest gets unblocked first. Any
-  // newer entries wait for the next tick and will be retried —
+  // Oldest-first slicing (helper returns `pendingGraduationAt asc`, matching
+  // the prior GraphQL ordering). FIFO fairness: when we're behind, the user
+  // who's been staring at the graduating overlay the longest gets unblocked
+  // first. Any newer entries wait for the next tick and will be retried —
   // `pendingGraduation` stays true until phase 2 lands.
   const batch = pending.slice(0, MAX_FINALIZES_PER_TICK);
 
@@ -109,16 +113,21 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
 
   for (const t of batch) {
     const nonce = startNonce + submitted;
+    // Indexer stores addresses lowercased; viem's writeContract accepts any
+    // valid 20-byte hex, checksummed or not. Cast at the boundary so the
+    // ABI's `address` argument type is satisfied without an extra
+    // `getAddress(...)` round-trip on the hot path.
+    const tokenAddress = t.address as `0x${string}`;
     try {
       const hash = await wallet.writeContract({
         address: CONTRACT_ADDRESSES.bonding as `0x${string}`,
         abi: BondingAbi,
         functionName: "finalizeGraduation",
-        args: [t.address],
+        args: [tokenAddress],
         nonce,
       });
       submitted++;
-      log("info", "keeper_tx_submitted", { token: t.address, hash, nonce });
+      log("info", "keeper_tx_submitted", { token: tokenAddress, hash, nonce });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Submission failures don't consume the local nonce (the tx never
@@ -128,37 +137,12 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
       // contract's idempotency keeps us safe — next tick won't see this
       // token in the GraphQL result.
       log("warn", "keeper_tx_failed", {
-        token: t.address,
+        token: tokenAddress,
         nonce,
         error: message,
       });
     }
   }
-}
-
-async function fetchPendingTokens(
-  ponderUrl: string | undefined,
-): Promise<PendingToken[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{
-    tokens: { items: PendingToken[] };
-  }>(
-    `query {
-      tokens(
-        where: { pendingGraduation: true, graduated: false }
-        limit: 50
-        orderBy: "pendingGraduationAt"
-        orderDirection: "asc"
-      ) {
-        items {
-          address
-          pendingGraduationAt
-        }
-      }
-    }`,
-  );
-  if (data === null) return null;
-  return data.tokens.items;
 }
 
 function log(

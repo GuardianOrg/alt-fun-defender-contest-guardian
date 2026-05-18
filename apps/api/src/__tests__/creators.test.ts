@@ -3,18 +3,16 @@ import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
 
-const mockPonderQuery = vi.fn();
 const mockFetchCreatorEarnings = vi.fn();
+const mockFetchCreatorVolumesByAddresses = vi.fn();
 let mockTokens: { address: string; creator: string }[] = [];
 let mockProfile: { address: string; displayName?: string } | undefined;
-
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-}));
 
 vi.mock("../lib/indexer-reads.js", () => ({
   fetchCreatorEarnings: (...args: unknown[]) =>
     mockFetchCreatorEarnings(...args),
+  fetchCreatorVolumesByAddresses: (...args: unknown[]) =>
+    mockFetchCreatorVolumesByAddresses(...args),
 }));
 
 // Drizzle chainable mock. The route makes two queries:
@@ -235,7 +233,7 @@ describe("GET /creators/:address", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns empty stats and skips Ponder when the creator has no tokens", async () => {
+  it("returns empty stats and skips the volume read when the creator has no tokens", async () => {
     const app = createApp();
     const res = await app.request(`/creators/${CREATOR}`, {}, makeEnv());
 
@@ -249,22 +247,18 @@ describe("GET /creators/:address", () => {
     };
     expect(body.data.tokens).toEqual([]);
     expect(body.data.stats).toEqual({ tokensCreated: 0, totalVolume: "0" });
-    expect(mockPonderQuery).not.toHaveBeenCalled();
+    expect(mockFetchCreatorVolumesByAddresses).not.toHaveBeenCalled();
   });
 
-  it("sums per-token `volumeUsd` from a single GraphQL query", async () => {
+  it("sums per-token `volumeUsd` from a single direct-DB read", async () => {
     mockTokens = [
       { address: TOKEN_A, creator: CREATOR },
       { address: TOKEN_B, creator: CREATOR },
     ];
-    mockPonderQuery.mockResolvedValue({
-      tokens: {
-        items: [
-          { address: TOKEN_A, volumeUsd: "1000" },
-          { address: TOKEN_B, volumeUsd: "500" },
-        ],
-      },
-    });
+    mockFetchCreatorVolumesByAddresses.mockResolvedValue([
+      { address: TOKEN_A, volumeUsd: "1000" },
+      { address: TOKEN_B, volumeUsd: "500" },
+    ]);
 
     const app = createApp();
     const res = await app.request(`/creators/${CREATOR}`, {}, makeEnv());
@@ -279,13 +273,17 @@ describe("GET /creators/:address", () => {
     expect(body.data.tokens).toHaveLength(2);
     expect(body.data.stats).toEqual({ tokensCreated: 2, totalVolume: "1500" });
 
-    expect(mockPonderQuery).toHaveBeenCalledTimes(1);
-    const [query, vars] = mockPonderQuery.mock.calls[0] as [
-      string,
-      { addresses: string[]; limit: number },
+    expect(mockFetchCreatorVolumesByAddresses).toHaveBeenCalledTimes(1);
+    // Helper takes `(db, addresses, limit)`. Pin the lower-casing of the
+    // address list here — the indexer stores addresses lowercased and
+    // the route must forward them in that form for the IN-list to match.
+    const args = mockFetchCreatorVolumesByAddresses.mock.calls[0] as [
+      unknown,
+      string[],
+      number,
     ];
-    expect(query).toContain("address_in: $addresses");
-    expect(vars.addresses).toEqual([TOKEN_A.toLowerCase(), TOKEN_B.toLowerCase()]);
+    expect(args[1]).toEqual([TOKEN_A.toLowerCase(), TOKEN_B.toLowerCase()]);
+    expect(typeof args[2]).toBe("number");
   });
 
   it("treats a missing token row as zero contribution to total volume", async () => {
@@ -293,9 +291,9 @@ describe("GET /creators/:address", () => {
       { address: TOKEN_A, creator: CREATOR },
       { address: TOKEN_B, creator: CREATOR },
     ];
-    mockPonderQuery.mockResolvedValue({
-      tokens: { items: [{ address: TOKEN_A, volumeUsd: "999" }] },
-    });
+    mockFetchCreatorVolumesByAddresses.mockResolvedValue([
+      { address: TOKEN_A, volumeUsd: "999" },
+    ]);
 
     const app = createApp();
     const res = await app.request(`/creators/${CREATOR}`, {}, makeEnv());
@@ -305,7 +303,10 @@ describe("GET /creators/:address", () => {
 
   it("returns totalVolume = 0 when the indexer is unreachable", async () => {
     mockTokens = [{ address: TOKEN_A, creator: CREATOR }];
-    mockPonderQuery.mockResolvedValue(null);
+    // Helper returns `null` on DB read failure (see indexer-reads.ts
+    // docstring). The route must degrade to `totalVolume = 0` rather
+    // than 503ing the whole creator profile.
+    mockFetchCreatorVolumesByAddresses.mockResolvedValue(null);
 
     const app = createApp();
     const res = await app.request(`/creators/${CREATOR}`, {}, makeEnv());
