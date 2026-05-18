@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PonderToken } from "./ponder";
+import type { TokenMeta } from "./api";
 
-vi.mock("./ponder", () => ({
-  fetchPonderToken: vi.fn(),
+vi.mock("./api", () => ({
+  fetchTokenMeta: vi.fn(),
 }));
 
-const { fetchPonderToken } = await import("./ponder");
-const fetchPonderTokenMock = vi.mocked(fetchPonderToken);
+const { fetchTokenMeta } = await import("./api");
+const fetchTokenMetaMock = vi.mocked(fetchTokenMeta);
 
 /**
  * `tokenNames` is a module-scoped singleton (the cache and listener set
  * outlive any individual test), so we re-import it fresh for each test
  * via `vi.resetModules()`. That avoids cross-test bleed where a name
  * resolved by one test would short-circuit `prefetchTokenName` in
- * another. The top-level `vi.mock("./ponder")` carries through the
- * reset, so the freshly-imported module still binds the mocked
- * `fetchPonderToken`.
+ * another. The top-level `vi.mock("./api")` carries through the reset,
+ * so the freshly-imported module still binds the mocked
+ * `fetchTokenMeta`.
  */
 async function loadTokenNames() {
   vi.resetModules();
@@ -25,29 +25,18 @@ async function loadTokenNames() {
 
 const TOKEN_ADDR = "0x4DFB6bebbdF9d5ea76123729E0b3a823f9c3ecC0";
 
-function makePonderToken(overrides: Partial<PonderToken> = {}): PonderToken {
+function makeTokenMeta(overrides: Partial<TokenMeta> = {}): TokenMeta {
   return {
     address: TOKEN_ADDR,
     name: "Test Token",
     symbol: "TST",
-    creator: "0x0000000000000000000000000000000000000000",
-    ltToken: "0x0000000000000000000000000000000000000001",
-    k: "0",
-    curveSupply: "0",
-    ltReserve: "0",
-    graduated: false,
-    graduatedAt: null,
-    bondingPair: null,
-    hyperswapPair: null,
-    blockNumber: "0",
-    timestamp: "0",
     ...overrides,
   };
 }
 
 describe("tokenNames", () => {
   beforeEach(() => {
-    fetchPonderTokenMock.mockReset();
+    fetchTokenMetaMock.mockReset();
   });
 
   describe("resolveTokenName + prefetchTokenName", () => {
@@ -58,7 +47,7 @@ describe("tokenNames", () => {
 
     it("returns the resolved symbol after prefetchTokenName completes", async () => {
       const { resolveTokenName, prefetchTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "TST" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "TST" }));
 
       await prefetchTokenName(TOKEN_ADDR);
 
@@ -67,8 +56,8 @@ describe("tokenNames", () => {
 
     it("falls back to the token's name when symbol is empty", async () => {
       const { resolveTokenName, prefetchTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(
-        makePonderToken({ symbol: "", name: "Test Token" }),
+      fetchTokenMetaMock.mockResolvedValueOnce(
+        makeTokenMeta({ symbol: "", name: "Test Token" }),
       );
 
       await prefetchTokenName(TOKEN_ADDR);
@@ -82,8 +71,8 @@ describe("tokenNames", () => {
       // Indexer briefly returns a row with no labels — caching the empty
       // string would freeze the row on a blank `tokenName` because the
       // fallback in `resolveTokenName` only kicks in on cache miss.
-      fetchPonderTokenMock.mockResolvedValueOnce(
-        makePonderToken({ symbol: "", name: "" }),
+      fetchTokenMetaMock.mockResolvedValueOnce(
+        makeTokenMeta({ symbol: "", name: "" }),
       );
       const listener = vi.fn();
       subscribeTokenName(listener);
@@ -100,8 +89,8 @@ describe("tokenNames", () => {
       // Defensive: an indexer that returns whitespace-only labels would
       // otherwise pass the `||` chain. The trim guard keeps the cache
       // open for a real retry.
-      fetchPonderTokenMock.mockResolvedValueOnce(
-        makePonderToken({ symbol: "   ", name: "\t" }),
+      fetchTokenMetaMock.mockResolvedValueOnce(
+        makeTokenMeta({ symbol: "   ", name: "\t" }),
       );
 
       await prefetchTokenName(TOKEN_ADDR);
@@ -115,8 +104,8 @@ describe("tokenNames", () => {
       // Each field must be trimmed independently — naive
       // `symbol || name` would treat a whitespace `symbol` as truthy and
       // skip a perfectly valid `name`. This regression-tests that path.
-      fetchPonderTokenMock.mockResolvedValueOnce(
-        makePonderToken({ symbol: "   ", name: "  Test Token  " }),
+      fetchTokenMetaMock.mockResolvedValueOnce(
+        makeTokenMeta({ symbol: "   ", name: "  Test Token  " }),
       );
 
       await prefetchTokenName(TOKEN_ADDR);
@@ -127,22 +116,23 @@ describe("tokenNames", () => {
 
     it("leaves the cache empty when the fetch returns null so subsequent calls retry", async () => {
       const { hasResolvedTokenName, prefetchTokenName } = await loadTokenNames();
-      // First call: token not yet indexed.
-      fetchPonderTokenMock.mockResolvedValueOnce(null);
+      // First call: token not yet indexed, or transport failure — both
+      // shapes collapse to `null` in `fetchTokenMeta`.
+      fetchTokenMetaMock.mockResolvedValueOnce(null);
       // Second call: indexer has caught up.
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "LATE" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "LATE" }));
 
       await prefetchTokenName(TOKEN_ADDR);
       expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(false);
 
       await prefetchTokenName(TOKEN_ADDR);
       expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(true);
-      expect(fetchPonderTokenMock).toHaveBeenCalledTimes(2);
+      expect(fetchTokenMetaMock).toHaveBeenCalledTimes(2);
     });
 
     it("dedupes concurrent prefetches for the same address", async () => {
       const { prefetchTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "DEDUP" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "DEDUP" }));
 
       await Promise.all([
         prefetchTokenName(TOKEN_ADDR),
@@ -150,19 +140,7 @@ describe("tokenNames", () => {
         prefetchTokenName(TOKEN_ADDR),
       ]);
 
-      expect(fetchPonderTokenMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("swallows fetch errors but allows a retry afterwards", async () => {
-      const { hasResolvedTokenName, prefetchTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockRejectedValueOnce(new Error("boom"));
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "RETRY" }));
-
-      await expect(prefetchTokenName(TOKEN_ADDR)).resolves.toBeUndefined();
-      expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(false);
-
-      await prefetchTokenName(TOKEN_ADDR);
-      expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(true);
+      expect(fetchTokenMetaMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -253,7 +231,7 @@ describe("tokenNames", () => {
       //   1. REST poll kicks off `prefetchTokenName(X)`.
       //   2. WS broadcast for X arrives mid-fetch with `tokenSymbol`
       //      set — `ingestResolvedTokenName(X, "BROADCAST")` runs.
-      //   3. The Ponder fetch resolves (potentially with a slightly
+      //   3. The API fetch resolves (potentially with a slightly
       //      different value during a checkpoint race).
       // Expected: cache stays on "BROADCAST", listener fires once.
       const { ingestResolvedTokenName, prefetchTokenName, resolveTokenName, subscribeTokenName } =
@@ -261,9 +239,9 @@ describe("tokenNames", () => {
       const listener = vi.fn();
       subscribeTokenName(listener);
 
-      let resolveFetch: ((value: PonderToken) => void) | undefined;
-      fetchPonderTokenMock.mockReturnValueOnce(
-        new Promise<PonderToken>((resolve) => {
+      let resolveFetch: ((value: TokenMeta) => void) | undefined;
+      fetchTokenMetaMock.mockReturnValueOnce(
+        new Promise<TokenMeta>((resolve) => {
           resolveFetch = resolve;
         }),
       );
@@ -275,7 +253,7 @@ describe("tokenNames", () => {
       ingestResolvedTokenName(TOKEN_ADDR, "BROADCAST");
 
       // Step 3: held fetch resolves with a *different* label.
-      resolveFetch!(makePonderToken({ symbol: "PONDER" }));
+      resolveFetch!(makeTokenMeta({ symbol: "INDEXER" }));
       await prefetchPromise;
 
       expect(resolveTokenName(TOKEN_ADDR)).toBe("BROADCAST");
@@ -287,7 +265,7 @@ describe("tokenNames", () => {
   describe("subscribeTokenName", () => {
     it("notifies subscribers when a name is resolved for the first time", async () => {
       const { prefetchTokenName, subscribeTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "NOTIFY" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "NOTIFY" }));
       const listener = vi.fn();
       subscribeTokenName(listener);
 
@@ -299,7 +277,7 @@ describe("tokenNames", () => {
 
     it("does not notify subscribers when the fetch returns null", async () => {
       const { prefetchTokenName, subscribeTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(null);
+      fetchTokenMetaMock.mockResolvedValueOnce(null);
       const listener = vi.fn();
       subscribeTokenName(listener);
 
@@ -318,7 +296,7 @@ describe("tokenNames", () => {
       const unsubscribe = subscribeTokenName(listener);
       unsubscribe();
 
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "GONE" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "GONE" }));
       await prefetchTokenName(TOKEN_ADDR);
 
       expect(listener).not.toHaveBeenCalled();
@@ -326,7 +304,7 @@ describe("tokenNames", () => {
 
     it("isolates a misbehaving listener from the rest", async () => {
       const { prefetchTokenName, subscribeTokenName } = await loadTokenNames();
-      fetchPonderTokenMock.mockResolvedValueOnce(makePonderToken({ symbol: "ISO" }));
+      fetchTokenMetaMock.mockResolvedValueOnce(makeTokenMeta({ symbol: "ISO" }));
       // Suppress the expected warn log from the misbehaving subscriber
       // so the test output stays clean. Restored in `finally` so a
       // failing assertion doesn't leak the spy into later tests.

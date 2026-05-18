@@ -1,4 +1,4 @@
-import { fetchPonderToken } from "./ponder";
+import { fetchTokenMeta } from "./api";
 
 /**
  * In-memory cache of token address → display name (symbol with name
@@ -11,7 +11,7 @@ const tokenNameMap = new Map<string, string>();
 /**
  * Inflight `prefetchTokenName` promises keyed by lowercased address.
  * Dedupes concurrent fetches so a burst of trades for the same token
- * doesn't fan out into N parallel `fetchPonderToken` calls.
+ * doesn't fan out into N parallel `fetchTokenMeta` calls.
  */
 const inflightPrefetches = new Map<string, Promise<void>>();
 
@@ -81,9 +81,10 @@ export function hasResolvedTokenName(tokenAddress: string): boolean {
  * Why this exists: the truncated-address fallback is only fine as a
  * transient placeholder; if the indexer already knows the symbol at
  * broadcast time, the client should display it on the very first row
- * instead of round-tripping through `prefetchTokenName` + the Ponder
- * GraphQL endpoint (which races the indexer's checkpoint and was the
- * root cause of issue #703). This helper short-circuits that path.
+ * instead of round-tripping through `prefetchTokenName` + the API
+ * `/tokens/:address/meta` endpoint (which races the indexer's
+ * checkpoint and was the root cause of issue #703). This helper
+ * short-circuits that path.
  *
  * Semantics mirror `prefetchTokenName`:
  *   - Idempotent: a no-op once the cache is already populated.
@@ -128,7 +129,7 @@ export async function prefetchTokenName(tokenAddress: string): Promise<void> {
   const inflight = inflightPrefetches.get(key);
   if (inflight) return inflight;
 
-  const promise = fetchPonderToken(tokenAddress)
+  const promise = fetchTokenMeta(tokenAddress)
     .then((token) => {
       if (!token) return;
       // Guard against an indexer payload with both fields blank: caching
@@ -153,11 +154,6 @@ export async function prefetchTokenName(tokenAddress: string): Promise<void> {
       if (tokenNameMap.has(key)) return;
       tokenNameMap.set(key, name);
       notifyTokenNameResolved(key, name);
-    })
-    .catch(() => {
-      // Best effort — leave cache empty so the next call retries. The
-      // truncated-address fallback in `resolveTokenName` keeps the UI
-      // rendering meanwhile.
     })
     .finally(() => {
       inflightPrefetches.delete(key);
