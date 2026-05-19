@@ -206,11 +206,13 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "DOGE",
       "ZEC",
       "kPEPE",
+      "FARTCOIN",
       "xyz:CL",
       "xyz:BRENTOIL",
       "xyz:GOLD",
       "xyz:SILVER",
       "xyz:NVDA",
+      "xyz:TSLA",
       "xyz:SP500",
       "xyz:XYZ100",
     ]);

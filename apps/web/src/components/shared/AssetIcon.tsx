@@ -6,12 +6,14 @@ import styles from "./AssetIcon.module.css";
 import BTC from "../../assets/Logos/BTC.svg";
 import DOGE from "../../assets/Logos/doge.svg";
 import ETH from "../../assets/Logos/ETH.svg";
+import fartcoin from "../../assets/Logos/fartcoin.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
 import kPepe from "../../assets/Logos/kPEPE.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
 import paxg from "../../assets/Logos/paxg.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
+import tesla from "../../assets/Logos/tesla.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
@@ -43,6 +45,8 @@ const ASSET_LOGOS: Record<string, string> = {
   "xyz:SILVER": xyz_SILVER,
   "xyz:XYZ100": xyz_XYZ100,
   "xyz:CL": xyz_BRENTOIL,
+  "xyz:TSLA": tesla,
+  FARTCOIN: fartcoin,
 };
 
 interface Props {
