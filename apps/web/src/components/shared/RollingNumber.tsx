@@ -120,6 +120,7 @@ export default function RollingNumber({
     if (format(next) === format(prev)) {
       targetRef.current = next;
       setDisplayed(next);
+      setFlash(null);
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
