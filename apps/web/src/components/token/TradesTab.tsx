@@ -42,10 +42,10 @@ export default function TradesTab({ token }: { token: Token }) {
         <tr className={styles.tradesHeaderRow}>
           <th className={styles.thLeft}>Account</th>
           <th className={styles.thLeftSmall}>Type</th>
-          <th className={styles.thRight}>USDC</th>
-          <th className={styles.thRight}>{ticker}</th>
-          <th className={styles.thRight}>Time</th>
-          <th className={styles.thRightWide}>Txn</th>
+          <th className={styles.thLeftSmall}>USDC</th>
+          <th className={styles.thLeftSmall}>{ticker}</th>
+          <th className={styles.thLeftSmall}>Time</th>
+          <th className={styles.thLeftWide}>Txn</th>
         </tr>
       </thead>
       <tbody>

@@ -8,6 +8,7 @@ import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
 import {
   cn,
+  formatMcapUsd,
   formatMcapUsdOrDash,
   formatPercentOrDash,
   isRecentlyDeployed,
@@ -19,6 +20,7 @@ import AssetIcon from "../shared/AssetIcon";
 import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
 import ProgressBar from "../shared/ProgressBar";
+import RollingNumber from "../shared/RollingNumber";
 
 import type { TokenMarketStats } from "../../hooks/useTokenMarketStats";
 import type { Token } from "../../services/types";
@@ -194,11 +196,25 @@ export default function TokenRow({
         />
       </div>
 
-      {/* MCAP */}
+      {/* MCAP — same `RollingNumber` pulse the token-detail mcap overlay
+       *  uses; on a busy feed each tick lights up the row that moved.
+       *
+       *  Pass `stats.mcapUsd` directly (not the `mcapDisplay` fallback)
+       *  so a row that mounts before its `/market-data` page resolves
+       *  reads as `null → number` and snaps without firing the flash.
+       *  The fresh-token `$0` treatment from issue #709 moves to
+       *  `dashFallback` so the visible string is identical to before —
+       *  what changes is only that the synthetic `0` placeholder no
+       *  longer counts as a "previous value" that the next real mcap
+       *  would tween from. */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>
-          {formatMcapUsdOrDash(mcapDisplay)}
-        </span>
+        <RollingNumber
+          className={styles.mcapValue}
+          value={stats.mcapUsd}
+          format={formatMcapUsd}
+          trend="up"
+          dashFallback={fresh ? formatMcapUsd(0) : "—"}
+        />
       </div>
     </div>
   );
