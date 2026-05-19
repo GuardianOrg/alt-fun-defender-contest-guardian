@@ -11,7 +11,7 @@ import { ADDRESSES } from "../contracts/addresses";
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 /**

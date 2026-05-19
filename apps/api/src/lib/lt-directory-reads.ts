@@ -65,6 +65,11 @@ function rowToLive(row: typeof ltDirectory.$inferSelect): LiveLeveragedToken {
     // the shape compatible — set to "0" until a consumer needs it.
     totalSupply: "0",
     totalAssets: row.totalAssets,
+    // Idle-USDC buffer for atomic redeems. The frontend's trade panel
+    // uses this to compute `maxSellableTokens` and surface the
+    // "Buffer low" warning without an extra RPC read per quote — see
+    // `apps/web/src/services/tradeRouter.ts → getQuoteSell`.
+    baseAssetBalance: row.baseAssetBalance,
   };
 }
 

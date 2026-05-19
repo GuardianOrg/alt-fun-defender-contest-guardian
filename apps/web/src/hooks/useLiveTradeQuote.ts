@@ -1,11 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useLeveragedToken } from "./useLeveragedTokens";
 import { createTradeFeedInvalidator } from "./useTokenLiveFeed";
 import { tradeRouterService } from "../services/tradeRouter";
 import { getWebSocketClient } from "../services/websocket";
 
 import type { BuyQuote, SellQuote } from "../services/tradeRouter";
 import type { Token } from "../services/types";
+
+/**
+ * Parse a wei-scaled decimal string into a positive `bigint`. Returns
+ * `undefined` for anything we wouldn't trust as an LT rate / buffer
+ * value — empty / non-numeric / zero / negative. The directory writes
+ * `exchangeRate` and `baseAssetBalance` as `NUMERIC(78,0)` text, so a
+ * malformed read (DB column drift, schema mismatch, stale cache) lands
+ * here and we'd rather degrade to the on-chain RPC fallback inside
+ * `tradeRouter` than poison the quote with a zero/garbage value.
+ */
+function parseLtAmount(raw: string | undefined): bigint | undefined {
+  if (!raw) return undefined;
+  try {
+    const value = BigInt(raw);
+    return value > 0n ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Debounce on user-driven re-quotes (typing into the amount input, mode
  *  toggles, slippage edits). Matches the previous inline behaviour in
@@ -89,6 +109,26 @@ export function useLiveTradeQuote({
   const amtNum = parseFloat(amount) || 0;
   const hasAmount = amtNum > 0;
 
+  // Snapshot of the backing LT's directory row — driven by the 30s
+  // `useLeveragedTokens` query. Used as:
+  //   - the *seed* for `exchangeRate` before the first `price` WS tick
+  //     lands (the WS handler then takes over with sub-second values);
+  //   - the *sole* source for `baseAssetBalance` (the WS layer doesn't
+  //     broadcast it — see `LtTicker`, which only fans out exchange rate).
+  // 30s freshness on `baseAssetBalance` is fine — the idle-USDC buffer
+  // moves only when a redeem lands, and the sell-side slippage discount
+  // (`safeBufferUsdc = bufferUsdc × (1 - slippage)`) already absorbs
+  // worst-case intra-window drift. See `tradeRouter.getQuoteSell` for the
+  // full rationale.
+  const lt = useLeveragedToken(token.ltAddress);
+  // Latest WS-broadcast exchange rate. Held in a ref (not state) so a
+  // 1Hz tick doesn't re-render every consumer of this hook — the quote
+  // refresh is already throttled to the same cadence via
+  // `createTradeFeedInvalidator`. Cleared in the WS effect's cleanup so
+  // a token / LT change can't leak the previous LT's rate into the next
+  // token's quote.
+  const liveExchangeRateRef = useRef<bigint | null>(null);
+
   // Latest fetch params held in a ref so the WS-driven refetch can re-quote
   // against the user's *current* amount/mode without re-subscribing to the
   // WS channels (and without retriggering the user-input debounce). The
@@ -96,20 +136,39 @@ export function useLiveTradeQuote({
   // `react-hooks/refs` rule — the WS callback always reads through
   // `paramsRef.current` after the commit phase has run, so the
   // sync-after-render order is safe in practice.
-  const paramsRef = useRef({
+  const paramsRef = useRef<{
+    tokenAddress: string;
+    leverage: number;
+    mode: "buy" | "sell";
+    amtNum: number;
+    slippage: number;
+    exchangeRateWei: bigint | undefined;
+    baseAssetBalanceWei: bigint | undefined;
+  }>({
     tokenAddress: token.address,
     leverage: token.leverage,
     mode,
     amtNum,
     slippage,
+    exchangeRateWei: undefined,
+    baseAssetBalanceWei: undefined,
   });
   useEffect(() => {
+    // Prefer the live WS rate when we have one (sub-second fresh), fall
+    // back to the directory snapshot (≤30s fresh), let the router fall
+    // back to RPC only if both are missing. `baseAssetBalance` has no WS
+    // path, so the directory is the only override source.
+    const directoryRate = parseLtAmount(lt?.exchangeRate);
+    const exchangeRateWei = liveExchangeRateRef.current ?? directoryRate;
+    const baseAssetBalanceWei = parseLtAmount(lt?.baseAssetBalance);
     paramsRef.current = {
       tokenAddress: token.address,
       leverage: token.leverage,
       mode,
       amtNum,
       slippage,
+      exchangeRateWei,
+      baseAssetBalanceWei,
     };
   });
 
@@ -124,11 +183,21 @@ export function useLiveTradeQuote({
     if (!params.amtNum || params.amtNum <= 0) return;
 
     const id = ++reqIdRef.current;
+    // Bundle the LT overrides once so both branches read the same
+    // snapshot. `exchangeRateWei` may be `undefined` when neither WS nor
+    // directory has data yet — the router falls back to `LT.exchangeRate()`
+    // over RPC for that first-quote case, then every subsequent quote
+    // rides the override path.
+    const overrides = {
+      exchangeRateWei: params.exchangeRateWei,
+      baseAssetBalanceWei: params.baseAssetBalanceWei,
+    };
     try {
       if (params.mode === "buy") {
         const quote = await tradeRouterService.getQuoteBuy(
           params.tokenAddress,
           params.amtNum,
+          overrides,
         );
         if (id !== reqIdRef.current) return;
         setBuyQuote(quote);
@@ -138,6 +207,7 @@ export function useLiveTradeQuote({
           params.amtNum,
           params.slippage,
           params.leverage,
+          overrides,
         );
         if (id !== reqIdRef.current) return;
         setSellQuote(quote);
@@ -222,13 +292,25 @@ export function useLiveTradeQuote({
     // drift on the underlying LT (e.g. HYPE / ETH price moves) without
     // requiring a trade on this token. Skip when `ltAddress` is missing
     // (token still loading); the effect re-runs once it resolves.
+    //
+    // The payload includes the raw wei-scaled `exchangeRate` (see
+    // `apps/api/src/websocket/lt-ticker.ts`). We capture it into the
+    // ref *and* propagate to `paramsRef.current.exchangeRateWei`
+    // synchronously here — the alternative (waiting for the next render
+    // to sync via the params effect) would race the throttled
+    // `invalidator.handle()` and `fetchQuote` could read a stale rate.
     const unsubPrice = normalizedLt
       ? ws.subscribe(
           "price",
           (data) => {
             if (data === null || typeof data !== "object") return;
-            const raw = data as { ltAddress?: string };
+            const raw = data as { ltAddress?: string; exchangeRate?: string };
             if (raw.ltAddress?.toLowerCase() !== normalizedLt) return;
+            const parsed = parseLtAmount(raw.exchangeRate);
+            if (parsed !== undefined) {
+              liveExchangeRateRef.current = parsed;
+              paramsRef.current.exchangeRateWei = parsed;
+            }
             invalidator.handle();
           },
           normalizedLt,
@@ -239,6 +321,10 @@ export function useLiveTradeQuote({
       unsubTrade();
       unsubPrice();
       invalidator.dispose();
+      // Token / LT changed (or the panel unmounted). Drop the cached
+      // live rate so a re-mount against a different LT can't quote
+      // against the previous LT's exchange rate.
+      liveExchangeRateRef.current = null;
     };
   }, [hasAmount, token.address, token.ltAddress, fetchQuote]);
 

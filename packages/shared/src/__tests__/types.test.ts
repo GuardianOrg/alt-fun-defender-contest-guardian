@@ -170,6 +170,7 @@ describe("type exports compile correctly", () => {
       exchangeRate: "1",
       totalSupply: "1000",
       totalAssets: "1000",
+      baseAssetBalance: "0",
     };
     expect(lt).toBeDefined();
   });

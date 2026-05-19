@@ -19,7 +19,7 @@ import type { CreateTokenParams } from "../services/types";
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 async function fetchLTs() {

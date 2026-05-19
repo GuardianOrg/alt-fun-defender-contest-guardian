@@ -40,9 +40,13 @@ import type { Token } from "../../services/types";
 
 const rpcUrl =
   import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+// `batch: true` mirrors `config/wagmi.ts` — `loadBalance` fires 3
+// independent reads (`getBalance`, USDC `balanceOf`, token `balanceOf`)
+// on every wallet/mode/token flip; batching collapses the two
+// `readContract` legs into one HTTP POST.
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 // "Low balance" thresholds for the contextual bridge / get-gas CTAs.

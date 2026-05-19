@@ -238,6 +238,7 @@ function mockBounceTechLtList(entries: Array<{
           exchangeRate: "1000000000000000000",
           totalSupply: "0",
           totalAssets: "0",
+          baseAssetBalance: "0",
         },
       ];
   const merged = data.map((d) => ({
@@ -252,6 +253,7 @@ function mockBounceTechLtList(entries: Array<{
     exchangeRate: "1000000000000000000",
     totalSupply: "0",
     totalAssets: "0",
+    baseAssetBalance: "0",
   }));
   mockReadLtByAddress.mockImplementationOnce(
     async (_databaseUrl: string, ltAddress: string) => {

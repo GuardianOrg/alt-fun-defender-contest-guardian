@@ -21,10 +21,15 @@ const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm"
 
 // One client per module — same pattern as `TradePanel`. The tab is mounted
 // only while the profile page is open and React Query owns the polling
-// cadence, so a single read transport is enough.
+// cadence, so a single read transport is enough. `batch: true` mirrors
+// `config/wagmi.ts`; on its own this panel only fires two reads per
+// refetch (one `readContract` + one native `getBalance`) and only the
+// former rides JSON-RPC batching, but the flag keeps every transport
+// configured identically so a future read added here joins the batch
+// without extra thought.
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 interface AssetBalances {

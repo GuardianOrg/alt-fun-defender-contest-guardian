@@ -28,7 +28,7 @@ import type { WorkerOutbound } from "../workers/vanity.worker";
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 const IMPL_STALE_MS = 5 * 60 * 1000;

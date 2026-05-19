@@ -30,6 +30,7 @@ function makeLiveLT(overrides: Partial<LiveLeveragedToken> = {}): LiveLeveragedT
     exchangeRate: "1000000000000000000",
     totalSupply: "1000000",
     totalAssets: "1000000",
+    baseAssetBalance: "0",
     ...overrides,
   };
 }

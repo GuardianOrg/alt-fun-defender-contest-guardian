@@ -14,7 +14,7 @@ const rpcUrl =
   import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
-  transport: http(rpcUrl),
+  transport: http(rpcUrl, { batch: true }),
 });
 
 // Poll cadence for the rewards card. Fees accrue on every trade through
