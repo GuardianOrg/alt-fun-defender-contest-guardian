@@ -27,10 +27,26 @@
    * the halo naturally traces the filled portion instead of the full
    * pill. Transition smooths live curve updates from the WS feed. */
   --fill: 0;
+  /* Two-layer halo: a steeper-scaling primary glow gives narrow bars
+   * (170px terminal rows) enough punch to read at a glance, and a
+   * tighter inner ring keeps the edge sharp on wider sibling bars
+   * (~600–1000px on the token page curve strip) where the primary
+   * layer alone would smear into a vague wash. Both layers track
+   * `--fill` so empty bars stay completely halo-free — important
+   * because the dim track background (6% alpha) would otherwise emit
+   * a faint constant glow that reads as "barely lit" instead of
+   * "empty". Peak blur is bumped from 14px → 22px and peak alpha
+   * from 0.6 → 0.85 on the primary layer; the secondary 6px/0.5
+   * layer adds nothing visible on its own but tightens the falloff
+   * on bars wider than the row column. */
   filter: drop-shadow(
-    0 0 calc(var(--fill, 0) * 14px)
-      rgba(77, 232, 180, calc(var(--fill, 0) * 0.6))
-  );
+      0 0 calc(var(--fill, 0) * 22px)
+        rgba(77, 232, 180, calc(var(--fill, 0) * 0.85))
+    )
+    drop-shadow(
+      0 0 calc(var(--fill, 0) * 6px)
+        rgba(77, 232, 180, calc(var(--fill, 0) * 0.5))
+    );
   transition: filter 0.4s ease-out;
 }
 
@@ -42,7 +58,12 @@
  * `.track` in source so the cascade picks the amber filter over the
  * mint one. */
 .trackGraduated {
-  filter: drop-shadow(0 0 14px rgba(240, 180, 41, 0.55));
+  /* Mirror the two-layer halo from `.track` so a graduated row in the
+   * terminal feed reads at the same intensity as a near-full active
+   * row beside it. Hardcoded (no `--fill`) because the graduated
+   * branch always runs at full strength — see `.track` above. */
+  filter: drop-shadow(0 0 22px rgba(240, 180, 41, 0.78))
+    drop-shadow(0 0 6px rgba(240, 180, 41, 0.45));
 }
 
 .overflowVisible {
@@ -71,18 +92,23 @@
   background: var(--mint-dim);
   /* Inset glow that scales with `--fill`, layered on top of the
    * track-level `filter: drop-shadow` halo for sharpness at the bar
-   * edge. The baseline alpha (0.35) ensures even early-stage bars
-   * still read as "lit" rather than flat, with the slope (× 0.45)
-   * carrying the rest of the way to a hot full-bar look. The white
-   * inner highlight only kicks in past mid-fill, giving full bars a
-   * "glowing core" look. Outer halo is intentionally NOT here — it
-   * gets clipped by the track's `overflow: hidden` branch, see the
-   * comment on `.track`. Transition smooths WS-driven feed updates. */
+   * edge. Baseline alpha (0.5) and baseline blur (5px) ensure even a
+   * 5–20% terminal row still reads as "lit" rather than flat — that
+   * range is the dominant case in a busy feed, and at the old 0.35 /
+   * 3px floor narrow bars looked dim next to the wide curve-strip
+   * sibling on the token page (same component, but ~4× the bar
+   * width = ~4× the perceived halo). The slope (× 0.45) carries the
+   * rest of the way to a hot full-bar look. The white inner
+   * highlight slope is bumped slightly (× 0.4) so full bars get a
+   * stronger "glowing core". Outer halo is intentionally NOT here —
+   * it gets clipped by the track's `overflow: hidden` branch, see
+   * the comment on `.track`. Transition smooths WS-driven feed
+   * updates. */
   box-shadow:
-    inset 0 0 calc(3px + var(--fill, 0) * 9px)
-      rgba(77, 232, 180, calc(0.35 + var(--fill, 0) * 0.45)),
-    inset 0 0 calc(var(--fill, 0) * 5px)
-      rgba(255, 255, 255, calc(var(--fill, 0) * 0.3));
+    inset 0 0 calc(5px + var(--fill, 0) * 10px)
+      rgba(77, 232, 180, calc(0.5 + var(--fill, 0) * 0.45)),
+    inset 0 0 calc(1px + var(--fill, 0) * 6px)
+      rgba(255, 255, 255, calc(0.05 + var(--fill, 0) * 0.4));
   transition:
     box-shadow 0.4s ease-out,
     width 0.3s ease-out;

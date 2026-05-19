@@ -104,6 +104,29 @@ export default function RollingNumber({
 
     if (next === prev) return;
 
+    // Skip the tween + flash when the **formatted** value isn't going
+    // to change. Upstream sources frequently deliver sub-display
+    // jitter (e.g. the live mcap is recomputed from a slightly-
+    // shifted LT exchange rate on every 30s `/market-data` refetch,
+    // so a row whose mcap reads `$1.0K` to the user might tick from
+    // `$1004.21 → $1004.87 → $1003.95 → …` underneath) — without
+    // this guard every refetch would fire a "value changed" pulse
+    // even though the digits the user sees are identical. We still
+    // bring the internal `displayed` / `targetRef` in line with the
+    // new numeric value so subsequent comparisons measure against
+    // the freshest baseline (otherwise a slow drift could
+    // accumulate until a single refetch crossed the rounding
+    // boundary and looked like a multi-cent jump).
+    if (format(next) === format(prev)) {
+      targetRef.current = next;
+      setDisplayed(next);
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      return;
+    }
+
     // Honour the OS reduced-motion preference: snap to the new value
     // and skip the glow. Cheap to read on every change and avoids
     // burning frames the user doesn't want.
@@ -153,9 +176,13 @@ export default function RollingNumber({
     // `displayed` intentionally omitted — including it would restart
     // the tween every frame as the displayed value updates. We read it
     // synchronously above as the *starting* point and the `targetRef`
-    // short-circuit covers the intended re-trigger condition.
+    // short-circuit covers the intended re-trigger condition. `format`
+    // IS included because the formatted-value short-circuit above
+    // reads it; in practice callers pass module-level pure functions
+    // (`formatMcapUsd`, etc.) so the reference is stable and this
+    // doesn't cause re-runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, durationMs]);
+  }, [value, durationMs, format]);
 
   useEffect(() => {
     return () => {

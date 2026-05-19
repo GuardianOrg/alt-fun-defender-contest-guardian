@@ -1,13 +1,14 @@
-/* Shared `GRADUATING` pill — visual sibling of `GraduatedPill.pill`.
- * Keep the geometry (font, padding, radius, border channels) in sync
- * with `GraduatedPill.module.css` so the two states read as a family;
- * the only intentional difference is the pulse animation here vs. the
- * shimmer there. If you touch one, eyeball the other.
+/* Shared `GRADUATING` pill — geometry sibling of `GraduatedPill.pill`
+ * (font, padding, radius, animation cadence stay in sync), but tinted
+ * mint instead of amber. The colour split is the signal: mint = the
+ * in-flight, still-live state that the rest of the terminal UI codes
+ * mint; amber = the post-graduation "this is now on HyperSwap" landed
+ * state. Touching geometry on either pill? Eyeball the other.
  *
  * Pulse uses the centralized `badgep` keyframes from `index.css`
- * (opacity 1 → 0.3 → 1 every 1.4s) — the same cadence already used by
- * other in-flight markers (e.g. the curve-strip `graduating` badge on
- * the token detail page) so a token mid-graduation pulses at a single,
+ * (opacity 1 → 0.3 → 1 every 1.4s) — the same cadence used by other
+ * in-flight markers (e.g. the curve-strip `graduating` badge on the
+ * token detail page) so a token mid-graduation pulses at a single,
  * recognisable tempo everywhere it appears. */
 .pill {
   display: inline-flex;
@@ -17,9 +18,9 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--amber);
-  background: var(--amber-bg);
-  border: 1px solid rgba(240, 180, 41, 0.5);
+  color: var(--mint);
+  background: var(--mint-bg);
+  border: 1px solid rgba(77, 232, 180, 0.5);
   border-radius: 3px;
   /* Asymmetric block padding — kept in sync with `GraduatedPill` to
    * optical-centre the uppercase glyph block inside the pill. See
