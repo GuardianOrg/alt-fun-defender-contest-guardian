@@ -117,14 +117,15 @@ export function isExcludedUnderlying(asset: string): boolean {
  * `EXCLUDED_UNDERLYING_ASSETS` (e.g. PAXG, which BounceTech is winding down).
  *
  * Two families:
- *   - **Crypto:** `HYPE`, `ETH`, `BTC`, `SOL`, `DOGE`, `ZEC`, `kPEPE`.
- *     Spot prices come from Hyperliquid's default `allMids` payload.
+ *   - **Crypto:** `HYPE`, `ETH`, `BTC`, `SOL`, `DOGE`, `ZEC`, `kPEPE`,
+ *     `FARTCOIN`. Spot prices come from Hyperliquid's default `allMids`
+ *     payload.
  *   - **xyz: equity / commodity perps:** `xyz:CL`, `xyz:BRENTOIL`, `xyz:GOLD`,
- *     `xyz:SILVER`, `xyz:NVDA`, `xyz:SP500`, `xyz:XYZ100`. Prices come from
- *     `allMids` with `dex: "xyz"` — the builder-deployed equity/commodity
- *     perps dex on Hyperliquid. The `xyz:` prefix is intentional: it matches
- *     `targetAsset` on the BounceTech LT struct, so token rows round-trip
- *     against the directory without any normalization.
+ *     `xyz:SILVER`, `xyz:NVDA`, `xyz:TSLA`, `xyz:SP500`, `xyz:XYZ100`. Prices
+ *     come from `allMids` with `dex: "xyz"` — the builder-deployed
+ *     equity/commodity perps dex on Hyperliquid. The `xyz:` prefix is
+ *     intentional: it matches `targetAsset` on the BounceTech LT struct, so
+ *     token rows round-trip against the directory without any normalization.
  *
  * When BounceTech adds new LTs we extend this list; the only other touchpoint
  * is `apps/web/src/components/shared/AssetIcon.tsx` for the icon mapping.
@@ -137,11 +138,13 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "DOGE",
   "ZEC",
   "kPEPE",
+  "FARTCOIN",
   "xyz:CL",
   "xyz:BRENTOIL",
   "xyz:GOLD",
   "xyz:SILVER",
   "xyz:NVDA",
+  "xyz:TSLA",
   "xyz:SP500",
   "xyz:XYZ100",
 ] as const;
@@ -160,6 +163,7 @@ export const HYPERLIQUID_DEFAULT_ASSETS = [
   "DOGE",
   "ZEC",
   "kPEPE",
+  "FARTCOIN",
 ] as const;
 
 /**
@@ -173,6 +177,7 @@ export const XYZ_DEX_ASSETS = [
   "xyz:GOLD",
   "xyz:SILVER",
   "xyz:NVDA",
+  "xyz:TSLA",
   "xyz:SP500",
   "xyz:XYZ100",
 ] as const;
