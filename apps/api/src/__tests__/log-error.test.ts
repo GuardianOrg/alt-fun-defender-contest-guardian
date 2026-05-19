@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 
 import { describeError, sanitizeErrorSidecar } from "../lib/log-error.js";
 
-// Unit tests for the shared error-shaping helper. The integration tests
-// in `indexer-reads-error-logging.test.ts` and `ponder-client.test.ts`
-// cover the call-site wiring (drives `console.log` through the actual
-// log shim); these tests pin the helper's contract directly so a future
-// refactor that re-shapes the JSON payload trips here first. Issue #974.
+// Unit tests for the shared error-shaping helper. The integration test
+// in `indexer-reads-error-logging.test.ts` covers the call-site wiring
+// (drives `console.log` through the actual log shim); these tests pin
+// the helper's contract directly so a future refactor that re-shapes
+// the JSON payload trips here first. Issue #974.
 
 describe("describeError", () => {
   it("returns the structured shape for a vanilla Error", () => {

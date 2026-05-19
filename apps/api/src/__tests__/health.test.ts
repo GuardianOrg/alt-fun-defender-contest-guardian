@@ -4,20 +4,9 @@ import { Hono } from "hono";
 import type { AppBindings } from "../lib/types.js";
 
 const mockCheckIndexerHealth = vi.fn();
-// Tracker for the legacy GraphQL probe. Stubbed to a noop that records
-// invocations so the regression-pin test below can assert the probe is
-// never reached on the new code path. If a future refactor accidentally
-// reintroduces the GraphQL hop into `/health`, this mock will record a
-// call and the assertion will fail loudly instead of letting the
-// regression slip through unnoticed.
-const mockCheckPonderHealth = vi.fn();
 
 vi.mock("../lib/indexer-reads.js", () => ({
   checkIndexerHealth: (...args: unknown[]) => mockCheckIndexerHealth(...args),
-}));
-
-vi.mock("../lib/ponder-client.js", () => ({
-  checkPonderHealth: (...args: unknown[]) => mockCheckPonderHealth(...args),
 }));
 
 // Drizzle's `createDb` calls into the Neon HTTP driver synchronously — stub
@@ -41,7 +30,6 @@ function makeEnv(): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
@@ -114,6 +102,5 @@ describe("GET /health", () => {
     await app.request("/health", {}, makeEnv());
 
     expect(mockCheckIndexerHealth).toHaveBeenCalledTimes(1);
-    expect(mockCheckPonderHealth).not.toHaveBeenCalled();
   });
 });

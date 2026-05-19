@@ -28,7 +28,6 @@ function makeEnv(): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
@@ -111,5 +110,37 @@ describe("GET /security-v2/:address", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { creatorHoldingPct: number } };
     expect(body.data.creatorHoldingPct).toBe(0);
+  });
+});
+
+// Issue #942: the canonical `/api/v1/security` mount now serves the v2
+// handler directly. Pin that wiring so a future refactor that drops the
+// canonical mount lights up here instead of silently 404-ing external
+// callers still on the legacy path.
+describe("GET /security/:address (canonical path served by v2 handler)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function createCanonicalApp() {
+    const app = new Hono<{ Bindings: AppBindings }>();
+    app.route("/security", securityV2);
+    return app;
+  }
+
+  it("returns the v2 response shape on the canonical path", async () => {
+    mockFetchTokenAndGraduation.mockResolvedValue(null);
+    const res = await createCanonicalApp().request(
+      `/security/${TOKEN}`,
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { lpLocked: boolean; creatorHoldingPct: number; contractVerified: boolean };
+    };
+    expect(body.data).toEqual({
+      lpLocked: false,
+      creatorHoldingPct: 0,
+      contractVerified: true,
+    });
   });
 });

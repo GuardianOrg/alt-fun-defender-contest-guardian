@@ -14,7 +14,6 @@ import {
 
 import {
   indexerCreatorEarnings,
-  indexerFeeAccrual,
   indexerGlobalStats,
   indexerGraduation,
   indexerHourlyVolume,
@@ -55,10 +54,9 @@ import type {
  *   - Postgres planner does the joins/sorts/aggregations the route used to
  *     fake in TypeScript by paginating raw rows.
  *
- * Functions in this module return `null` on caught error (mirroring the
- * legacy `createPonderQuery` contract) so the existing 503-on-null branches
- * in the route handlers still work without restructuring. They never partially
- * succeed — every read is a single Postgres round-trip.
+ * Functions in this module return `null` on caught error so route handlers
+ * can fan a single `null` check into a 503. They never partially succeed —
+ * every read is a single Postgres round-trip.
  *
  * Type-compatibility note: the `PonderTokenOnchain` / `MarketDataItem` /
  * `RouterTradeActivity` shapes are imported from `market-data.ts` to keep the
@@ -959,10 +957,9 @@ export async function fetchCreatorEarnings(
 }
 
 /**
- * Cheap-but-real reachability probe for the indexer DB connection. Mirrors
- * the legacy `checkPonderHealth` semantics: an empty table is fine (returns
- * `true`), a thrown exception is `false`. Used by the `/health` endpoint and
- * the OHLCV pre-check.
+ * Cheap-but-real reachability probe for the indexer DB connection. An empty
+ * table is fine (returns `true`); a thrown exception is `false`. Used by the
+ * `/health` endpoint and the OHLCV pre-check.
  *
  * Touches the `token` row count rather than `SELECT 1` so a Postgres pool
  * that's reachable but starved of capacity still surfaces as `false`.
@@ -1144,159 +1141,6 @@ export async function fetchTokenChartSnapshots(
       "indexer_reads.fetchTokenChartSnapshots_failed",
       error,
       { tokenAddress: lowered, fromSec },
-    );
-    return null;
-  }
-}
-
-// ----------------------------------------------------------------------
-// Helpers introduced alongside the additive `*-v2` direct-DB endpoints.
-// The legacy Ponder-GraphQL endpoints remain mounted; these power the
-// parallel `-v2` routes so callers can A/B-compare shapes before the
-// cut-over.
-// ----------------------------------------------------------------------
-
-/**
- * One row per fee-accrual event newer than `cutoffSec`, ordered newest-first.
- * Feeds `/admin/analytics/revenue-v2` — same projection the legacy paginated
- * GraphQL query selected (`creatorAmount`, `protocolAmount`, `timestamp`).
- */
-export interface AnalyticsFeeAccrualRow {
-  creatorAmount: string;
-  protocolAmount: string;
-  timestamp: string;
-}
-
-export async function fetchFeeAccrualsSince(
-  db: Database,
-  cutoffSec: number,
-): Promise<AnalyticsFeeAccrualRow[] | null> {
-  try {
-    const rows = await db
-      .select({
-        creatorAmount: indexerFeeAccrual.creatorAmount,
-        protocolAmount: indexerFeeAccrual.protocolAmount,
-        timestamp: indexerFeeAccrual.timestamp,
-      })
-      .from(indexerFeeAccrual)
-      .where(gte(indexerFeeAccrual.timestamp, String(cutoffSec)))
-      .orderBy(desc(indexerFeeAccrual.timestamp), desc(indexerFeeAccrual.id));
-    return rows.map((r) => ({
-      creatorAmount: r.creatorAmount,
-      protocolAmount: r.protocolAmount,
-      timestamp: r.timestamp,
-    }));
-  } catch (error) {
-    logIndexerReadFailure("indexer_reads.fetchFeeAccrualsSince_failed", error, {
-      cutoffSec,
-    });
-    return null;
-  }
-}
-
-/** Lightweight projection for the analytics-route DAU/volume queries. */
-export interface AnalyticsRouterTradeRow {
-  trader: string;
-  usdcAmount: string;
-  timestamp: string;
-}
-
-/**
- * Router-trade rows newer than `cutoffSec`. Same `(timestamp, id)` tiebreak
- * `fetchRouterTrades` uses so paging is deterministic and so multi-trade
- * blocks (multiple Zap.Buy/Sell events in the same block) emerge in a
- * stable order. Used by both `/admin/analytics/dau-v2` and
- * `/admin/analytics/volume-v2` — the two routes consume disjoint columns
- * but the underlying scan is identical, so we share one helper.
- */
-export async function fetchRouterTradesForAnalytics(
-  db: Database,
-  cutoffSec: number,
-): Promise<AnalyticsRouterTradeRow[] | null> {
-  try {
-    const rows = await db
-      .select({
-        trader: indexerRouterTrade.trader,
-        usdcAmount: indexerRouterTrade.usdcAmount,
-        timestamp: indexerRouterTrade.timestamp,
-      })
-      .from(indexerRouterTrade)
-      .where(gte(indexerRouterTrade.timestamp, String(cutoffSec)))
-      .orderBy(desc(indexerRouterTrade.timestamp), desc(indexerRouterTrade.id));
-    return rows.map((r) => ({
-      trader: r.trader,
-      usdcAmount: r.usdcAmount,
-      timestamp: r.timestamp,
-    }));
-  } catch (error) {
-    logIndexerReadFailure(
-      "indexer_reads.fetchRouterTradesForAnalytics_failed",
-      error,
-      { cutoffSec },
-    );
-    return null;
-  }
-}
-
-/** Graduation event projection for `/admin/analytics/graduations-v2`. */
-export interface AnalyticsGraduationRow {
-  tokenAddress: string;
-  timestamp: string;
-}
-
-export async function fetchGraduationsSince(
-  db: Database,
-  cutoffSec: number,
-): Promise<AnalyticsGraduationRow[] | null> {
-  try {
-    const rows = await db
-      .select({
-        tokenAddress: indexerGraduation.tokenAddress,
-        timestamp: indexerGraduation.timestamp,
-      })
-      .from(indexerGraduation)
-      .where(gte(indexerGraduation.timestamp, String(cutoffSec)))
-      .orderBy(desc(indexerGraduation.timestamp));
-    return rows.map((r) => ({
-      tokenAddress: r.tokenAddress,
-      timestamp: r.timestamp,
-    }));
-  } catch (error) {
-    logIndexerReadFailure("indexer_reads.fetchGraduationsSince_failed", error, {
-      cutoffSec,
-    });
-    return null;
-  }
-}
-
-/** Token-launch projection paired with `fetchGraduationsSince` to compute time-to-graduation. */
-export interface AnalyticsTokenLaunchRow {
-  address: string;
-  timestamp: string;
-}
-
-export async function fetchTokensLaunchedSince(
-  db: Database,
-  cutoffSec: number,
-): Promise<AnalyticsTokenLaunchRow[] | null> {
-  try {
-    const rows = await db
-      .select({
-        address: indexerToken.address,
-        timestamp: indexerToken.timestamp,
-      })
-      .from(indexerToken)
-      .where(gte(indexerToken.timestamp, String(cutoffSec)))
-      .orderBy(desc(indexerToken.timestamp));
-    return rows.map((r) => ({
-      address: r.address,
-      timestamp: r.timestamp,
-    }));
-  } catch (error) {
-    logIndexerReadFailure(
-      "indexer_reads.fetchTokensLaunchedSince_failed",
-      error,
-      { cutoffSec },
     );
     return null;
   }

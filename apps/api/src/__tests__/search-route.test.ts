@@ -90,7 +90,6 @@ function makeEnv(): AppBindings {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",
-    PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,

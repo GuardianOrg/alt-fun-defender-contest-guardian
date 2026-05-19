@@ -48,7 +48,6 @@ function makeEnv(): AppBindings {
     ADMIN_API_KEY: "",
     DATABASE_URL: "",
     BOUNCETECH_DATABASE_URL: "",
-    PONDER_URL: "",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
