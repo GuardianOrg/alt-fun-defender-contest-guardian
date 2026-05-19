@@ -2,6 +2,8 @@
 
 Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap V2 pools.
 
+The Hono server in `src/api/index.ts` exposes **only** the `/healthz` lag probe (consumed by Railway's container healthcheck). The GraphQL surface (`graphql({...})` at `/` and `/graphql`) was retired once the API stopped reading from it — every API route now reads directly from Postgres against the schema this indexer writes. Do not re-add `graphql({...})` mounts; if a new external consumer needs Ponder data, route it through `apps/api` so caching, auth, and timeouts stay in one place.
+
 ## Events Indexed
 
 | Event | Contract |
@@ -130,12 +132,11 @@ The columns are deliberately reused (rather than adding `hyperswapTokenReserve` 
 ## Local dev port discipline
 
 `ponder dev` defaults to port `42069` and **silently falls back** to the next
-free port (`42070`, …) if it's taken. A fallback means the indexer GraphQL
-endpoint binds to the next free port, while callers still targeting `42069`
-hit whatever is already there — usually a stale `ponder dev`
-from a previous session whose PGlite has since closed — producing a silent
-"loading forever" UX with no obvious error for any caller still hitting
-that endpoint.
+free port (`42070`, …) if it's taken. The API no longer reads from this
+port (the GraphQL surface is retired and every route reads Postgres directly),
+but `/healthz` is still served on `42069` for any future Railway healthcheck
+wiring and for developers probing the indexer locally — a silent fallback
+there points the probe at whatever stale `ponder dev` last claimed the port.
 
 To prevent this we wrap `ponder dev` with `scripts/dev.mjs`, which fails fast
 (non-zero exit, surfaced by turbo) when `42069` is already bound and prints
@@ -144,11 +145,6 @@ the offending PID. If you ever see the wrapper bail, kill the squatter:
 ```sh
 lsof -ti :42069 | xargs kill -9
 ```
-
-The API side has a matching guard: `checkPonderHealth` queries the
-`tokens` collection rather than `{ __typename }`, so a Ponder with a
-crashed DB is reported `degraded` instead of `healthy`. Keep both guards in
-lockstep — bypassing one lets the failure mode return.
 
 ## Hosting
 

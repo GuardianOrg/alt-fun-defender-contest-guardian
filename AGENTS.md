@@ -21,13 +21,13 @@ The `Zap` contract is the only user-facing entry point. Users always pay and rec
 ```
 apps/web/        — React 19, Vite 7, CSS Modules, Redux Toolkit, TanStack Query, Privy, lightweight-charts
 apps/api/        — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (image storage), Durable Objects (WebSocket)
-apps/indexer/    — Ponder (EVM indexer), GraphQL API, hosted on Railway
+apps/indexer/    — Ponder (EVM indexer) writing directly to Postgres, hosted on Railway (healthz-only HTTP surface)
 packages/contracts/ — Foundry (Solidity), forked from Virtuals Protocol
 packages/shared/ — Shared types, ABIs (generated from Foundry), constants, contract addresses
 packages/config/ — Shared ESLint and TypeScript configs
 ```
 
-Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Hono API handles off-chain data (write path). Frontend queries both + uses Privy for wallet interactions.
+Data flow: Contracts emit events → Ponder indexes into Postgres (shared with the API; isolated schema). The Hono API reads that schema directly via Drizzle for the read path and owns off-chain writes. Frontend talks only to the API + uses Privy for wallet interactions.
 
 ---
 
