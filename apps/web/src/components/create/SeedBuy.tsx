@@ -15,8 +15,10 @@ interface Props {
 }
 
 export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
-  const [activePct, setActivePct] = useState<number | null>(null);
   const amt = parseFloat(seedAmount) || 0;
+  const [activePct, setActivePct] = useState<number | "min" | null>(() =>
+    amt === MIN_USDC_BUY_AMOUNT ? "min" : null,
+  );
 
   const stats = seedBuyStats(amt);
 
@@ -57,6 +59,19 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
         </div>
 
         <div className={styles.quickGrid}>
+          <PresetChip
+            active={activePct === "min"}
+            className={styles.quickButton}
+            onClick={() => {
+              onSeedChange(MIN_USDC_BUY_AMOUNT.toString());
+              setActivePct("min");
+            }}
+          >
+            <div className={styles.quickLabel}>MIN</div>
+            <div className={styles.quickSub}>
+              ${MIN_USDC_BUY_AMOUNT.toLocaleString()}
+            </div>
+          </PresetChip>
           {SEED_PCT_OPTIONS.map((pct) => {
             const usd = usdcForSupplyPct(pct);
             return (
