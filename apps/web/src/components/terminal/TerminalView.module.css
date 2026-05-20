@@ -25,19 +25,52 @@
   min-height: 0;
 }
 
+/* Mobile uses body-scroll for the hero strip (asset tape + terminal
+ * header) but pins `.tableSection` as a sticky panel below the fixed
+ * Layout `<Header>` — the table then handles its own internal scroll
+ * exactly like desktop.
+ *
+ * `flex: none` on wrapper / mainContent / tableSection is load-bearing:
+ * without it, the inherited desktop `flex: 1` chain sets
+ * `flex-basis: 0` on `.tableSection` and the explicit `height` below
+ * gets ignored. That made the sticky panel shorter than its calc, which
+ * is what produced the "first row" glitch on mobile.
+ *
+ * `top: 6.6rem` = fixed Layout header height (5.4rem; 1.2rem padding ×
+ * 2 + 3rem search-trigger — see `components/layout/Header.module.css`)
+ * + 1.2rem visible gap. `100dvh` resizes with the mobile URL bar
+ * instead of being clipped behind Safari chrome. The 4rem bottom
+ * reserve covers the fixed `<SiteFooter>` (~2.8rem) plus a 1.2rem gap
+ * symmetric to the top.
+ *
+ * The `margin-bottom: 0` override (vs. desktop's 1.2rem) keeps body
+ * height equal to the sticky boundary; with 1.2rem of slack you can
+ * scroll past the boundary and the panel drifts up behind the fixed
+ * header.
+ *
+ * Coupled values — update together if the header height changes: `top`
+ * here, `padding-top` in `app/App.module.css`, and the height
+ * documented in `components/layout/Header.module.css`. */
 @media (max-width: 768px) {
   .wrapper {
+    flex: none;
     flex-direction: column;
-    overflow: auto;
+    overflow: visible;
+    margin: 1.2rem 1.2rem 0 1.2rem;
   }
 
   .mainContent {
+    flex: none;
     overflow: visible;
     min-height: 0;
   }
 
   .tableSection {
-    overflow: visible;
+    flex: none;
+    position: sticky;
+    top: 6.6rem;
+    height: calc(100dvh - 6.6rem - 4rem);
+    overflow: hidden;
     min-height: 0;
   }
 }
