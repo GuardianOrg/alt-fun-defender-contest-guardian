@@ -326,9 +326,14 @@ async function liveGetToken(
   address: string,
   wallet?: string,
 ): Promise<Token | undefined> {
-  const apiToken = await fetchToken(address, wallet).catch(() => null);
-  if (!apiToken) return undefined;
-  return fromApiToken(apiToken);
+  try {
+    return fromApiToken(await fetchToken(address, wallet));
+  } catch (error) {
+    if (error instanceof Error && /not found/i.test(error.message)) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function liveGetTokensByDirection(

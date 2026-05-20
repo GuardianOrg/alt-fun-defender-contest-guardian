@@ -23,10 +23,11 @@ import Button from "../shared/Button";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Modal from "../shared/Modal";
 import ProgressBar from "../shared/ProgressBar";
+import Skeleton from "../shared/Skeleton";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
-  const { data: token, isError } = useToken(address);
+  const { data: token, isError, isFetched } = useToken(address);
   // Mobile (≤768px) collapses the side-by-side layout: the left panel
   // takes the full viewport and the trade panel is folded behind a
   // sticky CTA that opens it as a modal. Tracked in JS (rather than
@@ -51,14 +52,6 @@ export default function TokenDetailView() {
   // query off the `trade` WS channel. See issue #643.
   useTokenLiveFeed(address);
 
-  if (isError) {
-    return (
-      <div className={styles.wrapper}>
-        <div className={styles.loading}>Token not found</div>
-      </div>
-    );
-  }
-
   // Unreachable under normal routing — the `:address` route param is
   // mandatory, so React Router would 404 before ever rendering this view
   // without one. Kept as a defensive fallback that surfaces a clear
@@ -68,6 +61,14 @@ export default function TokenDetailView() {
     return (
       <div className={styles.wrapper}>
         <div className={styles.loading}>Invalid token address</div>
+      </div>
+    );
+  }
+
+  if (!token && isFetched && !isError) {
+    return (
+      <div className={styles.wrapper}>
+        <div className={styles.loading}>Token not found</div>
       </div>
     );
   }
@@ -84,6 +85,7 @@ export default function TokenDetailView() {
   // split — per apps/web/AGENTS.md "hide the split entirely") so the bar
   // visually reads as "complete" alongside the `graduated` badge below.
   const isGraduated = token?.status === "graduated";
+  const isUsingCachedFallback = isError && !!token;
   const filled = isGraduated ? 100 : (token?.curveFilled ?? 0);
   const organic = isGraduated ? 100 : (token?.organicFilled ?? filled);
   const buyW = Math.min(organic, filled);
@@ -149,7 +151,7 @@ export default function TokenDetailView() {
           <Chart address={address} token={token ?? null} />
         </ErrorBoundary>
 
-        {token && (
+        {token && !isUsingCachedFallback && (
           <div className={styles.curveStrip}>
             <span className={styles.curveLabel}>curve</span>
             {/* `curveRaisedUsd` is `null` post-graduation by API contract
@@ -189,6 +191,33 @@ export default function TokenDetailView() {
             )}
           </div>
         )}
+        {token && isUsingCachedFallback && (
+          <div className={styles.curveStrip}>
+            <span className={styles.curveLabel}>curve</span>
+            {isGraduated ? (
+              <>
+                <div className={styles.progressWrapper}>
+                  <ProgressBar
+                    buyPercent={100}
+                    leveragePercent={0}
+                    isShort={token.direction === "short"}
+                    isGraduated
+                    size="sm"
+                  />
+                </div>
+                <span className={styles.graduatedBadge}>graduated</span>
+              </>
+            ) : (
+              <>
+                <Skeleton width="4.5rem" height="1rem" />
+                <div className={styles.progressWrapper}>
+                  <Skeleton shape="block" width="100%" height="0.5rem" />
+                </div>
+                <Skeleton width="4rem" height="1rem" />
+              </>
+            )}
+          </div>
+        )}
 
         {token?.description && (
           <section className={styles.descriptionSection}>
@@ -197,7 +226,14 @@ export default function TokenDetailView() {
           </section>
         )}
 
-        {token ? <TokenInfoStrip token={token} /> : <TokenInfoStripSkeleton />}
+        {token ? (
+          <TokenInfoStrip
+            token={token}
+            liveDataPending={isUsingCachedFallback}
+          />
+        ) : (
+          <TokenInfoStripSkeleton />
+        )}
 
         {token && (
           <ErrorBoundary
