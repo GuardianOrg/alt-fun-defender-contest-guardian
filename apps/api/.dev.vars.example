@@ -7,12 +7,31 @@
 # In production the Worker queries this database **through the HYPERDRIVE
 # binding** (`wrangler.json` → `hyperdrive[]`). `DATABASE_URL` is retained
 # for tooling that runs outside the Worker (e.g. `drizzle-kit studio` from
-# the operator's machine, ad-hoc scripts) and as the source for the
-# `localConnectionString` value in `wrangler.json` so `wrangler dev`
-# bypasses the (unavailable in local dev) Hyperdrive POP. Runtime queries
-# from the Worker MUST go through `env.HYPERDRIVE.connectionString` — see
-# `apps/api/AGENTS.md` → *Database transport*.
+# the operator's machine, ad-hoc scripts) and for `wrangler dev` —
+# see the next variable for how local dev wires Hyperdrive's binding.
+# Runtime queries from the Worker MUST go through
+# `env.HYPERDRIVE.connectionString` — see `apps/api/AGENTS.md` →
+# *Database transport*.
 DATABASE_URL=ASK_A_TEAMMATE
+
+# Local-dev override for the HYPERDRIVE binding.
+#
+# `wrangler dev` doesn't route through a real Hyperdrive POP — it needs a
+# direct DB URL to stand in. This MUST NOT live in `wrangler.json`
+# (committed → password leaks). Two ways to provide it for `wrangler dev`:
+#
+#   1. (recommended) Export this var in your shell before `wrangler dev`:
+#        export WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE="$DATABASE_URL"
+#      (or put the export in `.envrc` / your shell rc so it's automatic).
+#
+#   2. Or add a `localConnectionString` field under the `hyperdrive`
+#      block in your **uncommitted** local checkout of `wrangler.json`.
+#      Just don't `git add` it.
+#
+# Without one of these, `wrangler dev` will fail with a binding-missing
+# error when it tries to query the DB. Production deploys are unaffected
+# — they use the real Hyperdrive config from the `id` field.
+WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=ASK_A_TEAMMATE
 
 # Neon PostgreSQL — BounceTech read-only snapshot DB (LT exchange rates).
 BOUNCETECH_DATABASE_URL=ASK_A_TEAMMATE
