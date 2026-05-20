@@ -4,6 +4,7 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { tokens, moderationLogs } from "../../db/schema.js";
+import { tryApiDbRead } from "../../lib/api-db-reads.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -35,23 +36,37 @@ moderation.post("/tokens/:address/unhide", async (c) => {
 
 moderation.get("/moderation/pending", async (c) => {
   const db = createDb(c.env.DATABASE_URL);
-  const pending = await db
-    .select()
-    .from(moderationLogs)
-    .where(eq(moderationLogs.decision, "pending_review"))
-    .orderBy(desc(moderationLogs.createdAt))
-    .limit(50);
+  const pending = await tryApiDbRead(
+    "api_db.moderation_pending_list",
+    () =>
+      db
+        .select()
+        .from(moderationLogs)
+        .where(eq(moderationLogs.decision, "pending_review"))
+        .orderBy(desc(moderationLogs.createdAt))
+        .limit(50),
+  );
+  if (pending === null) {
+    return c.json(formatError("Moderation queue unavailable"), 503);
+  }
 
   return c.json(formatSuccess(pending));
 });
 
 moderation.get("/moderation/logs", async (c) => {
   const db = createDb(c.env.DATABASE_URL);
-  const logs = await db
-    .select()
-    .from(moderationLogs)
-    .orderBy(desc(moderationLogs.createdAt))
-    .limit(100);
+  const logs = await tryApiDbRead(
+    "api_db.moderation_logs_list",
+    () =>
+      db
+        .select()
+        .from(moderationLogs)
+        .orderBy(desc(moderationLogs.createdAt))
+        .limit(100),
+  );
+  if (logs === null) {
+    return c.json(formatError("Moderation logs unavailable"), 503);
+  }
 
   return c.json(formatSuccess(logs));
 });
@@ -91,10 +106,19 @@ moderation.post("/moderation/:id/reject", async (c) => {
   const reviewerAddress = c.req.header("X-Reviewer-Address") ?? null;
   const db = createDb(c.env.DATABASE_URL);
 
-  const [log] = await db
-    .select()
-    .from(moderationLogs)
-    .where(eq(moderationLogs.id, id));
+  const logRows = await tryApiDbRead(
+    "api_db.moderation_log_lookup",
+    () =>
+      db
+        .select()
+        .from(moderationLogs)
+        .where(eq(moderationLogs.id, id)),
+    { id },
+  );
+  if (logRows === null) {
+    return c.json(formatError("Moderation logs unavailable"), 503);
+  }
+  const [log] = logRows;
 
   if (!log) {
     return c.json(formatError("Moderation log not found"), 404);

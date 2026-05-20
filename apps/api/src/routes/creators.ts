@@ -6,6 +6,7 @@ import { createDb } from "../db/client.js";
 import { tokens, userProfiles } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import {
   fetchCreatorEarnings,
   fetchCreatorVolumesByAddresses,
@@ -119,19 +120,36 @@ creators.get("/:address", async (c) => {
   const address = getAddress(rawAddress);
   const db = createDb(c.env.DATABASE_URL);
 
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.address, address))
-    .limit(1);
+  const profileRows = await tryApiDbRead(
+    "api_db.creator_profile_lookup",
+    () =>
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.address, address))
+        .limit(1),
+    { address },
+  );
+  if (profileRows === null) {
+    return c.json(formatError("Creator profile unavailable"), 503);
+  }
+  const [profile] = profileRows;
 
   // Drop hidden tokens so a creator profile doesn't leak admin-removed
   // launches back into the UI (issue #586). Matches the listing /
   // search / detail behaviour — `isHidden = false` is the public lens.
-  const creatorTokens = await db
-    .select()
-    .from(tokens)
-    .where(and(eq(tokens.creator, address), eq(tokens.isHidden, false)));
+  const creatorTokens = await tryApiDbRead(
+    "api_db.creator_tokens_lookup",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(and(eq(tokens.creator, address), eq(tokens.isHidden, false))),
+    { address },
+  );
+  if (creatorTokens === null) {
+    return c.json(formatError("Creator tokens unavailable"), 503);
+  }
 
   let totalVolume = 0n;
   if (creatorTokens.length > 0) {

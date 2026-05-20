@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { hashApiKey, extractPrefix } from "../utils/api-key-hash.js";
@@ -68,18 +69,25 @@ apiKeysRoute.post("/", zodValidator("json", createApiKeySchema), async (c) => {
 
 apiKeysRoute.get("/", async (c) => {
   const db = createDb(c.env.DATABASE_URL);
-  const rows = await db
-    .select({
-      id: apiKeys.id,
-      keyPrefix: apiKeys.keyPrefix,
-      name: apiKeys.name,
-      ownerAddress: apiKeys.ownerAddress,
-      rateLimit: apiKeys.rateLimit,
-      isActive: apiKeys.isActive,
-      createdAt: apiKeys.createdAt,
-    })
-    .from(apiKeys)
-    .orderBy(apiKeys.id);
+  const rows = await tryApiDbRead(
+    "api_db.api_keys_list",
+    () =>
+      db
+        .select({
+          id: apiKeys.id,
+          keyPrefix: apiKeys.keyPrefix,
+          name: apiKeys.name,
+          ownerAddress: apiKeys.ownerAddress,
+          rateLimit: apiKeys.rateLimit,
+          isActive: apiKeys.isActive,
+          createdAt: apiKeys.createdAt,
+        })
+        .from(apiKeys)
+        .orderBy(apiKeys.id),
+  );
+  if (rows === null) {
+    return c.json(formatError("API key data unavailable"), 503);
+  }
 
   return c.json(formatSuccess(rows));
 });
