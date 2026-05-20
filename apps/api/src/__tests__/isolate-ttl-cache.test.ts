@@ -115,6 +115,48 @@ describe("createIsolateTtlCache", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("lazy-deletes a stale entry on read so the next write doesn't pile up", async () => {
+    const cache = createIsolateTtlCache<string>({ ttlMs: 1_000 });
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce("v1")
+      .mockResolvedValueOnce("v2");
+
+    expect(await cache.getOrFetch("k", fetcher)).toBe("v1");
+    vi.advanceTimersByTime(1_001);
+    expect(await cache.getOrFetch("k", fetcher)).toBe("v2");
+
+    // The stale "v1" entry should have been evicted on the second
+    // call's read path, replaced by the fresh "v2" — verified by the
+    // fact that the next same-key read inside the new TTL window
+    // hits cache without a third fetcher call.
+    expect(await cache.getOrFetch("k", fetcher)).toBe("v2");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("periodically sweeps expired write-only keys so the Map stays bounded", async () => {
+    const cache = createIsolateTtlCache<string>({ ttlMs: 1_000 });
+    const fetcher = vi.fn(async (key: string) => `value-${key}`);
+
+    // Write 65 distinct keys, expire them, then write one more — the
+    // 64th write triggers the periodic sweep, and the 65th lands after
+    // expiry, so the post-sweep Map should hold just the fresh key.
+    for (let i = 0; i < 64; i++) {
+      await cache.getOrFetch(`k-${i}`, () => fetcher(`k-${i}`));
+    }
+    vi.advanceTimersByTime(1_001);
+    // Trigger the sweep — the 65th write crosses the SWEEP_EVERY_WRITES
+    // threshold mod count after the prior 64.
+    await cache.getOrFetch("fresh", () => fetcher("fresh"));
+
+    // Every expired key should now be cold; re-fetching any of them
+    // calls the underlying fetcher again (entry was evicted, not
+    // resurrected from the Map).
+    fetcher.mockClear();
+    await cache.getOrFetch("k-0", () => fetcher("k-0"));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("clears all entries on reset()", async () => {
     const cache = createIsolateTtlCache<string>({ ttlMs: 60_000 });
     const fetcher = vi

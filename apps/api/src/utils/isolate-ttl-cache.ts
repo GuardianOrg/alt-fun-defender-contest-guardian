@@ -65,19 +65,44 @@ export interface CreateIsolateTtlCacheOptions<V> {
  */
 const registry = new Set<IsolateTtlCache<unknown>>();
 
+/**
+ * Number of writes between full sweeps of the entries Map for expired
+ * rows. `getOrFetch` already lazy-deletes the specific key it touches
+ * when it finds it expired, so the sweep is purely a backstop for keys
+ * that were written once and never read again — the long tail under
+ * a high-cardinality workload (every distinct token ever requested,
+ * never re-touched after its TTL).
+ *
+ * 64 keeps amortised cost low (one full scan per 64 inserts) while
+ * bounding the Map at ~`64 × concurrent-distinct-keys` worst case,
+ * which is comfortably under the Worker's 128MB isolate ceiling for
+ * any realistic catalogue size.
+ */
+const SWEEP_EVERY_WRITES = 64;
+
 export function createIsolateTtlCache<V>(
   options: CreateIsolateTtlCacheOptions<V>,
 ): IsolateTtlCache<V> {
   const { ttlMs, shouldCache = () => true } = options;
   const entries = new Map<string, CacheEntry<V>>();
   const inflight = new Map<string, Promise<V>>();
+  let writesSinceSweep = 0;
+
+  const sweepExpired = (now: number): void => {
+    for (const [k, v] of entries) {
+      if (v.expiresAt <= now) entries.delete(k);
+    }
+  };
 
   const cache: IsolateTtlCache<V> = {
     async getOrFetch(key, fetcher) {
       const now = Date.now();
       const hit = entries.get(key);
-      if (hit && hit.expiresAt > now) {
-        return hit.value;
+      if (hit) {
+        if (hit.expiresAt > now) return hit.value;
+        // Lazy delete — a stale read of a known key gets cleaned up
+        // here instead of waiting for the next periodic sweep.
+        entries.delete(key);
       }
       const racing = inflight.get(key);
       if (racing) return racing;
@@ -87,6 +112,10 @@ export function createIsolateTtlCache<V>(
           const value = await fetcher();
           if (shouldCache(value)) {
             entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+            if (++writesSinceSweep >= SWEEP_EVERY_WRITES) {
+              writesSinceSweep = 0;
+              sweepExpired(Date.now());
+            }
           }
           return value;
         } finally {
@@ -99,6 +128,7 @@ export function createIsolateTtlCache<V>(
     reset() {
       entries.clear();
       inflight.clear();
+      writesSinceSweep = 0;
     },
   };
   registry.add(cache as IsolateTtlCache<unknown>);
