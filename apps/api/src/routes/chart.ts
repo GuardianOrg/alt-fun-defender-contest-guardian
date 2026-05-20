@@ -12,8 +12,8 @@ import { tryApiDbRead } from "../lib/api-db-reads.js";
 import {
   checkIndexerHealth,
   fetchTokenChartContext,
-  fetchTokenChartSnapshots,
 } from "../lib/indexer-reads.js";
+import { fetchTokenChartSnapshotsCached } from "../lib/indexer-cached-reads.js";
 
 import type { ChartTokenSnapshotRow } from "../lib/indexer-reads.js";
 import type { AppBindings } from "../lib/types.js";
@@ -642,7 +642,11 @@ chart.get("/:address", async (c) => {
       ) t
       ORDER BY s.t
     ` as unknown as Promise<LtSnapshotRow[]>,
-    fetchTokenChartSnapshots(db, address, fromSec),
+    // Per-isolate memo (issue #1125, solution #3) — multiple concurrent
+    // chart loads for the hot token in the same PoP collapse to one
+    // Postgres round-trip per `(address, fromSec)` per
+    // `HOT_TOKEN_READ_TTL_MS` window.
+    fetchTokenChartSnapshotsCached(db, address, fromSec),
   ]);
 
   if (ltRows.length === 0) {
