@@ -56,6 +56,23 @@ export interface CreateIsolateTtlCacheOptions<V> {
    * for those.
    */
   shouldCache?: (value: V) => boolean;
+  /**
+   * Hard ceiling on the entries Map. When a write would push past this,
+   * the oldest-inserted entry is evicted (FIFO) to make room. Independent
+   * of the TTL sweep — defends against pathological inputs (high-cardinality
+   * abuse, or a future TTL bump that breaks the sweep cadence assumption).
+   *
+   * Insertion-order eviction (FIFO) rather than recency-tracked LRU is
+   * deliberate: JS `Map` already iterates insertion order, and for a TTL
+   * cache the oldest-inserted entry is also the closest-to-expiry one, so
+   * FIFO ≈ "drop the entry that was about to expire anyway".
+   *
+   * Defaults to `1024`, picked so a 4-cache fleet (the production
+   * `indexer-cached-reads.ts` setup) is bounded at ~2 MB of cached values
+   * regardless of TTL behaviour — three orders of magnitude under the
+   * Worker isolate's 128 MB ceiling.
+   */
+  maxEntries?: number;
 }
 
 /**
@@ -83,7 +100,10 @@ const SWEEP_EVERY_WRITES = 64;
 export function createIsolateTtlCache<V>(
   options: CreateIsolateTtlCacheOptions<V>,
 ): IsolateTtlCache<V> {
-  const { ttlMs, shouldCache = () => true } = options;
+  const { ttlMs, shouldCache = () => true, maxEntries = 1024 } = options;
+  if (!Number.isInteger(maxEntries) || maxEntries < 1) {
+    throw new Error(`createIsolateTtlCache: maxEntries must be a positive integer (got ${maxEntries})`);
+  }
   const entries = new Map<string, CacheEntry<V>>();
   const inflight = new Map<string, Promise<V>>();
   let writesSinceSweep = 0;
@@ -111,6 +131,15 @@ export function createIsolateTtlCache<V>(
         try {
           const value = await fetcher();
           if (shouldCache(value)) {
+            // FIFO cap: when the Map is at capacity, drop the
+            // oldest-inserted key before the new write. `Map.keys()`
+            // iterates in insertion order, so the first key is the
+            // oldest. Only fires when adding a new key — overwriting
+            // an existing key keeps `size` stable.
+            if (!entries.has(key) && entries.size >= maxEntries) {
+              const oldest = entries.keys().next().value;
+              if (oldest !== undefined) entries.delete(oldest);
+            }
             entries.set(key, { value, expiresAt: Date.now() + ttlMs });
             if (++writesSinceSweep >= SWEEP_EVERY_WRITES) {
               writesSinceSweep = 0;

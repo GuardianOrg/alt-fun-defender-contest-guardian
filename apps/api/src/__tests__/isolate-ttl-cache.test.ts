@@ -157,6 +157,59 @@ describe("createIsolateTtlCache", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("enforces maxEntries by evicting the oldest-inserted key (FIFO)", async () => {
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      maxEntries: 3,
+    });
+    const fetcher = vi.fn(async (key: string) => `value-${key}`);
+
+    await cache.getOrFetch("a", () => fetcher("a"));
+    await cache.getOrFetch("b", () => fetcher("b"));
+    await cache.getOrFetch("c", () => fetcher("c"));
+    // Cap full. Adding "d" must evict "a" (oldest insert).
+    await cache.getOrFetch("d", () => fetcher("d"));
+
+    fetcher.mockClear();
+    // "b", "c", "d" still live — those hit cache.
+    await cache.getOrFetch("b", () => fetcher("b"));
+    await cache.getOrFetch("c", () => fetcher("c"));
+    await cache.getOrFetch("d", () => fetcher("d"));
+    expect(fetcher).not.toHaveBeenCalled();
+    // "a" was evicted — re-fetch hits the underlying fetcher.
+    await cache.getOrFetch("a", () => fetcher("a"));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("evicts FIFO when filling past cap — keeps the most recently inserted keys", async () => {
+    // Verifies the eviction order is insertion-order (oldest first), not
+    // random or last-in. With cap=2 and inserts a→b→c, the live set must
+    // be {b, c}: "a" goes out when "c" comes in.
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      maxEntries: 2,
+    });
+    const fetcher = vi.fn(async (key: string) => `value-${key}`);
+
+    await cache.getOrFetch("a", () => fetcher("a"));
+    await cache.getOrFetch("b", () => fetcher("b"));
+    await cache.getOrFetch("c", () => fetcher("c"));
+
+    fetcher.mockClear();
+    await cache.getOrFetch("b", () => fetcher("b"));
+    await cache.getOrFetch("c", () => fetcher("c"));
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-positive-integer maxEntries", () => {
+    expect(() =>
+      createIsolateTtlCache<string>({ ttlMs: 1_000, maxEntries: 0 }),
+    ).toThrow(/positive integer/);
+    expect(() =>
+      createIsolateTtlCache<string>({ ttlMs: 1_000, maxEntries: 1.5 }),
+    ).toThrow(/positive integer/);
+  });
+
   it("clears all entries on reset()", async () => {
     const cache = createIsolateTtlCache<string>({ ttlMs: 60_000 });
     const fetcher = vi
