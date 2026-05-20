@@ -17,8 +17,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "REPLACE_WITH_HYPERDRIVE_CONFIG_ID",
-      "localConnectionString": "REPLACE_WITH_LOCAL_DEV_DATABASE_URL"
+      "id": "012f27bb161d416d9f37ae00ea27e87b"
     }
   ],
   "kv_namespaces": [
