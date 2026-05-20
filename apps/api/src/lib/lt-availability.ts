@@ -379,7 +379,7 @@ async function performRefresh(options: {
  * `readSupportedLtDirectory`, so this helper just unwraps the optional.
  *
  * Throws on a missing `databaseUrl` (programmer error — production call
- * sites always have `c.env.HYPERDRIVE.connectionString`) and on a DB read failure so
+ * sites always have `c.env.DATABASE_URL`) and on a DB read failure so
  * the snapshot's fail-open path kicks in instead of hiding every LT.
  */
 async function fetchSupportedLts(

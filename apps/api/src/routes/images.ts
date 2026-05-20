@@ -117,7 +117,7 @@ async function uploadHandler(c: Context<{ Bindings: AppBindings }>) {
   if (!moderationResult.safe && !moderationResult.flaggedForReview) {
     // Auto-rejected — log and deny
     await logModerationDecision(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       key,
       "rejected",
       moderationResult.reason,
@@ -147,7 +147,7 @@ async function uploadHandler(c: Context<{ Bindings: AppBindings }>) {
   if (moderationResult.flaggedForReview) {
     // Borderline — store but flag for admin review
     await logModerationDecision(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       key,
       "pending_review",
       moderationResult.reason,
@@ -158,7 +158,7 @@ async function uploadHandler(c: Context<{ Bindings: AppBindings }>) {
 
   // Clean pass — log and approve
   await logModerationDecision(
-    c.env.HYPERDRIVE.connectionString,
+    c.env.DATABASE_URL,
     key,
     "approved",
     "",

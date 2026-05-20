@@ -491,7 +491,7 @@ export default {
     );
 
     ctx.waitUntil(
-      refreshLiveLtAvailability({ databaseUrl: env.HYPERDRIVE.connectionString }).catch((err) => {
+      refreshLiveLtAvailability({ databaseUrl: env.DATABASE_URL }).catch((err) => {
         console.log(
           JSON.stringify({
             level: "error",

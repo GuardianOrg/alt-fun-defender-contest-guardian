@@ -38,7 +38,6 @@ function uninstallCache() {
 function makeEnv(): AppBindings {
   return {
     ADMIN_API_KEY: "",
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "",
     BOUNCETECH_DATABASE_URL: "",
     IMAGES_BUCKET: {} as R2Bucket,

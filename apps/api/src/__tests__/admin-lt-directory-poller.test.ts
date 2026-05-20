@@ -27,7 +27,6 @@ function makeNamespace(stubFetch: ReturnType<typeof vi.fn>) {
 function makeEnv(ns: DurableObjectNamespace, adminKey = "test-admin-key"): AppBindings {
   return {
     ADMIN_API_KEY: adminKey,
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "",
     BOUNCETECH_DATABASE_URL: "",
     IMAGES_BUCKET: {} as R2Bucket,

@@ -14,12 +14,6 @@
       "bucket_name": "launchpad-images"
     }
   ],
-  "hyperdrive": [
-    {
-      "binding": "HYPERDRIVE",
-      "id": "012f27bb161d416d9f37ae00ea27e87b"
-    }
-  ],
   "kv_namespaces": [
     {
       "binding": "WALLET_KV",

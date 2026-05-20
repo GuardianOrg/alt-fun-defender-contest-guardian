@@ -65,8 +65,8 @@ vi.mock("../lib/indexer-reads.js", () => ({
 
 // --- BounceTech DB mock ---
 const mockNeonQuery = vi.fn();
-vi.mock("postgres", () => ({
-  default: () => mockNeonQuery,
+vi.mock("@neondatabase/serverless", () => ({
+  neon: () => mockNeonQuery,
 }));
 
 // --- Global fetch mock (BounceTech LT directory + live LT API) ---
@@ -175,7 +175,6 @@ function makeBucket(headResult: BucketHeadResult | null = { size: 1024 }): MockB
 
 function makeEnv(bucket: MockBucket = makeBucket()): AppBindings {
   return {
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",

@@ -95,7 +95,6 @@ function makeBucket(
 
 function makeEnv(bucket: ReturnType<typeof makeBucket>["bucket"]): AppBindings {
   return {
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",

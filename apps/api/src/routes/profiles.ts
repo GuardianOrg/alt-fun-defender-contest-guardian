@@ -72,7 +72,7 @@ profilesRoute.get("/:address", async (c) => {
   }
   const address = getAddress(rawAddress);
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const profileRows = await tryApiDbRead(
     "api_db.profile_lookup",
     () =>
@@ -145,7 +145,7 @@ profilesRoute.put(
       return c.json(formatError("Signature does not match address"), 401);
     }
 
-    const db = createDb(c.env.HYPERDRIVE.connectionString);
+    const db = createDb(c.env.DATABASE_URL);
     const [profile] = await db
       .insert(userProfiles)
       .values({

@@ -35,8 +35,8 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const mockNeonQuery = vi.fn();
-vi.mock("postgres", () => ({
-  default: () => mockNeonQuery,
+vi.mock("@neondatabase/serverless", () => ({
+  neon: () => mockNeonQuery,
 }));
 
 // `fetchLiveLtRates` now reads through `readLiveLtRates` from the
@@ -66,7 +66,6 @@ function createApp() {
 
 function makeEnv(): AppBindings {
   return {
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",

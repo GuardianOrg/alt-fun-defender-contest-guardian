@@ -79,7 +79,7 @@ referralsV2.get("/:wallet", async (c) => {
 
   const rewardsWallet = await readRewardsWallet(c.env.WALLET_KV, wallet);
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const stats = await fetchReferrerStatsById(db, rewardsWallet);
   // The v1 route collapses indexer unavailability AND missing rows to
   // the same zeroed-stats fallback — preserve that here so the bot's

@@ -84,7 +84,6 @@ const OTHER_TEST_PRIVATE_KEY = makeDeterministicTestPrivateKey(2);
 
 const baseEnv = {
   AUTO_GRADUATION_BUYER_PRIVATE_KEY: TEST_PRIVATE_KEY,
-  HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
   DATABASE_URL: "postgres://test",
   HYPEREVM_RPC_URL: "http://stub-rpc:1",
 } as unknown as AppBindings;

@@ -58,7 +58,7 @@ holders.get("/:address", async (c) => {
   }
   const limit = Math.min(limitParam ?? 20, 100);
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   // Resolve `bondingPair` / `hyperswapPair` so we can exclude protocol
   // wallets from the holders. A `"missing"` token is treated the same as

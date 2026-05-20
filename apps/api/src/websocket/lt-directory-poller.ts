@@ -332,7 +332,7 @@ export class LtDirectoryPoller extends DurableObject<AppBindings> {
     meta: Map<string, { name: string; symbol: string; decimals: number }>,
     pollSequence: number,
   ): Promise<void> {
-    const db = createDb(this.env.HYPERDRIVE.connectionString);
+    const db = createDb(this.env.DATABASE_URL);
     const now = new Date();
     const rows = directory
       .map((d) => {

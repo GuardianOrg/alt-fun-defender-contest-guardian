@@ -1,34 +1,5 @@
 export interface AppBindings {
-  /**
-   * Cloudflare Hyperdrive binding for the primary API + indexer Neon
-   * database. **Pass `HYPERDRIVE.connectionString` to every `createDb(...)`
-   * call** — never use `DATABASE_URL` directly for runtime queries. The
-   * binding terminates the database connection at the nearest CF POP,
-   * pools hot TCP connections to Neon globally, and edge-caches read
-   * query results. Configured in `wrangler.json` under the `hyperdrive`
-   * key; the `id` field there points at the Hyperdrive config in the
-   * Cloudflare dashboard. See `apps/api/AGENTS.md` → *Database transport*.
-   */
-  HYPERDRIVE: Hyperdrive;
-  /**
-   * Direct Neon connection string for the primary API + indexer database.
-   * Retained as a fallback for tooling that can't yet route through the
-   * Hyperdrive binding (e.g. local one-off scripts, `drizzle-kit studio`
-   * from the operator's machine). Runtime queries from the Worker MUST
-   * use `HYPERDRIVE.connectionString` instead; bypassing Hyperdrive
-   * re-introduces the public-edge per-IP subrequest rate limit that
-   * tripped the `error code: 1006` cluster in May 2026.
-   */
   DATABASE_URL: string;
-  /**
-   * Direct Neon connection string for the BounceTech indexer database
-   * (`token_snapshots_v1`, etc.). Kept on the direct transport — the
-   * call-rate against this DB is low (a single LATERAL fetch per
-   * `LtTicker` tick + a handful of historical-rate queries) so the
-   * Hyperdrive migration was scoped to the primary DB only; a second
-   * Hyperdrive binding for this URL is a low-effort follow-up if the
-   * call rate grows.
-   */
   BOUNCETECH_DATABASE_URL: string;
   ADMIN_API_KEY: string;
   /**
