@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import { tryApiDbRead } from "../../lib/api-db-reads.js";
 import {
   computeMarketDataSingle,
   type MarketDataItem,
@@ -118,10 +119,21 @@ detailRoute.post("/batch", zodValidator("json", batchTokensSchema), async (c) =>
   const { addresses } = c.req.valid("json");
 
   const db = createDb(c.env.DATABASE_URL);
-  const results = await db
-    .select()
-    .from(tokens)
-    .where(and(eq(tokens.isHidden, false), inArray(tokens.address, addresses)));
+  const results = await tryApiDbRead(
+    "api_db.tokens_batch_lookup",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(
+          and(eq(tokens.isHidden, false), inArray(tokens.address, addresses)),
+        ),
+    { addressCount: addresses.length },
+  );
+
+  if (results === null) {
+    return c.json(formatError("Token metadata unavailable"), 503);
+  }
 
   return c.json(formatSuccess(results));
 });
@@ -207,11 +219,28 @@ detailRoute.get("/:address", async (c) => {
   // server-side `balanceOf` proof. This preserves the issue #586
   // contract (hidden tokens look like 404 to everyone with no proof of
   // ownership) while unblocking the issue #712 holder-only sell path.
-  let [dbToken] = await db
-    .select()
-    .from(tokens)
-    .where(and(eq(tokens.address, address), eq(tokens.isHidden, false)))
-    .limit(1);
+  //
+  // Wrapped via `tryApiDbRead` so a Neon HTTP failure lands as a clean
+  // 503 instead of bubbling to `app.onError` as a generic 500 — see
+  // issue #1110. Crucially, the wrapper only collapses *thrown* errors
+  // to null; an empty `rows[]` (row not found) still destructures to
+  // `dbToken = undefined`, so the "row not found" vs "DB unreachable"
+  // semantics stay distinct and the hidden-token holder bypass below
+  // still trips correctly on the legitimate 404 case.
+  const publicLensRows = await tryApiDbRead(
+    "api_db.tokens_detail_public_lens",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(and(eq(tokens.address, address), eq(tokens.isHidden, false)))
+        .limit(1),
+    { address },
+  );
+  if (publicLensRows === null) {
+    return c.json(formatError("Token metadata unavailable"), 503);
+  }
+  let [dbToken] = publicLensRows;
 
   // `isHiddenBypass` is the only signal that flips this response into
   // the per-wallet, must-not-be-cached branch — it's deliberately scoped
@@ -221,11 +250,20 @@ detailRoute.get("/:address", async (c) => {
   // 404, follows the cacheable path identically to an anonymous one.
   let isHiddenBypass = false;
   if (!dbToken && wallet) {
-    const [hiddenRow] = await db
-      .select()
-      .from(tokens)
-      .where(and(eq(tokens.address, address), eq(tokens.isHidden, true)))
-      .limit(1);
+    const hiddenRows = await tryApiDbRead(
+      "api_db.tokens_detail_hidden_bypass",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(and(eq(tokens.address, address), eq(tokens.isHidden, true)))
+          .limit(1),
+      { address },
+    );
+    if (hiddenRows === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
+    const [hiddenRow] = hiddenRows;
     if (hiddenRow) {
       const holds = await walletHoldsToken({
         env: c.env,
