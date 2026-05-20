@@ -8,12 +8,12 @@ import {
   fetchHistoricalCurveSnapshots as readHistoricalCurveSnapshots,
   fetchNonGraduatedTokensOnchain as readNonGraduatedTokensOnchain,
   fetchRouterTradeActivity as readRouterTradeActivity,
-  fetchTokenOnchain as readTokenOnchain,
   fetchTokensOnchainByAddresses as readTokensOnchainByAddresses,
   fetchTrendingCandidatesByVolume as readTrendingCandidatesByVolume,
   quantizeTrailing24hCutoffSec,
   type TrendingVolumeCandidate,
 } from "./indexer-reads.js";
+import { fetchTokenOnchainCached as readTokenOnchainCached } from "./indexer-cached-reads.js";
 import { readLiveLtRates } from "./lt-directory-reads.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
@@ -357,7 +357,12 @@ export async function fetchTokenOnchain(
   databaseUrl: string,
   address: string,
 ): Promise<PonderTokenOnchain | null | "unavailable"> {
-  return readTokenOnchain(createDb(databaseUrl), address);
+  // Per-isolate cache memoises the single-token read for a few seconds
+  // (issue #1125, solution #3) so the burst of `/tokens/:addr` requests
+  // for a viral token collapses to one Postgres round-trip per
+  // `HOT_TOKEN_READ_TTL_MS` window per PoP. Transient transport failures
+  // (`"unavailable"`) are not pinned — see `indexer-reads.ts`.
+  return readTokenOnchainCached(createDb(databaseUrl), address);
 }
 
 /**
