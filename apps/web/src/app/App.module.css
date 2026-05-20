@@ -10,3 +10,21 @@
 .ambpulse {
   animation: ambpulse 3.5s ease-in-out infinite;
 }
+
+/* Mobile uses body-scroll plus fixed top/bottom bars — see the matching
+ * blocks in `index.css`, `components/layout/Header.module.css`, and
+ * `components/layout/SiteFooter.module.css`. The padding reserves the
+ * slots vacated by the fixed bars (5.4rem header + 4rem footer reserve
+ * ≈ 2.8rem footer + 1.2rem symmetric gap) so in-flow children land
+ * cleanly between them. Three places need to stay in lockstep if the
+ * header height changes: this padding-top, the `.header` block in
+ * `components/layout/Header.module.css`, and `.tableSection` mobile
+ * `top` in `components/terminal/TerminalView.module.css`. */
+@media (max-width: 768px) {
+  .app {
+    height: auto;
+    min-height: 100%;
+    padding-top: 5.4rem;
+    padding-bottom: 4rem;
+  }
+}
