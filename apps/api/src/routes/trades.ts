@@ -150,7 +150,7 @@ trades.get("/", async (c) => {
     if (cached) return cached;
   }
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const rows = await fetchRouterTrades(db, { limit, offset });
 
   if (rows === null) {
@@ -199,7 +199,7 @@ trades.get("/ohlcv/:address", async (c) => {
     );
   }
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   // Pre-check indexer DB availability before walking the trade history so
   // the route 503s cleanly when the underlying read path is wedged.
@@ -286,7 +286,7 @@ trades.get("/sparkline/:address", async (c) => {
   const address = rawAddress.toLowerCase();
   const points = Math.min(Number(c.req.query("points") ?? "20"), 50);
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const rawTrades = await fetchRouterTrades(db, {
     tokenAddress: address,
     limit: points * 3,
@@ -346,7 +346,7 @@ trades.get("/:address", async (c) => {
     if (cached) return cached;
   }
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const rows = await fetchRouterTrades(db, {
     tokenAddress: address,
     limit,

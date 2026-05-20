@@ -473,7 +473,7 @@ listRoute.get("/", async (c) => {
     if (cached) return cached;
   }
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   // ---------- Ponder-first path: status=graduated ----------
   //
@@ -483,7 +483,7 @@ listRoute.get("/", async (c) => {
   // available without an extra join.
   if (status === "graduated") {
     const onchainPage = await fetchGraduatedTokensOnchain(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       STATUS_POOL_SIZE,
       0,
     );
@@ -529,7 +529,7 @@ listRoute.get("/", async (c) => {
     // see `lib/lt-availability.ts`. We pass the rows through the filter
     // before pagination so `offset` / `limit` reference the visible slice
     // and we don't end up with short pages.
-    const availability = await getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null);
+    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -584,7 +584,7 @@ listRoute.get("/", async (c) => {
     // Reuse the already-resolved indexer tokens — saves a round-trip
     // compared to computeMarketDataForAddresses which re-fetches them.
     const marketResult = await buildBatchFromTokens(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       enrichInputOnchain,
     );
@@ -662,7 +662,7 @@ listRoute.get("/", async (c) => {
   // sort + paginate in memory.
   if (status === "graduating") {
     const onchainPage = await fetchNonGraduatedTokensOnchain(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       STATUS_POOL_SIZE,
       0,
     );
@@ -704,7 +704,7 @@ listRoute.get("/", async (c) => {
       return c.json(formatError("Token metadata unavailable"), 503);
     }
 
-    const availability = await getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null);
+    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -757,7 +757,7 @@ listRoute.get("/", async (c) => {
     // capped at `STATUS_POOL_SIZE`, matching the per-request work budget
     // the trending-sort path already shoulders.
     const marketResult = await buildBatchFromTokens(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       candidatesOnchain,
     );
@@ -838,7 +838,7 @@ listRoute.get("/", async (c) => {
   // whenever a slice contained any LT that BounceTech retired. See
   // `lib/lt-availability.ts` for the cache + HEAD-check semantics and the
   // fail-open rationale.
-  const availability = await getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null);
+  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
 
   const conditions: SQL[] = [eq(tokens.isHidden, false)];
   // Hide retired markets (issue #639) from every DB-first response.
@@ -927,7 +927,7 @@ listRoute.get("/", async (c) => {
       Math.floor(nowSecForCandidates / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
     const cutoffHourStart = currentHourStart - TRENDING_WINDOW_SEC;
     const candidates = await fetchTrendingCandidatesByVolume(
-      c.env.HYPERDRIVE.connectionString,
+      c.env.DATABASE_URL,
       TRENDING_POOL_SIZE,
       cutoffHourStart,
     );
@@ -1078,7 +1078,7 @@ listRoute.get("/", async (c) => {
   // catalogue. Page size for a non-scored sort caps per-request work at
   // `limit` (≤100); scored sorts cap at `TRENDING_POOL_SIZE`.
   const marketResult = await computeMarketDataForAddresses(
-    c.env.HYPERDRIVE.connectionString,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     dbTokens.map((t) => t.address),
   );
@@ -1191,7 +1191,7 @@ listRoute.get("/search", async (c) => {
   // path, and skip the clause entirely if `checksumDirectoryAddresses`
   // filtered every entry out (malformed directory payload) so a 500 from
   // `inArray([])` / `getAddress("not-an-address")` can't take down search.
-  const availability = await getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null);
+  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
   const checksummedDirectory =
     availability && availability.fresh && availability.directoryAddresses.size > 0
       ? checksumDirectoryAddresses(availability.directoryAddresses)
@@ -1208,7 +1208,7 @@ listRoute.get("/search", async (c) => {
   // generated WHERE stays minimal.
   const excludedUnderlying = excludedUnderlyingCondition();
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const results = await tryApiDbRead(
     "api_db.tokens_search",
     () =>

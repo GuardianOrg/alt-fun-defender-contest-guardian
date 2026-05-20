@@ -1,18 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Capture the SQL tag's `(strings, ...values)` calls so we can assert
-// the raw `postgres()` tag is invoked with the address array as a
-// template parameter — the regression here used to be
-// `drizzle-orm/neon-http` serialising the JS array as a scalar
-// (`22P02 malformed array literal`) and dropping every old-token
-// `change24h` to null. Post the Hyperdrive migration (PR #1130) the
-// underlying driver is postgres.js, which binds `text[]` natively, so
-// the array-bind workaround is gone; this test now pins the equivalent
-// behaviour through the new driver.
+// Capture the SQL tag's `(strings, ...values)` calls so we can assert the
+// raw `neon()` tag is invoked with the address array as a template
+// parameter — the regression here is drizzle-orm/neon-http serialising the
+// JS array as a scalar, which made the `::text[]` cast fail with PG
+// `22P02 malformed array literal` and dropped every old-token `change24h`
+// to null. Raw `neon()` passes the array straight through.
 const mockNeonQuery = vi.fn();
-const mockNeonFactory = vi.fn((_url: string, _opts?: unknown) => mockNeonQuery);
-vi.mock("postgres", () => ({
-  default: (url: string, opts?: unknown) => mockNeonFactory(url, opts),
+const mockNeonFactory = vi.fn((_url: string) => mockNeonQuery);
+vi.mock("@neondatabase/serverless", () => ({
+  neon: (url: string) => mockNeonFactory(url),
 }));
 
 const { fetchHistoricalCurveSnapshots } = await import(
@@ -39,15 +36,10 @@ describe("fetchHistoricalCurveSnapshots — array binding", () => {
       CUTOFF_SEC,
     );
 
-    // `postgres(databaseUrl, ...)` is the entry point — drizzle's
-    // `db.execute(sql`...`)` would never reach `postgres()` directly.
-    // The previous neon-http driver had an array-bind bug we worked
-    // around with the raw tag; postgres.js binds `text[]` natively and
-    // the raw tag is still preferred here for one-shot query shape.
-    expect(mockNeonFactory).toHaveBeenCalledWith(
-      DATABASE_URL,
-      expect.objectContaining({ prepare: true }),
-    );
+    // `neon(DATABASE_URL)` is the entry point — drizzle's
+    // `db.execute(sql`...`)` would never reach `neon()` directly and
+    // would re-introduce the array-bind bug.
+    expect(mockNeonFactory).toHaveBeenCalledWith(DATABASE_URL);
     expect(mockNeonQuery).toHaveBeenCalledTimes(1);
 
     // Template tag calls: first arg is the strings array, subsequent args

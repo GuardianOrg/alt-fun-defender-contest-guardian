@@ -38,7 +38,7 @@ stats.get("/", async (c) => {
     Math.floor(nowSeconds / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
   const windowStart = currentHourStart - 24 * SECONDS_PER_HOUR;
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const result = await fetchPlatformStats(db, windowStart);
 
   if (!result) {

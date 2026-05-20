@@ -32,7 +32,7 @@ balancesV2.get("/:wallet", async (c) => {
   }
   const wallet = getAddress(rawWallet).toLowerCase();
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   const healthy = await checkIndexerHealth(db);
   if (!healthy) {

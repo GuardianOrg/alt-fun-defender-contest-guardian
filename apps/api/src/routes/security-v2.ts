@@ -33,7 +33,7 @@ securityV2.get("/:address", async (c) => {
   }
   const address = rawAddress.toLowerCase();
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   const meta = await fetchTokenAndGraduationForSecurity(db, address);
   if (meta === null || meta === "unavailable") {

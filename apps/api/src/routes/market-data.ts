@@ -182,7 +182,7 @@ marketData.post("/", async (c) => {
   }
 
   const result = await computeMarketDataForAddresses(
-    c.env.HYPERDRIVE.connectionString,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     canonicalAddresses,
   );
@@ -210,7 +210,7 @@ marketData.get("/:address", async (c) => {
   }
 
   const result = await computeMarketDataSingle(
-    c.env.HYPERDRIVE.connectionString,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
   );

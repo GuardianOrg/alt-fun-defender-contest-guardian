@@ -146,7 +146,7 @@ async function setHidden(args: {
     return { kind: "error" as const, status: verified.status, error: verified.error };
   }
 
-  const db = createDb(args.env.HYPERDRIVE.connectionString);
+  const db = createDb(args.env.DATABASE_URL);
   const [updated] = await db
     .update(tokens)
     .set({ isHidden: args.isHidden })

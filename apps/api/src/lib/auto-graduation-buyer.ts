@@ -278,7 +278,7 @@ async function runTriggerPhase(
   wallet: WalletClientT,
   startNonce: number,
 ): Promise<number> {
-  const db = createDb(env.HYPERDRIVE.connectionString);
+  const db = createDb(env.DATABASE_URL);
   const candidates = await fetchCurvePhaseTokens(db, CURVE_TOKEN_FETCH_LIMIT);
   if (candidates === null) {
     // Null = DB read failed. Keep the existing event name so on-call alerts
@@ -377,7 +377,7 @@ async function runSellPhase(
 ): Promise<number> {
   // `fetchNonZeroWalletZapPositions` lower-cases the wallet at the boundary,
   // so passing the checksummed `account.address` is safe.
-  const db = createDb(env.HYPERDRIVE.connectionString);
+  const db = createDb(env.DATABASE_URL);
   const rawPositions = await fetchNonZeroWalletZapPositions(
     db,
     bot,

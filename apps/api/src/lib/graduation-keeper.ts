@@ -76,7 +76,7 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
   }
   const pk = (pkRaw.startsWith("0x") ? pkRaw : `0x${pkRaw}`) as `0x${string}`;
 
-  const db = createDb(env.HYPERDRIVE.connectionString);
+  const db = createDb(env.DATABASE_URL);
   const pending = await fetchPendingGraduationTokens(db);
   if (pending === null) {
     // Null = DB read failed (see helper docstring). Skip this tick rather

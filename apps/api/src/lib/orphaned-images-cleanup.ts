@@ -306,7 +306,7 @@ export async function runOrphanedImagesCleanup(
 async function loadProtectedKeys(
   env: AppBindings,
 ): Promise<{ referencedKeys: Set<string>; pendingReviewKeys: Set<string> }> {
-  const db = createDb(env.HYPERDRIVE.connectionString);
+  const db = createDb(env.DATABASE_URL);
 
   const tokenRows = await db
     .select({ imageUrl: tokens.imageUrl })

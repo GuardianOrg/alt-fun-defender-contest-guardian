@@ -48,7 +48,7 @@ creators.get("/:address/earnings", async (c) => {
   }
   const address = getAddress(rawAddress);
 
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
   const result = await fetchCreatorEarnings(db, address);
 
   if (result === "unavailable") {
@@ -118,7 +118,7 @@ creators.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = getAddress(rawAddress);
-  const db = createDb(c.env.HYPERDRIVE.connectionString);
+  const db = createDb(c.env.DATABASE_URL);
 
   const profileRows = await tryApiDbRead(
     "api_db.creator_profile_lookup",

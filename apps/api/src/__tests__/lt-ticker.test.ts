@@ -21,10 +21,10 @@ vi.mock("../db/client.js", () => ({
   createDb: () => ({ selectDistinct: mockSelectDistinct }),
 }));
 
-// --- Mock postgres.js (BounceTech snapshot rows) ---
+// --- Mock Neon (BounceTech snapshot rows) ---
 const mockNeonQuery = vi.fn();
-vi.mock("postgres", () => ({
-  default: () => mockNeonQuery,
+vi.mock("@neondatabase/serverless", () => ({
+  neon: () => mockNeonQuery,
 }));
 
 // --- Mock broadcastToChannel ---
@@ -74,7 +74,6 @@ async function settleInit(pendingInits: Promise<void>[]) {
 
 function makeEnv(): AppBindings {
   return {
-    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",
