@@ -28,7 +28,7 @@ tokenMetaRoute.get("/:address/meta", async (c) => {
   if (!isAddress(rawAddress, { strict: false })) {
     return c.json(formatError("Invalid address"), 400);
   }
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const meta = await fetchTokenMeta(db, rawAddress);
   if (meta === "unavailable") {
     return c.json(formatError("Indexer unavailable"), 503);

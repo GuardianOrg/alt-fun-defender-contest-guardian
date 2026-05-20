@@ -78,7 +78,7 @@ export async function runModerationLogsCleanup(
 ): Promise<ModerationLogsCleanupResult | null> {
   if (!shouldRunModerationLogsCleanup(now)) return null;
 
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.HYPERDRIVE.connectionString);
 
   const approvedCutoff = new Date(
     now.getTime() - APPROVED_RETENTION_DAYS * MILLIS_PER_DAY,

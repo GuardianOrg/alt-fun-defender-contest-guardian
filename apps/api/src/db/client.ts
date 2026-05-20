@@ -1,5 +1,5 @@
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 
 import * as apiSchema from "./schema.js";
 import * as indexerSchema from "./indexer-schema.js";
@@ -20,23 +20,47 @@ import * as indexerSchema from "./indexer-schema.js";
  * a per-deploy schema (`$RAILWAY_DEPLOYMENT_ID`) that flips on every
  * indexer redeploy. See `apps/api/src/db/indexer-schema.ts` for the full
  * lifecycle.
- *
- * This is the foundation for the "read direct from Postgres" migration off
- * the Ponder GraphQL hop. See `lib/indexer-reads.ts` for the typed read
- * helpers callers should prefer over hand-rolled `db.select()`s.
  */
 const schema = { ...apiSchema, ...indexerSchema };
 
-const dbCache = new Map<string, ReturnType<typeof drizzle<typeof schema>>>();
-
-export function createDb(databaseUrl: string) {
-  const cached = dbCache.get(databaseUrl);
-  if (cached) return cached;
-
-  const sql = neon(databaseUrl);
-  const db = drizzle(sql, { schema });
-  dbCache.set(databaseUrl, db);
-  return db;
+/**
+ * Build a Drizzle instance backed by `postgres.js` (`postgres`) talking
+ * through Cloudflare Hyperdrive's pooled, edge-terminated connection.
+ *
+ * `connectionString` is the per-Worker virtual URL exposed by the
+ * `HYPERDRIVE` binding — pass `c.env.HYPERDRIVE.connectionString` at every
+ * call site, never the raw Neon URL. Hyperdrive performs the TLS + SCRAM
+ * handshake once at the nearest Cloudflare POP, keeps a pool of hot TCP
+ * connections to the origin database pre-warmed, and edge-caches read
+ * query results for ~60s.
+ *
+ * Per-request, NOT per-isolate: Workers' runtime invalidates an I/O
+ * context (sockets in particular) once the request that created it
+ * resolves. A `postgres()` instance reused across requests fails on the
+ * second query with `CONNECTION_ENDED` / "Cannot perform I/O on behalf of
+ * a different request" — see Hyperdrive's troubleshooting matrix. We
+ * therefore call `postgres(...)` fresh inside every `createDb(...)` call.
+ * Hyperdrive's own pool absorbs the work the per-isolate `dbCache` Map
+ * used to do back when the underlying driver was
+ * `@neondatabase/serverless`'s stateless HTTP transport — a fresh client
+ * here just borrows a pre-warmed connection from the POP-local pool.
+ *
+ * `prepare: true` is the postgres.js default and is required for
+ * Hyperdrive's query cache to participate; leaving it on is intentional.
+ */
+export function createDb(connectionString: string) {
+  const client = postgres(connectionString, {
+    // Leaving `prepare: true` (postgres.js default) is required for
+    // Hyperdrive's query cache to recognise our reads as cacheable.
+    // Listed explicitly so the next reader doesn't have to dig.
+    prepare: true,
+    // postgres.js' default `types` handlers subscribe to a couple of
+    // Postgres OIDs we don't use and they don't fully load under
+    // `nodejs_compat` (no `process.binding`). Empty handler list = no-op
+    // and matches the Cloudflare postgres.js example.
+    types: {},
+  });
+  return drizzle(client, { schema });
 }
 
 export type Database = ReturnType<typeof createDb>;

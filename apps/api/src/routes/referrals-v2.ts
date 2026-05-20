@@ -23,7 +23,7 @@ referralsV2.get("/:wallet", async (c) => {
   }
   const wallet = rawWallet.toLowerCase();
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const items = await fetchReferralsByReferrer(db, wallet);
   if (items === null) {
     return c.json(formatError("Indexer unavailable"), 503);

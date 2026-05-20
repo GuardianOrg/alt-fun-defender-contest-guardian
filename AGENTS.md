@@ -225,7 +225,7 @@ Our own contract addresses (`Zap`, `Bonding`, `Factory`, `Router`, `LPLock`, `Fe
 
 | Service | Provider | Details |
 |---|---|---|
-| Database | Neon (PostgreSQL) | Direct connection (no Hyperdrive) |
+| Database | Neon (PostgreSQL) | Via Cloudflare Hyperdrive (`postgres.js` + `drizzle-orm/postgres-js`). The BounceTech snapshot DB stays on a direct connection — see `apps/api/AGENTS.md` → *Database transport*. |
 | Image storage | Cloudflare R2 | Bucket: `launchpad-images`, served via Worker |
 | WebSocket | Cloudflare Durable Objects | Real-time feeds. Channels: `trade`, `price`, `graduation`, `newToken`, `stats` |
 | Indexer hosting | Railway | Persistent process for Ponder |

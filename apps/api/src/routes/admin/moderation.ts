@@ -18,7 +18,7 @@ moderation.post("/tokens/:address/hide", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = getAddress(rawAddress);
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   await db.update(tokens).set({ isHidden: true }).where(eq(tokens.address, address));
   return c.json(formatSuccess({ hidden: true }));
 });
@@ -29,13 +29,13 @@ moderation.post("/tokens/:address/unhide", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = getAddress(rawAddress);
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   await db.update(tokens).set({ isHidden: false }).where(eq(tokens.address, address));
   return c.json(formatSuccess({ hidden: false }));
 });
 
 moderation.get("/moderation/pending", async (c) => {
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const pending = await tryApiDbRead(
     "api_db.moderation_pending_list",
     () =>
@@ -54,7 +54,7 @@ moderation.get("/moderation/pending", async (c) => {
 });
 
 moderation.get("/moderation/logs", async (c) => {
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const logs = await tryApiDbRead(
     "api_db.moderation_logs_list",
     () =>
@@ -78,7 +78,7 @@ moderation.post("/moderation/:id/approve", async (c) => {
   }
 
   const reviewerAddress = c.req.header("X-Reviewer-Address") ?? null;
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
 
   const [updated] = await db
     .update(moderationLogs)
@@ -104,7 +104,7 @@ moderation.post("/moderation/:id/reject", async (c) => {
   }
 
   const reviewerAddress = c.req.header("X-Reviewer-Address") ?? null;
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
 
   const logRows = await tryApiDbRead(
     "api_db.moderation_log_lookup",

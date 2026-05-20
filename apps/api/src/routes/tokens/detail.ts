@@ -118,7 +118,7 @@ const detailRoute = new Hono<{ Bindings: AppBindings }>();
 detailRoute.post("/batch", zodValidator("json", batchTokensSchema), async (c) => {
   const { addresses } = c.req.valid("json");
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const results = await tryApiDbRead(
     "api_db.tokens_batch_lookup",
     () =>
@@ -212,7 +212,7 @@ detailRoute.get("/:address", async (c) => {
     if (cached) return cached;
   }
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   // Two-step lookup. We always start with the public lens
   // (`isHidden = false`); only when that misses AND a wallet is present
   // do we fall back to a wallet-gated lookup of the hidden row + a
@@ -282,7 +282,7 @@ detailRoute.get("/:address", async (c) => {
   }
 
   const marketResult = await computeMarketDataSingle(
-    c.env.DATABASE_URL,
+    c.env.HYPERDRIVE.connectionString,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
   );

@@ -241,7 +241,7 @@ export async function registerTokenFromChain(
   }
   const address = getAddress(rawAddress);
 
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.HYPERDRIVE.connectionString);
 
   // Fast-path: row already exists. Avoids RPC + R2 + BounceTech round-trips
   // on the hot path (frontend awaits this and the cron sweep races it).
@@ -263,7 +263,7 @@ export async function registerTokenFromChain(
 
   const info = await fetchOnChainInfo(env, address);
   const imageUrl = await validateImageUrl(env, info.image, apiOrigin);
-  const ltMeta = await resolveLtMeta(env.DATABASE_URL, info.ltAddress);
+  const ltMeta = await resolveLtMeta(env.HYPERDRIVE.connectionString, info.ltAddress);
 
   const inserted = await withDbError(() =>
     db

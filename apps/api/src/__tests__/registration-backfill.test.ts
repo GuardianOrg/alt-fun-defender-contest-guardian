@@ -48,6 +48,7 @@ const { runRegistrationBackfill } = await import(
 import type { AppBindings } from "../lib/types.js";
 
 const baseEnv = {
+  HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
   DATABASE_URL: "postgres://test",
 } as unknown as AppBindings;
 

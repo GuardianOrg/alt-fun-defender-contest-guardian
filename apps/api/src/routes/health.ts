@@ -36,7 +36,7 @@ const health = new Hono<{ Bindings: AppBindings }>();
  */
 health.get("/", async (c) => {
   const indexerHealthy = await checkIndexerHealth(
-    createDb(c.env.DATABASE_URL),
+    createDb(c.env.HYPERDRIVE.connectionString),
   );
   return c.json(
     formatSuccess({

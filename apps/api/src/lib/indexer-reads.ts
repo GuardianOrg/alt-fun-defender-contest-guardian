@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 import {
   and,
   asc,
@@ -341,14 +341,6 @@ export async function fetchHistoricalCurveSnapshots(
   const lowered = Array.from(
     new Set(tokenAddresses.map((a) => a.toLowerCase())),
   );
-  // Use the **raw** `neon()` SQL tag, not drizzle's `db.execute(sql`...`)`:
-  // `drizzle-orm/neon-http` binds a JS array as a single scalar parameter
-  // and Postgres then rejects the `::text[]` cast with
-  // `22P02 malformed array literal: "0x..."`. Raw neon tag serialises the
-  // array as a proper PG array literal (`{a,b,c}`). Sibling historical
-  // fetches in `market-data.ts` (`fetchHistoricalLtRates`,
-  // `fetchLtRatesAtLaunches`) already use the raw tag for the same reason.
-  //
   // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
   // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
   // `block.timestamp` at second resolution and ties on multi-trade blocks
@@ -356,7 +348,12 @@ export async function fetchHistoricalCurveSnapshots(
   // block). Locking the secondary sort to the indexer's primary key
   // (`${txHash}-${logIndex}`) keeps the historical reference deterministic
   // across requests.
-  const sqlClient = neon(databaseUrl);
+  //
+  // postgres.js's tagged template binds `text[]` natively — the
+  // drizzle-orm/neon-http array-bind bug this used to dodge is no longer
+  // a concern, but the raw tag still gives us a cleaner one-shot query
+  // shape than `db.execute(sql`...`)`.
+  const sqlClient = postgres(databaseUrl, { prepare: true, types: {} });
   try {
     const rows = (await sqlClient`
       SELECT
@@ -630,11 +627,10 @@ export async function fetchPortfolioPositions(
     // exactly 1000 tokens were mis-flagged as truncated. CodeRabbit
     // feedback on PR #898.
     //
-    // Note: `drizzle-orm/neon-http`'s `db.execute(sql`...`)` resolves to
-    // a `NeonHttpQueryResult` (`{ rows, rowCount, ... }`) — NOT the rows
-    // array. Unwrap `.rows`. The smoke test caught the original `result
-    // .map is not a function` regression that the cast hid.
-    const queryResult = await db.execute(sql`
+    // `drizzle-orm/postgres-js`'s `db.execute(sql`...`)` returns the rows
+    // array directly — unlike `drizzle-orm/neon-http`, no `.rows` unwrap
+    // is needed.
+    const rows = (await db.execute(sql`
       SELECT
         b.token_address     AS token_address,
         b.balance::text     AS balance,
@@ -645,8 +641,7 @@ export async function fetchPortfolioPositions(
       WHERE b.wallet = ${lowered}
         AND b.balance > 0
       LIMIT ${PORTFOLIO_PAGE_SIZE + 1}
-    `);
-    const rows = queryResult.rows as unknown as Array<{
+    `)) as unknown as Array<{
       token_address: string;
       balance: string;
       cost_basis_usdc: string;

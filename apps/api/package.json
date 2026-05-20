@@ -17,9 +17,9 @@
     "@hono/swagger-ui": "^0.6.1",
     "@hono/zod-validator": "^0.7.6",
     "@launchpad/shared": "*",
-    "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "^0.45",
     "hono": "^4.12.14",
+    "postgres": "^3.4.9",
     "viem": "^2.47.12",
     "zod": "^4"
   },

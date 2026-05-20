@@ -249,7 +249,7 @@ positionsV2.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const data = await fetchPositions(c.env.DATABASE_URL, wallet);
+  const data = await fetchPositions(c.env.HYPERDRIVE.connectionString, wallet);
   c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
   return c.json(formatSuccess(data));
 });
