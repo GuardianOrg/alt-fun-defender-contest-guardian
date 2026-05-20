@@ -1,16 +1,14 @@
 /**
- * Coverage for issue #639's "hide retired markets" filter as applied to
+ * Coverage for the supported-underlying filter as applied to
  * `GET /tokens` (status=curve/graduated/graduating + trending sort) and
- * `GET /tokens/search`. The filter pushes a `underlying NOT IN (...)`
- * clause into the SQL whenever `EXCLUDED_UNDERLYING_ASSETS` is
- * non-empty, and an extra in-memory `matchesFilters` reject on the
- * Ponder-first graduated/graduating tabs.
+ * `GET /tokens/search`. Unsupported assets are omitted from the shared
+ * registry, so every route path filters to `SUPPORTED_UNDERLYING_ASSETS`.
  */
 
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EXCLUDED_UNDERLYING_ASSETS } from "@launchpad/shared";
+import { SUPPORTED_UNDERLYING_ASSETS } from "@launchpad/shared";
 
 import type { AppBindings } from "../lib/types.js";
 import type {
@@ -19,19 +17,17 @@ import type {
   PonderTokenOnchain,
 } from "../lib/market-data.js";
 
-// ── Drizzle chain mock — capture every notInArray call so we can assert
-// the exclusion list landed in the WHERE clause. ──
-const notInArrayCalls: { values: unknown[] }[] = [];
+const inArrayCalls: { values: unknown[] }[] = [];
 
 vi.mock("drizzle-orm", async () => {
   const actual =
     await vi.importActual<typeof import("drizzle-orm")>("drizzle-orm");
   return {
     ...actual,
-    notInArray: vi.fn((column: unknown, values: unknown[]) => {
-      notInArrayCalls.push({ values });
-      return actual.notInArray(
-        column as Parameters<typeof actual.notInArray>[0],
+    inArray: vi.fn((column: unknown, values: unknown[]) => {
+      inArrayCalls.push({ values });
+      return actual.inArray(
+        column as Parameters<typeof actual.inArray>[0],
         values,
       );
     }),
@@ -74,8 +70,6 @@ vi.mock("../db/client.js", () => ({
   createDb: () => mockDb,
 }));
 
-// Threshold lookup stub — graduated/graduating paths await this, and we
-// don't want the test to fan out to a real Ponder instance.
 vi.mock("../lib/protocol-config.js", () => ({
   getGraduationThresholdUsd: vi.fn(async () => 12_000),
   _resetGraduationThresholdCache: vi.fn(),
@@ -85,7 +79,6 @@ const mockFetchGraduatedTokensOnchain = vi.fn();
 const mockFetchNonGraduatedTokensOnchain = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
-
 const mockFetchTrendingCandidatesByVolume = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
@@ -119,12 +112,8 @@ function makeEnv(): AppBindings {
 
 const LT_ADDR = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
 const CREATOR = "0x1111111111111111111111111111111111111111";
-// Checksummed addresses — DB stores them this way (see `create.ts`,
-// `getAddress`). One visible token + one PAXG token to confirm the
-// in-memory `matchesFilters` reject path drops the PAXG row even when
-// Ponder considered it graduated.
 const ADDR_HYPE = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
-const ADDR_PAXG = "0x8ba1f109551bD432803012645Ac136ddd64DBA72";
+const ADDR_UNSUPPORTED = "0x8ba1f109551bD432803012645Ac136ddd64DBA72";
 
 type DbRow = {
   address: string;
@@ -232,7 +221,7 @@ function marketBatchOk(
 
 beforeEach(() => {
   vi.stubGlobal("caches", undefined);
-  notInArrayCalls.length = 0;
+  inArrayCalls.length = 0;
   currentDbRows.rows = [];
   vi.clearAllMocks();
 });
@@ -241,74 +230,60 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("GET /tokens — excluded underlyings (issue #639)", () => {
-  it("pushes a `underlying NOT IN (...)` clause into SQL for the DB-first path", async () => {
-    // Trending vs createdAt sort doesn't matter here — both go through
-    // the same `conditions` array.
+function findSupportedUnderlyingCall(): { values: unknown[] } | undefined {
+  return inArrayCalls.find(
+    (call) =>
+      Array.isArray(call.values) &&
+      call.values.length === SUPPORTED_UNDERLYING_ASSETS.length &&
+      SUPPORTED_UNDERLYING_ASSETS.every((asset) =>
+        (call.values as readonly unknown[]).includes(asset),
+      ),
+  );
+}
+
+describe("GET /tokens - supported underlyings", () => {
+  it("pushes a supported-underlying clause into SQL for the DB-first path", async () => {
     await createApp().request("/tokens", {}, makeEnv());
 
-    const excludedCall = notInArrayCalls.find(
-      (call) =>
-        Array.isArray(call.values) &&
-        (call.values as string[]).some(
-          (v) =>
-            typeof v === "string" &&
-            (EXCLUDED_UNDERLYING_ASSETS as readonly string[]).includes(v),
-        ),
-    );
-    expect(excludedCall).toBeDefined();
-    expect(excludedCall?.values).toEqual([...EXCLUDED_UNDERLYING_ASSETS]);
+    expect(findSupportedUnderlyingCall()?.values).toEqual([
+      ...SUPPORTED_UNDERLYING_ASSETS,
+    ]);
   });
 
-  it("returns nothing for an explicit `?underlying=PAXG` query (the exclusion wins)", async () => {
-    // DB returns a PAXG row (e.g. legacy or migration backfill that
-    // arrived before the exclusion shipped). The route's WHERE clause
-    // should keep it out of the response even though the user asked for
-    // it by name.
+  it("returns nothing for an explicit unsupported underlying query", async () => {
     currentDbRows.rows = [
-      makeDbRow(ADDR_PAXG, { underlying: "PAXG", ticker: "PAXG_TOKEN" }),
+      makeDbRow(ADDR_UNSUPPORTED, {
+        underlying: "FAKEASSET",
+        ticker: "FAKE_TOKEN",
+      }),
     ];
-    // No Ponder enrichment needed for this path — the row's already
-    // filtered out before market-data is fetched.
     mockComputeMarketDataForAddresses.mockResolvedValueOnce({
       ok: true,
       data: { tokens: [], market: {} },
     });
 
     const res = await createApp().request(
-      "/tokens?underlying=PAXG",
+      "/tokens?underlying=FAKEASSET",
       {},
       makeEnv(),
     );
     expect(res.status).toBe(200);
-
-    // Both clauses landed: the global `NOT IN (PAXG)` exclusion + the
-    // user's `underlying = PAXG` filter — producing an empty set at the
-    // SQL boundary.
-    const excludedCall = notInArrayCalls.find((call) =>
-      (call.values as string[]).includes("PAXG"),
-    );
-    expect(excludedCall).toBeDefined();
+    expect(findSupportedUnderlyingCall()).toBeDefined();
   });
 
-  it("pushes the exclusion into the graduated tab's DB query", async () => {
-    // Ponder reports two graduated tokens — one HYPE, one PAXG. The DB
-    // query for hydrating the page should carry the `NOT IN (PAXG)`
-    // clause so the PAXG row never even makes it back from Postgres.
+  it("pushes supported underlyings into the graduated tab's DB query", async () => {
     const onchainHype = makeOnchain(ADDR_HYPE, {
       graduated: true,
       graduatedAt: "1700002000",
     });
-    const onchainPaxg = makeOnchain(ADDR_PAXG, {
+    const onchainUnsupported = makeOnchain(ADDR_UNSUPPORTED, {
       graduated: true,
       graduatedAt: "1700001000",
     });
     mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
       onchainHype,
-      onchainPaxg,
+      onchainUnsupported,
     ]);
-    // Simulate Postgres honouring the exclusion (mock can't actually
-    // evaluate WHERE — we just verify the route asked for it).
     currentDbRows.rows = [makeDbRow(ADDR_HYPE, { ticker: "HYPE_TOKEN" })];
     mockBuildBatchFromTokens.mockResolvedValueOnce(
       marketBatchOk([
@@ -318,32 +293,28 @@ describe("GET /tokens — excluded underlyings (issue #639)", () => {
 
     await createApp().request("/tokens?status=graduated", {}, makeEnv());
 
-    const excludedCall = notInArrayCalls.find((call) =>
-      (call.values as string[]).includes("PAXG"),
-    );
-    expect(excludedCall).toBeDefined();
+    expect(findSupportedUnderlyingCall()).toBeDefined();
   });
 
-  it("drops PAXG rows in-memory on the graduated tab even if the DB returned them", async () => {
-    // Belt-and-braces — the in-memory `matchesFilters` reject path is
-    // what protects us if the DB mock (or a stale Postgres replica)
-    // doesn't honour the WHERE. With both clauses the route is
-    // resilient to either one being short-circuited.
+  it("drops unsupported rows in-memory on the graduated tab even if the DB returned them", async () => {
     const onchainHype = makeOnchain(ADDR_HYPE, {
       graduated: true,
       graduatedAt: "1700003000",
     });
-    const onchainPaxg = makeOnchain(ADDR_PAXG, {
+    const onchainUnsupported = makeOnchain(ADDR_UNSUPPORTED, {
       graduated: true,
       graduatedAt: "1700001000",
     });
     mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
       onchainHype,
-      onchainPaxg,
+      onchainUnsupported,
     ]);
     currentDbRows.rows = [
       makeDbRow(ADDR_HYPE, { ticker: "HYPE_TOKEN" }),
-      makeDbRow(ADDR_PAXG, { underlying: "PAXG", ticker: "PAXG_TOKEN" }),
+      makeDbRow(ADDR_UNSUPPORTED, {
+        underlying: "FAKEASSET",
+        ticker: "FAKE_TOKEN",
+      }),
     ];
     mockBuildBatchFromTokens.mockResolvedValueOnce(
       marketBatchOk([
@@ -361,17 +332,14 @@ describe("GET /tokens — excluded underlyings (issue #639)", () => {
       data: Array<{ ticker: string; underlying: string }>;
     };
     expect(body.data.map((t) => t.ticker)).toEqual(["HYPE_TOKEN"]);
-    expect(body.data.every((t) => t.underlying !== "PAXG")).toBe(true);
+    expect(body.data.every((t) => t.underlying !== "FAKEASSET")).toBe(true);
   });
 });
 
-describe("GET /tokens/search — excluded underlyings (issue #639)", () => {
-  it("pushes the exclusion clause into search-result SQL", async () => {
+describe("GET /tokens/search - supported underlyings", () => {
+  it("pushes the supported-underlying clause into search-result SQL", async () => {
     await createApp().request("/tokens/search?q=test", {}, makeEnv());
 
-    const excludedCall = notInArrayCalls.find((call) =>
-      (call.values as string[]).includes("PAXG"),
-    );
-    expect(excludedCall).toBeDefined();
+    expect(findSupportedUnderlyingCall()).toBeDefined();
   });
 });

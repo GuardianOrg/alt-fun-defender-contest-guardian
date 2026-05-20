@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { getAssetDisplayName } from "@launchpad/shared";
+import {
+  getAssetDisplayName,
+  isSupportedUnderlying,
+  type SupportedAsset,
+} from "@launchpad/shared";
 
 import styles from "./AssetIcon.module.css";
 import BTC from "../../assets/Logos/BTC.svg";
@@ -10,43 +14,34 @@ import fartcoin from "../../assets/Logos/fartcoin.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
 import kPepe from "../../assets/Logos/kPEPE.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
-import paxg from "../../assets/Logos/paxg.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
 import tesla from "../../assets/Logos/tesla.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
+import xyz_CL from "../../assets/Logos/xyz_CL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
 import xyz_XYZ100 from "../../assets/Logos/xyz_XYZ100.svg";
 import zec from "../../assets/Logos/zec.svg";
 import { cn } from "../../utils/format";
 
-/**
- * Map of `targetAsset` (the BounceTech LT field) → bundled SVG logo.
- *
- * Keep both the namespaced (`xyz:SP500`) and unprefixed lookups in mind:
- * we always look up against the raw asset symbol so storage and display
- * stay aligned. Anything missing here falls through to the monogram
- * fallback so we don't block adding new assets on having art ready.
- */
-const ASSET_LOGOS: Record<string, string> = {
+const ASSET_LOGOS: Record<SupportedAsset, string> = {
   HYPE,
   ETH,
   BTC,
   SOL,
-  PAXG: paxg,
-  ZEC: zec,
-  "xyz:SP500": SP500,
-  "xyz:NVDA": nvidia,
   DOGE,
+  ZEC: zec,
   kPEPE: kPepe,
+  FARTCOIN: fartcoin,
+  "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,
   "xyz:GOLD": xyz_GOLD,
   "xyz:SILVER": xyz_SILVER,
-  "xyz:XYZ100": xyz_XYZ100,
-  "xyz:CL": xyz_BRENTOIL,
+  "xyz:NVDA": nvidia,
   "xyz:TSLA": tesla,
-  FARTCOIN: fartcoin,
+  "xyz:SP500": SP500,
+  "xyz:XYZ100": xyz_XYZ100,
 };
 
 interface Props {
@@ -65,9 +60,7 @@ interface Props {
  * when available; otherwise falls back to a circular monogram (first 1–2
  * characters of the display name, with the `xyz:` prefix stripped).
  *
- * The fallback exists so we can roll out new BounceTech LTs without
- * blocking on a designer providing a new SVG — once art lands, just add
- * the entry to `ASSET_LOGOS` above.
+ * The fallback exists so rows with unknown assets still render legibly.
  */
 export default function AssetIcon({
   asset,
@@ -81,7 +74,7 @@ export default function AssetIcon({
   // fallback (matters when the same `<AssetIcon>` instance is reused
   // across rows / list virtualisation).
   useEffect(() => setImgError(false), [asset]);
-  const logo = ASSET_LOGOS[asset];
+  const logo = isSupportedUnderlying(asset) ? ASSET_LOGOS[asset] : undefined;
   const display = getAssetDisplayName(asset);
   const dimensionStyle = { width: size, height: size };
 

@@ -18,8 +18,7 @@ const DIRECTORY_FETCH_TIMEOUT_MS = 10_000;
  * Fetch the live BounceTech LT directory and narrow to LTs that are:
  *
  *   1. In Alt Fun's supported asset / leverage universe (`filterSupportedLTs`
- *      already drops `EXCLUDED_UNDERLYING_ASSETS` like PAXG and any asset
- *      tuple we haven't whitelisted).
+ *      drops any asset tuple we haven't whitelisted).
  *   2. Not currently mint-paused on BounceTech — the seed buy that every
  *      `createToken` iteration runs would revert otherwise, silently
  *      degrading the harness to "100% failures".

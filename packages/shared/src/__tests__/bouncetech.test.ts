@@ -2,17 +2,14 @@ import { describe, it, expect } from "vitest";
 
 import type { LiveLeveragedToken, LeveragedTokenInfo } from "../constants/bouncetech.js";
 import {
-  EXCLUDED_UNDERLYING_ASSETS,
   filterSupportedLTs,
   findLT,
   getAssetDisplayName,
   getHyperliquidDex,
-  HYPERLIQUID_DEFAULT_ASSETS,
   HYPERLIQUID_XYZ_DEX,
-  isExcludedUnderlying,
+  isSupportedUnderlying,
   SUPPORTED_UNDERLYING_ASSETS,
   SUPPORTED_LEVERAGES,
-  XYZ_DEX_ASSETS,
 } from "../constants/bouncetech.js";
 
 function makeLiveLT(overrides: Partial<LiveLeveragedToken> = {}): LiveLeveragedToken {
@@ -68,37 +65,6 @@ describe("filterSupportedLTs", () => {
     ];
     const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(5);
-  });
-
-  it("drops LTs whose underlying is in EXCLUDED_UNDERLYING_ASSETS", () => {
-    // PAXG ships in the BounceTech directory but Alt Fun retired it
-    // (issue #639). Mixing supported + excluded LTs proves
-    // `filterSupportedLTs` and `EXCLUDED_UNDERLYING_ASSETS` stay aligned —
-    // adding an entry to the excluded list must immediately drop matching
-    // LTs without a separate code change here.
-    const lts = [
-      makeLiveLT({ targetAsset: "HYPE", targetLeverage: 2 }),
-      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 2 }),
-      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 5 }),
-    ];
-    const result = filterSupportedLTs(lts);
-    expect(result).toHaveLength(1);
-    expect(result[0].targetAsset).toBe("HYPE");
-  });
-
-  it("rejects every excluded underlying explicitly (not just by omission from SUPPORTED_UNDERLYING_ASSETS)", () => {
-    // Belt-and-braces: the filter must drop excluded LTs even if a future
-    // refactor accidentally leaves them in `SUPPORTED_UNDERLYING_ASSETS`.
-    // Loop over the live excluded list so adding a new entry there
-    // automatically gets covered here without touching this test.
-    for (const excluded of EXCLUDED_UNDERLYING_ASSETS) {
-      const lts = [
-        makeLiveLT({ targetAsset: excluded, targetLeverage: 2 }),
-        makeLiveLT({ targetAsset: excluded, targetLeverage: 3 }),
-        makeLiveLT({ targetAsset: excluded, targetLeverage: 5 }),
-      ];
-      expect(filterSupportedLTs(lts)).toHaveLength(0);
-    }
   });
 
   it("removes LTs with unsupported assets", () => {
@@ -195,7 +161,7 @@ describe("findLT", () => {
 });
 
 describe("SUPPORTED_UNDERLYING_ASSETS", () => {
-  it("covers the Bounce LT set (crypto + xyz: equities/commodities) minus excluded markets", () => {
+  it("covers the Bounce LT set (crypto + xyz: equities/commodities)", () => {
     expect([...SUPPORTED_UNDERLYING_ASSETS]).toEqual([
       "HYPE",
       "ETH",
@@ -216,47 +182,17 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
     ]);
   });
 
-  it("partitions cleanly between Hyperliquid default and xyz dex feeds", () => {
-    const partition = new Set([
-      ...HYPERLIQUID_DEFAULT_ASSETS,
-      ...XYZ_DEX_ASSETS,
-    ]);
-    expect(partition.size).toBe(SUPPORTED_UNDERLYING_ASSETS.length);
-    for (const asset of SUPPORTED_UNDERLYING_ASSETS) {
-      expect(partition.has(asset)).toBe(true);
-    }
-  });
-
-  it("does not include any excluded markets", () => {
-    for (const excluded of EXCLUDED_UNDERLYING_ASSETS) {
-      expect(SUPPORTED_UNDERLYING_ASSETS as readonly string[]).not.toContain(excluded);
-    }
-  });
 });
 
-describe("EXCLUDED_UNDERLYING_ASSETS", () => {
-  it("currently lists PAXG (BounceTech is winding the LT down — issue #639)", () => {
-    expect([...EXCLUDED_UNDERLYING_ASSETS]).toEqual(["PAXG"]);
-  });
-});
-
-describe("isExcludedUnderlying", () => {
-  it("returns true for assets in EXCLUDED_UNDERLYING_ASSETS", () => {
-    for (const excluded of EXCLUDED_UNDERLYING_ASSETS) {
-      expect(isExcludedUnderlying(excluded)).toBe(true);
-    }
-  });
-
-  it("returns false for supported underlying assets", () => {
+describe("isSupportedUnderlying", () => {
+  it("returns true for supported underlying assets", () => {
     for (const supported of SUPPORTED_UNDERLYING_ASSETS) {
-      expect(isExcludedUnderlying(supported)).toBe(false);
+      expect(isSupportedUnderlying(supported)).toBe(true);
     }
   });
 
-  it("returns false for unknown assets (no false positives on typos)", () => {
-    expect(isExcludedUnderlying("paxg")).toBe(false);
-    expect(isExcludedUnderlying("FAKEASSET")).toBe(false);
-    expect(isExcludedUnderlying("")).toBe(false);
+  it("returns false for unknown assets", () => {
+    expect(isSupportedUnderlying("FAKEASSET")).toBe(false);
   });
 });
 

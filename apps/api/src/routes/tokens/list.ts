@@ -1,8 +1,8 @@
-import { eq, gt, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
+import { eq, gt, desc, asc, ilike, or, and, inArray, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
-import { EXCLUDED_UNDERLYING_ASSETS, isExcludedUnderlying } from "@launchpad/shared";
+import { SUPPORTED_UNDERLYING_ASSETS, isSupportedUnderlying } from "@launchpad/shared";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
@@ -273,11 +273,7 @@ interface ListFilters {
 }
 
 function matchesFilters(t: DbToken, f: ListFilters): boolean {
-  // Drop tokens whose underlying is retired from the Alt Fun UI (e.g.
-  // PAXG, issue #639). Applied before user-supplied filters so an
-  // explicit `?underlying=PAXG` query also returns nothing instead of
-  // smuggling the hidden market back into the response.
-  if (isExcludedUnderlying(t.underlying)) return false;
+  if (!isSupportedUnderlying(t.underlying)) return false;
   if (f.underlying && t.underlying !== f.underlying) return false;
   if (f.direction && t.ltDirection !== f.direction) return false;
   if (f.leverage !== undefined && t.leverage !== f.leverage) return false;
@@ -287,22 +283,8 @@ function matchesFilters(t: DbToken, f: ListFilters): boolean {
   return true;
 }
 
-/**
- * Drizzle's `notInArray` rejects an empty input set (Postgres `NOT IN ()`
- * is a syntax error). Return the predicate only when there's at least
- * one excluded underlying to filter against, so the list route stays
- * a no-op when `EXCLUDED_UNDERLYING_ASSETS` is later emptied.
- *
- * The widening `readonly string[]` cast is intentional: without it TS
- * narrows the tuple's `length` to its current literal value (`1` while
- * PAXG ships) and flags the `=== 0` branch as unreachable. Casting
- * preserves the runtime guard so a later "PAXG is back" change just
- * empties the list rather than dragging the API route along with it.
- */
-function excludedUnderlyingCondition(): SQL | undefined {
-  const excluded = EXCLUDED_UNDERLYING_ASSETS as readonly string[];
-  if (excluded.length === 0) return undefined;
-  return notInArray(tokens.underlying, [...excluded]);
+function supportedUnderlyingCondition(): SQL {
+  return inArray(tokens.underlying, [...SUPPORTED_UNDERLYING_ASSETS]);
 }
 
 const listRoute = new Hono<{ Bindings: AppBindings }>();
@@ -451,7 +433,6 @@ listRoute.get("/", async (c) => {
     // for map lookups below where we compare against Ponder strings.
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
-    const excluded = excludedUnderlyingCondition();
     const dbRowsRaw = await db
       .select()
       .from(tokens)
@@ -459,7 +440,7 @@ listRoute.get("/", async (c) => {
         and(
           eq(tokens.isHidden, false),
           inArray(tokens.address, checksummedAddresses),
-          ...(excluded ? [excluded] : []),
+          supportedUnderlyingCondition(),
         ),
       );
 
@@ -615,7 +596,6 @@ listRoute.get("/", async (c) => {
     // for map lookups below where we compare against Ponder strings.
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
-    const excluded = excludedUnderlyingCondition();
     const dbRowsRaw = await db
       .select()
       .from(tokens)
@@ -623,7 +603,7 @@ listRoute.get("/", async (c) => {
         and(
           eq(tokens.isHidden, false),
           inArray(tokens.address, checksummedAddresses),
-          ...(excluded ? [excluded] : []),
+          supportedUnderlyingCondition(),
         ),
       );
 
@@ -751,12 +731,7 @@ listRoute.get("/", async (c) => {
   // ---------- DB-first path: everything else ----------
 
   const conditions: SQL[] = [eq(tokens.isHidden, false)];
-  // Hide retired markets (issue #639) from every DB-first response.
-  // Pushed before the user-supplied `underlying` clause so an explicit
-  // `?underlying=PAXG` request returns an empty page instead of leaking
-  // a market we've hard-coded out of the UI.
-  const excludedUnderlying = excludedUnderlyingCondition();
-  if (excludedUnderlying) conditions.push(excludedUnderlying);
+  conditions.push(supportedUnderlyingCondition());
   if (underlying) conditions.push(eq(tokens.underlying, underlying));
   if (status === "curve") conditions.push(eq(tokens.status, "curve"));
   if (direction) conditions.push(eq(tokens.ltDirection, direction));
@@ -908,7 +883,7 @@ listRoute.get("/", async (c) => {
     // `trendingDegraded` propagates through the empty-rows short-circuit
     // so a trending tab that's empty *because the candidate query
     // failed* (indexer down → createdAt-DESC fallback returned no
-    // hidden/excluded rows) is still tagged `dataSource: "degraded"` and
+    // hidden/unsupported rows) is still tagged `dataSource: "degraded"` and
     // gets the shorter cache TTL. Without this guard the response would
     // claim `"live"` and the edge would cache the wrong status for a
     // full `LIST_CACHE_TTL_SECONDS` window. CodeRabbit feedback on
@@ -1033,13 +1008,6 @@ listRoute.get("/search", async (c) => {
     conditions.push(ilike(tokens.address, `${q}%`));
   }
 
-  // Same `EXCLUDED_UNDERLYING_ASSETS` filter as the list path (issue
-  // #639): if we hid a market from the home feed, the search box must
-  // hide it too — otherwise users still find PAXG tokens via the
-  // suggestion list. `undefined` when nothing is excluded so the
-  // generated WHERE stays minimal.
-  const excludedUnderlying = excludedUnderlyingCondition();
-
   const db = createDb(c.env.DATABASE_URL);
   const results = await db
     .select()
@@ -1048,7 +1016,7 @@ listRoute.get("/search", async (c) => {
       and(
         eq(tokens.isHidden, false),
         or(...conditions),
-        excludedUnderlying,
+        supportedUnderlyingCondition(),
       ),
     )
     .limit(20);

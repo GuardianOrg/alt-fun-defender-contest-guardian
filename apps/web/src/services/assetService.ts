@@ -2,7 +2,6 @@ import {
   HYPERLIQUID_INFO_API,
   HYPERLIQUID_XYZ_DEX,
   SUPPORTED_UNDERLYING_ASSETS,
-  XYZ_DEX_ASSETS,
   getHyperliquidDex,
 } from "@launchpad/shared";
 
@@ -49,7 +48,7 @@ const CACHE_TTL = 5_000;
 async function fetchMids(): Promise<Record<string, string>> {
   if (cachedMids && Date.now() - cacheTime < CACHE_TTL) return cachedMids;
 
-  const needsXyz = XYZ_DEX_ASSETS.length > 0;
+  const needsXyz = TRACKED_ASSETS.some((asset) => getHyperliquidDex(asset));
   const requests: Promise<Record<string, string>>[] = [
     fetch(HYPERLIQUID_INFO_API, {
       method: "POST",
