@@ -87,6 +87,7 @@ function createApp() {
 
 function makeEnv(): AppBindings {
   return {
+    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",

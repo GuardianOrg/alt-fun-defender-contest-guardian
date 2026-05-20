@@ -33,10 +33,14 @@ vi.mock("../db/client.js", () => ({
   createDb: () => ({ select: mockDbSelect }),
 }));
 
-// --- BounceTech Neon mock (LT exchange rate `generate_series`) ---
+// --- BounceTech DB mock (LT exchange rate `generate_series`) ---
+// The `chart.ts` route opens its own raw `postgres()` against the
+// BounceTech DB; this mock substitutes the SQL tag for the duration of
+// the test. Same shape as `neon()`'s tagged-template — only the
+// underlying driver changed in PR #1130.
 const mockNeonQuery = vi.fn();
-vi.mock("@neondatabase/serverless", () => ({
-  neon: () => mockNeonQuery,
+vi.mock("postgres", () => ({
+  default: () => mockNeonQuery,
 }));
 
 const { default: chartRoute, buildPriceTimeline } =
@@ -50,6 +54,7 @@ function createApp() {
 
 function makeEnv(): AppBindings {
   return {
+    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",

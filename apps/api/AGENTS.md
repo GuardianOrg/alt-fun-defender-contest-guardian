@@ -1,6 +1,6 @@
 # apps/api
 
-Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (image storage), Durable Objects (WebSocket + scheduling).
+Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL) via Cloudflare Hyperdrive, R2 (image storage), Durable Objects (WebSocket + scheduling).
 
 ## What This App Does
 
@@ -15,6 +15,33 @@ REST API + WebSocket server. Serves indexed blockchain data and real-time trade/
 - Admin analytics and content moderation
 - Terminal API (`/api/v1/`) for third-party integrators
 - WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
+
+## Database transport
+
+The Worker queries the primary Neon database **through a Cloudflare Hyperdrive binding** (`env.HYPERDRIVE`). Every `createDb(...)` call must be passed `env.HYPERDRIVE.connectionString` — never the raw `DATABASE_URL`. The binding is configured in `wrangler.json` under the `hyperdrive` key; the `id` there points at the Hyperdrive config in the Cloudflare dashboard, which is what owns the upstream Neon credentials.
+
+| Surface | Driver | Transport | Notes |
+|---|---|---|---|
+| Primary Neon DB (`public.*` + `ponder_views.*`) | `postgres.js` + `drizzle-orm/postgres-js` | TCP via Hyperdrive POP | All runtime reads/writes from routes, DOs, and the `scheduled()` handler. |
+| BounceTech snapshot DB (`token_snapshots_v1`) | `postgres.js` (raw tagged template) | Direct TCP to Neon | Low rate (1 LATERAL per `LtTicker` tick + a handful of historical reads). Could move to a second Hyperdrive binding later if the rate grows. |
+
+**Why Hyperdrive.** Before this migration the API used `@neondatabase/serverless`'s HTTP transport — one outbound HTTPS subrequest per query. After the 2026-05-19 GraphQL → direct-SQL migration the per-request fan-out grew from 1 to 1–6 outbound HTTPS calls, which sustained ~150-300 outbound subrequests/sec from the Worker fleet and tripped Cloudflare's edge per-IP rate limit (`error code: 1006` clusters captured live on 2026-05-20). Hyperdrive routes queries through CF's internal mesh — the public edge never sees per-query subrequests, so the limit is structurally avoided. Hyperdrive also caches read-query results at the POP (default `max_age: 60s`, `swr: 15s`), so the highest-volume reads (`lt_directory`, `tokens` lookups, `ponder_views.token`) typically hit a POP-local memory cache rather than touching the origin at all.
+
+**Per-request, not per-isolate.** `db/client.ts → createDb(...)` instantiates a fresh `postgres()` client on every call. The Workers runtime invalidates I/O contexts at request boundaries — reusing a `postgres()` instance across requests fails on the second hit with `CONNECTION_ENDED`. The previous per-isolate `dbCache` Map went away with the HTTP driver; Hyperdrive's POP-local pool absorbs the connection-setup work it used to dodge.
+
+**Things Hyperdrive does NOT support that we don't use either:**
+- `LISTEN` / `NOTIFY` (Postgres pub/sub).
+- Advisory locks.
+- SQL-level prepared statements (`PREPARE` / `DEALLOCATE`). The driver-level `prepare: true` we use *is* supported.
+- Session-level state outside an explicit transaction (Hyperdrive runs in transaction-pooling mode).
+
+If a future change needs any of these against the primary DB, route that specific code path through a separate non-Hyperdrive `postgres()` against `env.DATABASE_URL` rather than dropping Hyperdrive for the whole app — the rate-limit relief is what motivates the migration and shouldn't regress.
+
+**Don't mention `NOW()` / `CURRENT_TIMESTAMP` / `RANDOM()` in SQL strings**, even in comments. Hyperdrive's query cache uses text-based pattern matching to detect uncacheable functions, and a reference inside a SQL comment is enough to mark the query as uncacheable. If you need a time-bound predicate, compute the timestamp in TypeScript and bind it as a parameter (`WHERE created_at > $1`).
+
+**Local dev**: `wrangler dev` doesn't route through a real Hyperdrive POP, so the binding falls back to the `localConnectionString` value in `wrangler.json` — point that at your local Neon URL (typically the same value as `DATABASE_URL` in `.dev.vars`).
+
+**Operator setup** (once per environment): create the Hyperdrive config via `npx wrangler hyperdrive create launchpad-api --connection-string=<neon-direct-url>` and paste the resulting `id` into `wrangler.json`. Use Neon's **direct** connection string (not the `-pooler` one) — Hyperdrive handles pooling itself, and chaining it onto Neon's PgBouncer just adds a hop.
 
 ## Outbound timeout discipline
 

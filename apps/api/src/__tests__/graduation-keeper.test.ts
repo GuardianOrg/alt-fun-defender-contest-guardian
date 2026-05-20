@@ -47,6 +47,7 @@ const KEEPER_PRIVATE_KEY = makeKey(3);
 
 const baseEnv = {
   KEEPER_PRIVATE_KEY,
+  HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
   DATABASE_URL: "postgres://test",
   HYPEREVM_RPC_URL: "http://stub-rpc:1",
 } as unknown as AppBindings;

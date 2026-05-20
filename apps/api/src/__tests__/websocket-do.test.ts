@@ -83,6 +83,7 @@ function createCtx(): DurableObjectState {
 
 function makeEnv(): AppBindings {
   return {
+    HYPERDRIVE: { connectionString: "postgres://hyperdrive-test" } as unknown as Hyperdrive,
     DATABASE_URL: "",
     BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "",
