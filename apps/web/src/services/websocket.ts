@@ -1,5 +1,6 @@
 type MessageHandler = (data: unknown) => void;
 type OpenHandler = () => void;
+type StatusHandler = () => void;
 type TickerListener = () => void;
 
 interface SubjectSubscription {
@@ -19,7 +20,8 @@ const ALL_TOKENS_KEY = "__all__";
 const GLOBAL_CHANNELS = new Set(["newToken", "stats"]);
 
 function subjectKey(channel: string, token: string | undefined): string {
-  if (GLOBAL_CHANNELS.has(channel) || !token) return `${channel}:${ALL_TOKENS_KEY}`;
+  if (GLOBAL_CHANNELS.has(channel) || !token)
+    return `${channel}:${ALL_TOKENS_KEY}`;
   return `${channel}:${token.toLowerCase()}`;
 }
 
@@ -74,16 +76,16 @@ class KeepAliveTicker {
         // self-contained — no separate file to bundle, no extra HTTP
         // request, and no import-meta.url plumbing through Vite.
         const code = [
-          'let id = null;',
+          "let id = null;",
           'self.addEventListener("message", (e) => {',
-          '  if (!e.data) return;',
+          "  if (!e.data) return;",
           '  if (e.data.type === "start") {',
-          '    if (id !== null) clearInterval(id);',
+          "    if (id !== null) clearInterval(id);",
           '    id = setInterval(() => self.postMessage("tick"), e.data.intervalMs);',
           '  } else if (e.data.type === "stop") {',
-          '    if (id !== null) { clearInterval(id); id = null; }',
-          '  }',
-          '});',
+          "    if (id !== null) { clearInterval(id); id = null; }",
+          "  }",
+          "});",
         ].join("\n");
         const blob = new Blob([code], { type: "application/javascript" });
         this.workerObjectUrl = URL.createObjectURL(blob);
@@ -197,6 +199,7 @@ class SubjectSocket {
     channel: string,
     token: string | undefined,
     private readonly onReopen: () => void,
+    private readonly onStatusChange: () => void,
   ) {
     this.channel = channel;
     this.token = token;
@@ -231,6 +234,7 @@ class SubjectSocket {
         }
       }
       this.hasOpenedOnce = true;
+      this.onStatusChange();
     };
 
     this.ws.onmessage = (event) => {
@@ -267,6 +271,7 @@ class SubjectSocket {
       if (!this.disposed) {
         this.scheduleReconnect();
       }
+      this.onStatusChange();
     };
 
     this.ws.onerror = () => {
@@ -276,6 +281,12 @@ class SubjectSocket {
 
   get isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  get hasConnectionIssue(): boolean {
+    return (
+      this.reconnectTimer !== null || (this.hasOpenedOnce && !this.isConnected)
+    );
   }
 
   dispose(): void {
@@ -420,7 +431,9 @@ class SubjectSocket {
       this.reconnectTimer = null;
       this.connect();
       this.reconnectMs = Math.min(this.reconnectMs * 2, MAX_RECONNECT_MS);
+      this.onStatusChange();
     }, delay);
+    this.onStatusChange();
   }
 
   private cleanup(): void {
@@ -465,6 +478,7 @@ class WebSocketClient {
   private subjects: Map<string, SubjectSocket> = new Map();
   private subscriptions: Map<string, SubjectSubscription> = new Map();
   private openHandlers: Set<OpenHandler> = new Set();
+  private statusHandlers: Set<StatusHandler> = new Set();
   private subIdCounter = 0;
   private disposed = false;
 
@@ -485,6 +499,13 @@ class WebSocketClient {
     return false;
   }
 
+  get hasConnectionIssue(): boolean {
+    for (const s of this.subjects.values()) {
+      if (s.hasConnectionIssue) return true;
+    }
+    return false;
+  }
+
   subscribe(
     channel: string,
     handler: MessageHandler,
@@ -498,17 +519,24 @@ class WebSocketClient {
     const key = subjectKey(channel, token);
     let subject = this.subjects.get(key);
     if (!subject) {
-      subject = new SubjectSocket(this.url, channel, token, () => {
-        for (const fn of this.openHandlers) {
-          try {
-            fn();
-          } catch {
-            // ignore
+      subject = new SubjectSocket(
+        this.url,
+        channel,
+        token,
+        () => {
+          for (const fn of this.openHandlers) {
+            try {
+              fn();
+            } catch {
+              // ignore
+            }
           }
-        }
-      });
+        },
+        () => this.emitStatusChange(),
+      );
       this.subjects.set(key, subject);
       subject.connect();
+      this.emitStatusChange();
     }
     subject.handlers.set(id, handler);
 
@@ -520,6 +548,7 @@ class WebSocketClient {
       if (sub.handlers.size === 0) {
         sub.dispose();
         this.subjects.delete(key);
+        this.emitStatusChange();
       }
     };
   }
@@ -532,6 +561,13 @@ class WebSocketClient {
     this.openHandlers.add(handler);
     return () => {
       this.openHandlers.delete(handler);
+    };
+  }
+
+  subscribeStatus(handler: StatusHandler): () => void {
+    this.statusHandlers.add(handler);
+    return () => {
+      this.statusHandlers.delete(handler);
     };
   }
 
@@ -560,6 +596,17 @@ class WebSocketClient {
     this.subjects.clear();
     this.subscriptions.clear();
     this.openHandlers.clear();
+    this.statusHandlers.clear();
+  }
+
+  private emitStatusChange(): void {
+    for (const fn of this.statusHandlers) {
+      try {
+        fn();
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 

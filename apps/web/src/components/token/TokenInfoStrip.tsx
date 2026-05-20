@@ -3,11 +3,13 @@ import type { JSX } from "react";
 import styles from "./TokenInfoStrip.module.css";
 import { useLiveTokenVolume24h } from "../../hooks/useLiveTokenVolume24h";
 import { formatUsdOrDash } from "../../utils/format";
+import Skeleton from "../shared/Skeleton";
 
 import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
+  liveDataPending?: boolean;
 }
 
 interface SocialEntry {
@@ -59,7 +61,10 @@ const WebsiteIcon = (
   </svg>
 );
 
-export default function TokenInfoStrip({ token }: Props) {
+export default function TokenInfoStrip({
+  token,
+  liveDataPending = false,
+}: Props) {
   // Live 24h volume: 30s polled snapshot from `/api/v1/market-data` plus
   // WS-driven `Zap:Buy`/`Zap:Sell` deltas for trades that have landed since
   // the last poll. Falls back to `token.volume24h` from the initial token
@@ -106,16 +111,24 @@ export default function TokenInfoStrip({ token }: Props) {
       <div className={styles.statsGroup}>
         <div className={styles.stat}>
           <span className={styles.label}>Vol 24hr</span>
-          <span className={styles.value}>
-            {formatUsdOrDash(displayVolume24h)}
-          </span>
+          {liveDataPending ? (
+            <Skeleton width="4.5rem" height="1rem" />
+          ) : (
+            <span className={styles.value}>
+              {formatUsdOrDash(displayVolume24h)}
+            </span>
+          )}
         </div>
 
         <div className={styles.stat}>
           <span className={styles.label}>Leverage Boost</span>
-          <span className={styles.value}>
-            {`${token.leverageBoost.toFixed(1)}%`}
-          </span>
+          {liveDataPending ? (
+            <Skeleton width="3.5rem" height="1rem" />
+          ) : (
+            <span className={styles.value}>
+              {`${token.leverageBoost.toFixed(1)}%`}
+            </span>
+          )}
         </div>
       </div>
 
