@@ -138,23 +138,24 @@ describe("createIsolateTtlCache", () => {
     const cache = createIsolateTtlCache<string>({ ttlMs: 1_000 });
     const fetcher = vi.fn(async (key: string) => `value-${key}`);
 
-    // Write 65 distinct keys, expire them, then write one more — the
-    // 64th write triggers the periodic sweep, and the 65th lands after
-    // expiry, so the post-sweep Map should hold just the fresh key.
-    for (let i = 0; i < 64; i++) {
+    // Write 64 distinct keys (one short of triggering a sweep), then
+    // expire them all. The 65th write is the one that crosses the
+    // SWEEP_EVERY_WRITES threshold (the counter increments before the
+    // comparison, so the 64th-after-cache-construction write trips it).
+    for (let i = 0; i < 63; i++) {
       await cache.getOrFetch(`k-${i}`, () => fetcher(`k-${i}`));
     }
+    expect(cache.size).toBe(63);
     vi.advanceTimersByTime(1_001);
-    // Trigger the sweep — the 65th write crosses the SWEEP_EVERY_WRITES
-    // threshold mod count after the prior 64.
-    await cache.getOrFetch("fresh", () => fetcher("fresh"));
+    // Pre-sweep: every key is expired but still occupies a slot in the
+    // Map — `lazy-delete on read` hasn't fired because no one read them.
+    expect(cache.size).toBe(63);
 
-    // Every expired key should now be cold; re-fetching any of them
-    // calls the underlying fetcher again (entry was evicted, not
-    // resurrected from the Map).
-    fetcher.mockClear();
-    await cache.getOrFetch("k-0", () => fetcher("k-0"));
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    // This 64th write triggers the sweep. The fresh entry is added,
+    // then the sweep walks the Map and drops every `expiresAt <= now`
+    // row — only the brand-new entry survives.
+    await cache.getOrFetch("fresh", () => fetcher("fresh"));
+    expect(cache.size).toBe(1);
   });
 
   it("enforces maxEntries by evicting the oldest-inserted key (FIFO)", async () => {

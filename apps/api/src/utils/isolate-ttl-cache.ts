@@ -37,6 +37,14 @@ interface CacheEntry<V> {
 export interface IsolateTtlCache<V> {
   /** Resolve `key` from cache, otherwise call `fetcher` (single-flight). */
   getOrFetch(key: string, fetcher: () => Promise<V>): Promise<V>;
+  /**
+   * Current entries-Map size, including not-yet-evicted-but-expired
+   * rows. Exposed for tests that need to verify the periodic-sweep and
+   * FIFO-eviction paths actually fired (a value alone can't distinguish
+   * "sweep ran" from "lazy-delete ran on read"). Cheap to read — backed
+   * by the underlying Map's native `size` getter.
+   */
+  readonly size: number;
   /** Test-only: drop all entries between cases. */
   reset(): void;
 }
@@ -115,6 +123,9 @@ export function createIsolateTtlCache<V>(
   };
 
   const cache: IsolateTtlCache<V> = {
+    get size() {
+      return entries.size;
+    },
     async getOrFetch(key, fetcher) {
       const now = Date.now();
       const hit = entries.get(key);
