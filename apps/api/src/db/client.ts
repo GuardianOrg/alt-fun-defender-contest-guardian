@@ -45,20 +45,49 @@ const schema = { ...apiSchema, ...indexerSchema };
  * `@neondatabase/serverless`'s stateless HTTP transport — a fresh client
  * here just borrows a pre-warmed connection from the POP-local pool.
  *
- * `prepare: true` is the postgres.js default and is required for
- * Hyperdrive's query cache to participate; leaving it on is intentional.
+ * Driver options mirror Cloudflare's canonical Hyperdrive + postgres.js
+ * example verbatim — see
+ * https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/postgres-drivers-and-libraries/postgres-js/
+ *
+ * - `max: 5` — Workers' runtime caps concurrent outbound TCP per request
+ *   at a small number (canonical guidance is 5). Each Worker request
+ *   creates its own `postgres()` client, so this is the per-request
+ *   pool, NOT the fleet-wide cap. Fleet throughput is bounded by
+ *   Hyperdrive's `origin_connection_limit` (currently 60 → Neon),
+ *   multiplexed across all in-flight Worker requests; bumping `max`
+ *   past 5 doesn't get us closer to Neon's `max_connections` ceiling
+ *   and actively triggers the `Network connection lost.` mode the
+ *   2026-05-20T17:37 deploy was hitting (postgres.js queues queries on
+ *   connections that the runtime tears down at request end).
+ * - `fetch_types: false` — skip the per-isolate type-introspection
+ *   round-trip postgres.js otherwise issues on first connect. We don't
+ *   use array types or anything else that needs it, and CF's docs call
+ *   this out as a latency contributor in Workers.
+ * - `prepare: true` — required for Hyperdrive's prepared-statement
+ *   cache to participate. postgres.js' default; listed explicitly so
+ *   the next reader doesn't have to dig.
+ *
+ * Do NOT pass `types: {}` — it replaces every default type parser
+ * (boolean, date, numeric, etc.) with empty handlers, so booleans come
+ * back as raw text `"f"`/`"t"` and corrupt prepared-statement parameter
+ * slots when paired with `prepare: true` (see
+ * `PostgresError: invalid input syntax for type bigint: "f"` cluster
+ * captured 2026-05-20T17:43Z, hours after the initial Hyperdrive
+ * cutover).
+ *
+ * Do NOT call `client.end()` per-request either — the postgres.js +
+ * Workers combo has a known bug where `.end()` after an interrupted
+ * socket can hang indefinitely
+ * (https://github.com/porsager/postgres/issues/1097). The Workers
+ * runtime tears down the I/O context at request end, which is the
+ * right cleanup behaviour here. CF's own example does not call
+ * `.end()`.
  */
 export function createDb(connectionString: string) {
   const client = postgres(connectionString, {
-    // Leaving `prepare: true` (postgres.js default) is required for
-    // Hyperdrive's query cache to recognise our reads as cacheable.
-    // Listed explicitly so the next reader doesn't have to dig.
+    max: 5,
+    fetch_types: false,
     prepare: true,
-    // postgres.js' default `types` handlers subscribe to a couple of
-    // Postgres OIDs we don't use and they don't fully load under
-    // `nodejs_compat` (no `process.binding`). Empty handler list = no-op
-    // and matches the Cloudflare postgres.js example.
-    types: {},
   });
   return drizzle(client, { schema });
 }
