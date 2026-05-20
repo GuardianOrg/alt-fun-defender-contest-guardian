@@ -35,7 +35,7 @@ portfolio.get("/:wallet", async (c) => {
   }
   const wallet = rawWallet.toLowerCase();
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const result = await fetchPortfolioPositions(db, wallet);
 
   if (result === null) {

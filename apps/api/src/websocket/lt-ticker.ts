@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getAddress } from "viem";
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 
 import { broadcastToChannel } from "../lib/broadcast.js";
 import { createDb } from "../db/client.js";
@@ -166,7 +166,7 @@ export class LtTicker extends DurableObject<AppBindings> {
       return;
     }
 
-    const db = createDb(this.env.DATABASE_URL);
+    const db = createDb(this.env.HYPERDRIVE.connectionString);
     const rows = await db
       .selectDistinct({ ltPair: tokens.ltPair })
       .from(tokens);
@@ -186,7 +186,10 @@ export class LtTicker extends DurableObject<AppBindings> {
     if (!this.env.BOUNCETECH_DATABASE_URL) {
       throw new Error("BOUNCETECH_DATABASE_URL is not configured");
     }
-    const sql = neon(this.env.BOUNCETECH_DATABASE_URL);
+    const sql = postgres(this.env.BOUNCETECH_DATABASE_URL, {
+      prepare: true,
+      types: {},
+    });
 
     const rows = (await sql`
       SELECT a.address AS token_address, t.exchange_rate::text AS exchange_rate

@@ -45,7 +45,7 @@ const MAX_REGISTRATIONS_PER_TICK = 10;
 const PONDER_FETCH_LIMIT = 50;
 
 export async function runRegistrationBackfill(env: AppBindings): Promise<void> {
-  const db = createDb(env.DATABASE_URL);
+  const db = createDb(env.HYPERDRIVE.connectionString);
   const recent = await fetchMostRecentTokenAddresses(db, PONDER_FETCH_LIMIT);
   if (recent === null) {
     // Null = DB read failed. Event name preserved so existing log alerts

@@ -1,5 +1,5 @@
 import { getAddress } from "viem";
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 import { computeTokenPrice } from "@launchpad/shared";
 
 import { createDb } from "../db/client.js";
@@ -393,7 +393,7 @@ export async function fetchHistoricalLtRates(
   if (ltAddresses.length === 0) return new Map();
 
   const checksummed = ltAddresses.map((addr) => getAddress(addr));
-  const sql = neon(databaseUrl);
+  const sql = postgres(databaseUrl, { prepare: true, types: {} });
 
   try {
     const rows = (await sql`
@@ -446,7 +446,7 @@ export async function fetchLtRatesAtLaunches(
   const tokenAddrs = inputs.map((i) => i.tokenAddress);
   const ltAddrsChecksummed = inputs.map((i) => getAddress(i.ltAddress));
   const launchSecs = inputs.map((i) => i.launchSec);
-  const sql = neon(databaseUrl);
+  const sql = postgres(databaseUrl, { prepare: true, types: {} });
 
   try {
     const rows = (await sql`

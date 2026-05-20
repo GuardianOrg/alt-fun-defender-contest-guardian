@@ -47,7 +47,7 @@ creators.get("/:address/earnings", async (c) => {
   }
   const address = getAddress(rawAddress);
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const result = await fetchCreatorEarnings(db, address);
 
   if (result === "unavailable") {
@@ -117,7 +117,7 @@ creators.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = getAddress(rawAddress);
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
 
   const [profile] = await db
     .select()

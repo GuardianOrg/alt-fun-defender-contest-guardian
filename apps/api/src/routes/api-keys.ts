@@ -48,7 +48,7 @@ apiKeysRoute.post("/", zodValidator("json", createApiKeySchema), async (c) => {
   const keyPrefix = extractPrefix(rawKey);
   const rateLimit = body.rateLimit ?? 100;
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const [row] = await db
     .insert(apiKeys)
     .values({
@@ -67,7 +67,7 @@ apiKeysRoute.post("/", zodValidator("json", createApiKeySchema), async (c) => {
 });
 
 apiKeysRoute.get("/", async (c) => {
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const rows = await db
     .select({
       id: apiKeys.id,
@@ -91,7 +91,7 @@ apiKeysRoute.post("/:id/revoke", async (c) => {
   }
   const id = Number(raw);
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const [updated] = await db
     .update(apiKeys)
     .set({ isActive: false })
@@ -112,7 +112,7 @@ apiKeysRoute.post("/:id/activate", async (c) => {
   }
   const id = Number(raw);
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const [updated] = await db
     .update(apiKeys)
     .set({ isActive: true })

@@ -99,7 +99,7 @@ export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Ne
 
   const prefix = extractPrefix(headerKey);
   const keyHash = await hashApiKey(headerKey);
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
   const candidates = await db
     .select()
     .from(apiKeys)

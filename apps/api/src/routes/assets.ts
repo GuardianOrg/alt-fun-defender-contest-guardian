@@ -174,7 +174,7 @@ assets.get("/", async (c) => {
     // is the failure mode we saw in CI cold-start runs (the lib's own
     // try/catch only handles thrown errors, not stalls).
     withDbTimeout(
-      readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
+      readSupportedLtDirectory(c.env.HYPERDRIVE.connectionString).then((d) => d ?? []),
       [],
       DB_READ_TIMEOUT_MS,
       "readSupportedLtDirectory",
@@ -194,7 +194,7 @@ assets.get("/", async (c) => {
     // is the max of three 4 s / 5 s bounded paths, not the
     // unbounded internal of one slow lib.
     withDbTimeout(
-      getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
+      getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null),
       null,
       DB_READ_TIMEOUT_MS,
       "getLiveLtAvailability",
@@ -274,7 +274,7 @@ assets.get("/", async (c) => {
  * revalidate` is safe and absorbs concurrent users at the CF edge.
  */
 assets.get("/leveraged-tokens", async (c) => {
-  const directory = await readLtDirectory(c.env.DATABASE_URL);
+  const directory = await readLtDirectory(c.env.HYPERDRIVE.connectionString);
   if (directory === null) {
     // DB unavailable. Surface an empty list rather than failing the
     // request: the verification flow that wraps this endpoint needs

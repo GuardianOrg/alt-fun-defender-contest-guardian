@@ -3,6 +3,15 @@
 # Both files are gitignored.
 
 # Neon PostgreSQL — off-chain app DB (profiles, tokens metadata).
+#
+# In production the Worker queries this database **through the HYPERDRIVE
+# binding** (`wrangler.json` → `hyperdrive[]`). `DATABASE_URL` is retained
+# for tooling that runs outside the Worker (e.g. `drizzle-kit studio` from
+# the operator's machine, ad-hoc scripts) and as the source for the
+# `localConnectionString` value in `wrangler.json` so `wrangler dev`
+# bypasses the (unavailable in local dev) Hyperdrive POP. Runtime queries
+# from the Worker MUST go through `env.HYPERDRIVE.connectionString` — see
+# `apps/api/AGENTS.md` → *Database transport*.
 DATABASE_URL=ASK_A_TEAMMATE
 
 # Neon PostgreSQL — BounceTech read-only snapshot DB (LT exchange rates).

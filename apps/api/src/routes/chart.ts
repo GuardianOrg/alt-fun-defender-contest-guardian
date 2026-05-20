@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 import { eq } from "drizzle-orm";
 
 import formatSuccess from "../utils/format-success.js";
@@ -535,7 +535,7 @@ chart.get("/:address", async (c) => {
   // monotonic step size for the 5s case (otherwise ceil(5/3) is already 2).
   const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 
-  const db = createDb(c.env.DATABASE_URL);
+  const db = createDb(c.env.HYPERDRIVE.connectionString);
 
   // Fan out the three indexer-side reads (DB token row, indexer health
   // probe, chart context) in parallel — only the rare `tokenInfo?.ltToken`
@@ -607,7 +607,10 @@ chart.get("/:address", async (c) => {
     );
     return c.json(formatError("Internal server error"), 500);
   }
-  const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
+  const btSql = postgres(c.env.BOUNCETECH_DATABASE_URL, {
+    prepare: true,
+    types: {},
+  });
 
   const [ltRows, snapshotItems] = await Promise.all([
     btSql`
