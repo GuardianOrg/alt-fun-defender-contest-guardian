@@ -167,18 +167,8 @@
   gap: 0.2rem;
 }
 
-/* Absolutely positioned (not `height: 100%`) so the canvas fills its
- * parent regardless of whether the parent has a definite height.
- * On mobile the layout switches to body-scroll (`html`/`body`/`#root`
- * and `.app` go to `height: auto`), so nothing in the flex chain above
- * `.chartArea` has a definite height — only its own `min-height`. With
- * `height: 100%` the canvas resolved against an `auto` parent and
- * collapsed to 0, so lightweight-charts' `ResizeObserver` measured a
- * 0-height container and rendered nothing. `position: absolute; inset: 0`
- * fills `.chartArea`'s `min-height` box directly. Sibling overlays
- * (`.loadingState`, `.emptyState`, `.mcapOverlay`, `.axisLabel`) are
- * already `position: absolute`, so this just makes the canvas the same
- * kind of layer. */
+/* WebKit quirk: absolutely position the canvas so it fills `.chartArea`'s
+ * `min-height` box on mobile (`height: 100%` collapses to 0 on iOS). */
 .chartCanvas {
   position: absolute;
   inset: 0;
