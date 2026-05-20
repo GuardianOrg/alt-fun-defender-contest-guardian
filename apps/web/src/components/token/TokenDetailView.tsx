@@ -27,7 +27,12 @@ import Skeleton from "../shared/Skeleton";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
-  const { data: token, isError, isFetched } = useToken(address);
+  const {
+    data: token,
+    isError,
+    isFetched,
+    isCachedFallback,
+  } = useToken(address);
   // Mobile (≤768px) collapses the side-by-side layout: the left panel
   // takes the full viewport and the trade panel is folded behind a
   // sticky CTA that opens it as a modal. Tracked in JS (rather than
@@ -85,7 +90,7 @@ export default function TokenDetailView() {
   // split — per apps/web/AGENTS.md "hide the split entirely") so the bar
   // visually reads as "complete" alongside the `graduated` badge below.
   const isGraduated = token?.status === "graduated";
-  const isUsingCachedFallback = isError && !!token;
+  const isUsingCachedFallback = !!isCachedFallback || (isError && !!token);
   const filled = isGraduated ? 100 : (token?.curveFilled ?? 0);
   const organic = isGraduated ? 100 : (token?.organicFilled ?? filled);
   const buyW = Math.min(organic, filled);

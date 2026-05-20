@@ -137,7 +137,7 @@ export function useToken(address: string | undefined) {
   );
 
   const data = useMemo(() => {
-    const rawData = query.data ?? (query.isError ? placeholder : undefined);
+    const rawData = query.data ?? placeholder;
     if (!rawData) return rawData;
     // Pin the graduated lifecycle before any other transform: the
     // ratchet protects against the API's degraded path silently
@@ -150,7 +150,7 @@ export function useToken(address: string | undefined) {
     const ratcheted = applyGraduationRatchet(rawData);
     if (!override) return ratcheted;
     return applyTokenOverride(ratcheted, override);
-  }, [query.data, query.isError, placeholder, override]);
+  }, [query.data, placeholder, override]);
 
   useEffect(() => {
     if (!data) return;
@@ -162,5 +162,6 @@ export function useToken(address: string | undefined) {
   // returning a fresh object every render is fine — consumers
   // destructure `{ data, isError, isLoading }`, none of which are
   // referentially compared.
-  return data === query.data ? query : { ...query, data };
+  const isCachedFallback = !query.data && !!data && query.isFetched;
+  return { ...query, data, isCachedFallback };
 }
