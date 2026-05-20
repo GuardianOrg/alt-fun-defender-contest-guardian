@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import { getAssetDisplayName } from "@launchpad/shared";
@@ -6,7 +6,6 @@ import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./TableFilters.module.css";
 import { LEVERAGE_OPTIONS, UNDERLYING_ASSETS } from "../../config/constants";
-import { useLiveUnderlyings } from "../../hooks/useAssets";
 import {
   clearTokenFilters,
   selectActiveFilter,
@@ -278,8 +277,7 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
  *     API. The trigger is hidden on NEW + GRADUATING — those tabs
  *     have a fixed natural ordering (`createdAt desc` / `curveFilled
  *     desc`) and any override would fight the tab's own semantics.
- *   - Market: every supported underlying (HYPE, ETH, BTC, GOLD, …), with
- *     LT-live filtering so retired BounceTech markets don't show up.
+ *   - Market: every supported underlying (HYPE, ETH, BTC, GOLD, …).
  *   - Leverage: 2× / 3× / 5×.
  *   - Direction: Long / Short.
  *
@@ -349,20 +347,6 @@ export default function TableFilters() {
   // pretends to be available.
   const showSortTrigger =
     activeFilter === "trending" || activeFilter === "graduated";
-
-  // Match the live-LT filter applied to the create flow + token list
-  // (issue #621). Underlyings BounceTech hasn't surfaced on their UI
-  // shouldn't be selectable as a facet either — picking one would just
-  // return an empty page. We always keep the currently-selected
-  // underlying in the list so a transient `liveUnderlyings` refetch
-  // can't pull the active selection out from under the user.
-  const liveUnderlyings = useLiveUnderlyings();
-  const visibleAssets = useMemo(() => {
-    if (!liveUnderlyings) return UNDERLYING_ASSETS;
-    return UNDERLYING_ASSETS.filter(
-      (a) => liveUnderlyings.has(a) || a === filters.underlying,
-    );
-  }, [liveUnderlyings, filters.underlying]);
 
   const hasActiveFilters =
     filters.underlying !== undefined ||
@@ -483,7 +467,7 @@ export default function TableFilters() {
               >
                 <span>All markets</span>
               </OptionRow>
-              {visibleAssets.map((a) => (
+              {UNDERLYING_ASSETS.map((a) => (
                 <OptionRow
                   key={a}
                   selected={filters.underlying === a}

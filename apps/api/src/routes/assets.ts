@@ -4,7 +4,6 @@ import {
   SUPPORTED_UNDERLYING_ASSETS,
 } from "@launchpad/shared";
 
-import { getLiveLtAvailability } from "../lib/lt-availability.js";
 import {
   readLtDirectory,
   readSupportedLtDirectory,
@@ -161,14 +160,11 @@ function withDbTimeout<T>(
 const assets = new Hono<{ Bindings: AppBindings }>();
 
 assets.get("/", async (c) => {
-  // Run the Hyperliquid mids fan-out in parallel with the LT directory
-  // mirror read and the live-LT availability lookup.
-  const [mids, lts, availability] = await Promise.all([
+  const [mids, lts] = await Promise.all([
     fetchMids(),
     // `null` from the DB read means the `lt_directory` mirror is degraded
-    // (poller hasn't backfilled yet or the DB read failed) — fall back to
-    // an empty supported list. The availability snapshot below carries
-    // the "show everything when degraded" semantics for the response.
+    // (poller hasn't backfilled yet or the DB read failed). Fall back to
+    // an empty LT list; the underlying asset list is hardcoded below.
     // Wrapped in `withDbTimeout` so a cold Neon compute can't pin the
     // route past `DB_READ_TIMEOUT_MS` — a hung HTTPS-to-Neon connection
     // is the failure mode we saw in CI cold-start runs (the lib's own
@@ -179,80 +175,25 @@ assets.get("/", async (c) => {
       DB_READ_TIMEOUT_MS,
       "readSupportedLtDirectory",
     ),
-    // Don't let a stuck availability lookup take down `/assets` — fall
-    // back to the cached snapshot (or "unknown, don't filter") on
-    // failure. See `lt-availability.ts` for the fail-open rationale.
-    //
-    // `getLiveLtAvailability` is the longest dependency in this
-    // fan-out: on a cache miss it does its own `lt_directory` DB
-    // read plus a per-symbol BounceTech HEAD sweep. Its internal
-    // `REFRESH_TIMEOUT_MS` (15 s) only bounds the HEAD sweep, not
-    // the upstream DB read — so a cold Neon would otherwise pin
-    // `/assets` past every reasonable caller budget despite the
-    // adjacent `withDbTimeout` on the sibling `readSupportedLtDirectory`
-    // call. Reuse `withDbTimeout` here so the fan-out's tail latency
-    // is the max of three 4 s / 5 s bounded paths, not the
-    // unbounded internal of one slow lib.
-    withDbTimeout(
-      getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
-      null,
-      DB_READ_TIMEOUT_MS,
-      "getLiveLtAvailability",
-    ),
   ]);
 
-  // When availability is `null` (initial cold start raced with a failing
-  // mirror read) we surface every supported LT — degrading to "show
-  // everything" is the right call when the filter signal is unavailable.
-  // Otherwise we filter to only LTs whose logo BounceTech has published.
-  const liveAddresses = availability?.liveAddresses ?? null;
-  const liveUnderlyings = availability?.liveUnderlyings ?? null;
+  const leveragedTokens = lts.map((lt) => ({
+    address: lt.address,
+    symbol: lt.symbol,
+    name: lt.name,
+    targetAsset: lt.targetAsset,
+    targetLeverage: lt.targetLeverage,
+    isLong: lt.isLong,
+    exchangeRate: lt.exchangeRate,
+    mintPaused: lt.mintPaused,
+  }));
 
-  const leveragedTokens = lts
-    .filter((lt) =>
-      liveAddresses === null
-        ? true
-        : liveAddresses.has(lt.address.toLowerCase()),
-    )
-    .map((lt) => ({
-      address: lt.address,
-      symbol: lt.symbol,
-      name: lt.name,
-      targetAsset: lt.targetAsset,
-      targetLeverage: lt.targetLeverage,
-      isLong: lt.isLong,
-      exchangeRate: lt.exchangeRate,
-      mintPaused: lt.mintPaused,
-    }));
+  const underlying = SUPPORTED_UNDERLYING_ASSETS.map((symbol) => ({
+    symbol,
+    price: mids[symbol] ?? null,
+  }));
 
-  const underlying = SUPPORTED_UNDERLYING_ASSETS
-    .filter((symbol) =>
-      liveUnderlyings === null ? true : liveUnderlyings.has(symbol),
-    )
-    .map((symbol) => ({
-      symbol,
-      price: mids[symbol] ?? null,
-    }));
-
-  return c.json(
-    formatSuccess({
-      underlying,
-      leveragedTokens,
-      /**
-       * The set of underlying-asset names with ≥1 live LT, surfaced for
-       * lightweight clients (markets sidebar, asset tape, pair selector)
-       * that only need the filter set and don't want the per-LT payload.
-       * Mirrors `liveUnderlyings` on the availability snapshot. When the
-       * signal is unavailable (BounceTech CDN down during cold start)
-       * this falls back to the full supported list so the UI degrades to
-       * "show everything" rather than blanking out.
-       */
-      liveUnderlyings:
-        liveUnderlyings === null
-          ? [...SUPPORTED_UNDERLYING_ASSETS]
-          : SUPPORTED_UNDERLYING_ASSETS.filter((s) => liveUnderlyings.has(s)),
-    }),
-  );
+  return c.json(formatSuccess({ underlying, leveragedTokens }));
 });
 
 /**

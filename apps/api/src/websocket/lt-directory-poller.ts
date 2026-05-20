@@ -27,7 +27,7 @@
  * Any RPC / multicall / DB failure is logged and the alarm is
  * rescheduled — readers keep the previous snapshot. This matches the
  * fail-open posture of every other BounceTech-adjacent surface in the
- * API (`lt-availability`, `assets`, …) and is appropriate because the
+ * API (`assets`, market data, …) and is appropriate because the
  * directory changes slowly enough that even a multi-hour stale read
  * still serves the right data to the user-facing surface.
  *

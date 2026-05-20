@@ -7,9 +7,7 @@ export {
 } from "./chains.js";
 export {
   BOUNCE_INDEXING_API,
-  BOUNCE_UI_BASE_URL,
   LEVERAGED_TOKEN_HELPER_ADDRESS,
-  getBounceLtImageUrl,
   HYPERLIQUID_INFO_API,
   HYPERLIQUID_WS,
   USDC_ADDRESS,

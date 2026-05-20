@@ -7,7 +7,6 @@ import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
 import { runAutoGraduationBuyer } from "./lib/auto-graduation-buyer.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
-import { refreshLiveLtAvailability } from "./lib/lt-availability.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
 import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
 import { runOrphanedImagesCleanup } from "./lib/orphaned-images-cleanup.js";
@@ -338,7 +337,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Seven jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Six jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -364,16 +363,7 @@ export default {
    *      immediately. Bounds storage cost as the moderation log grows
    *      with launch volume (issue #511). See
    *      `lib/moderation-logs-cleanup.ts`.
-   *   6. Refresh the live-LT availability cache (HEAD-check each
-   *      BounceTech LT logo on `bounce.tech` to determine which LTs
-   *      they've actually shipped publicly). Drives the markets sidebar,
-   *      asset tape, and token-list filter — without it tokens backed
-   *      by half-tested LTs would surface as soon as BounceTech deployed
-   *      them on-chain. Cron-only refresh means every user request
-   *      reads from the warm per-isolate cache instead of HEAD-checking
-   *      ~20 logos per page load. See `lib/lt-availability.ts` and
-   *      issue #621.
-   *   7. Daily orphaned-image sweep on R2 (issue #554). Self-gates to
+   *   6. Daily orphaned-image sweep on R2 (issue #554). Self-gates to
    *      one tick per day (04:17 UTC, one hour after the
    *      moderation-logs sweep so the two storage-hygiene jobs don't
    *      race for connections / subrequest budget). Deletes images
@@ -483,19 +473,6 @@ export default {
           JSON.stringify({
             level: "error",
             event: "moderation_logs_cleanup_uncaught",
-            error: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-      }),
-    );
-
-    ctx.waitUntil(
-      refreshLiveLtAvailability({ databaseUrl: env.DATABASE_URL }).catch((err) => {
-        console.log(
-          JSON.stringify({
-            level: "error",
-            event: "lt_availability_refresh_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

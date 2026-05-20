@@ -69,7 +69,7 @@ vi.mock("@neondatabase/serverless", () => ({
   neon: () => mockNeonQuery,
 }));
 
-// --- Global fetch mock (BounceTech LT directory + live LT API) ---
+// --- Global fetch mock ---
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 vi.stubGlobal("caches", undefined);
@@ -105,23 +105,6 @@ vi.mock("viem", async () => {
 vi.mock("../lib/protocol-config.js", () => ({
   getGraduationThresholdUsd: vi.fn(async () => 12_000),
   _resetGraduationThresholdCache: vi.fn(),
-}));
-
-// Stub the live-LT availability lookup. These tests focus on token
-// registration / detail behaviour; the LT-availability filter
-// (issue #621) is exercised independently in `lt-availability.test.ts`
-// and `assets.test.ts`. Returning an empty, non-fresh snapshot causes
-// the listing path to fail-open (no filter applied), matching the
-// pre-#621 behaviour these tests assume.
-vi.mock("../lib/lt-availability.js", () => ({
-  getLiveLtAvailability: vi.fn(async () => ({
-    liveAddresses: new Set<string>(),
-    liveSymbols: new Set<string>(),
-    liveUnderlyings: new Set<string>(),
-    directoryAddresses: new Set<string>(),
-    fresh: false,
-  })),
-  _resetLtAvailabilityCache: vi.fn(),
 }));
 
 // Stub the LT-directory mirror reader. The route handlers now read

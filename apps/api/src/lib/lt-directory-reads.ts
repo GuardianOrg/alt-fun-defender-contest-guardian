@@ -1,8 +1,8 @@
 /**
  * Read helpers for the `lt_directory` table that the
  * `LtDirectoryPoller` Durable Object keeps fresh. These are the live
- * data path for the LT directory across the API — `lt-availability`,
- * `token-registration`, `routes/assets`, and the per-request market-data
+ * data path for the LT directory across the API — token registration,
+ * `routes/assets`, and the per-request market-data
  * lookups all read through these helpers instead of fanning out to
  * `indexing.bounce.tech`.
  *
