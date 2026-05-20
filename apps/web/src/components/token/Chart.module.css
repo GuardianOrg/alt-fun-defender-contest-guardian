@@ -167,9 +167,11 @@
   gap: 0.2rem;
 }
 
+/* WebKit quirk: absolutely position the canvas so it fills `.chartArea`'s
+ * `min-height` box on mobile (`height: 100%` collapses to 0 on iOS). */
 .chartCanvas {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
 .mcapOverlay {
