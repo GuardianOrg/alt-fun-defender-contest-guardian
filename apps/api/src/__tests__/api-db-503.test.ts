@@ -314,17 +314,31 @@ describe("grep gate — no unwrapped `await db.select` in routes/", () => {
     );
 
     const offenders: Array<{ file: string; line: number; text: string }> = [];
+    // Whole-file scan with the `\s*` separator spanning newlines, so the
+    // pattern catches both the inline `await db.select(...)` form AND the
+    // wrapped form Prettier produces on long chains:
+    //
+    //     const rows = await db
+    //       .select()
+    //       .from(tokens)
+    //
+    // A per-line check (the original implementation, flagged on PR
+    // #1114) misses the wrapped form because `await db` and `.select(` end
+    // up on different lines. We compute the line number from the match
+    // offset so the offender report still pinpoints the call site.
+    // CodeRabbit feedback on PR #1114.
+    const offenderRegex = /\bawait\s+db\s*\.\s*select\b/g;
     for (const [relPath, text] of Object.entries(routeSources)) {
-      const lines = text.split("\n");
-      for (let i = 0; i < lines.length; i += 1) {
-        const line = lines[i];
-        // `await db.select(...).from(...)...` is the legacy unwrapped
-        // shape. We don't allow it in routes/ anymore — every read
-        // must go through `tryApiDbRead` so a Neon HTTP failure surfaces
-        // as 503, not 500. Issue #1110.
-        if (/\bawait\s+db\.select\b/.test(line)) {
-          offenders.push({ file: relPath, line: i + 1, text: line.trim() });
-        }
+      for (const match of text.matchAll(offenderRegex)) {
+        const offset = match.index ?? 0;
+        const before = text.slice(0, offset);
+        const lineNumber = before.split("\n").length;
+        const lineStart = before.lastIndexOf("\n") + 1;
+        const lineEnd = text.indexOf("\n", offset);
+        const snippet = text
+          .slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
+          .trim();
+        offenders.push({ file: relPath, line: lineNumber, text: snippet });
       }
     }
 
@@ -342,5 +356,32 @@ describe("grep gate — no unwrapped `await db.select` in routes/", () => {
       );
     }
     expect(offenders).toEqual([]);
+  });
+
+  // Belt-and-braces: a self-test for the regex itself. The original
+  // per-line implementation missed Prettier-wrapped chains, so we pin
+  // the pattern's behaviour against synthetic samples to make sure a
+  // future "simplify the regex" refactor doesn't reintroduce the gap.
+  // CodeRabbit feedback on PR #1114.
+  it("the grep gate's regex catches both inline and Prettier-wrapped reads", () => {
+    const regex = /\bawait\s+db\s*\.\s*select\b/g;
+
+    // Inline form — the most common shape.
+    expect(
+      "const rows = await db.select().from(tokens);".match(regex),
+    ).not.toBeNull();
+
+    // Prettier-wrapped form — `await db` on one line, `.select` on
+    // the next. This is the case the per-line regex used to miss.
+    expect(
+      "const rows = await db\n  .select()\n  .from(tokens);".match(regex),
+    ).not.toBeNull();
+
+    // Negative: the wrapped, try-catch'd form via `tryApiDbRead`
+    // does NOT carry the `await` keyword directly before `db.select`,
+    // so it must not match.
+    expect(
+      "await tryApiDbRead('e', () => db.select().from(tokens));".match(regex),
+    ).toBeNull();
   });
 });

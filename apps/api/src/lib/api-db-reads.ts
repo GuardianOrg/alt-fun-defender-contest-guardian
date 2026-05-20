@@ -56,11 +56,17 @@ function logApiDbReadFailure(
   error: unknown,
   context: Record<string, unknown> = {},
 ): void {
+  // Spread the caller's context FIRST so the reserved log fields below
+  // (`level`, `event`, `error`, `timestamp`) are always authoritative —
+  // a caller that accidentally passes a key named `event` or `error`
+  // in `context` (Wallet-shaped objects often include an `error`
+  // field, for instance) can't clobber the fields the log-search
+  // filters rely on. CodeRabbit feedback on PR #1114.
   console.log(
     JSON.stringify({
+      ...context,
       level: "error",
       event,
-      ...context,
       error: describeError(error, stripQueryBloat),
       timestamp: new Date().toISOString(),
     }),
