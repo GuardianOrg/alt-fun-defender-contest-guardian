@@ -6,6 +6,7 @@ import { EXCLUDED_UNDERLYING_ASSETS, isExcludedUnderlying } from "@launchpad/sha
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import { tryApiDbRead } from "../../lib/api-db-reads.js";
 import {
   getLiveLtAvailability,
   type LtAvailability,
@@ -505,16 +506,24 @@ listRoute.get("/", async (c) => {
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
     const excluded = excludedUnderlyingCondition();
-    const dbRowsRaw = await db
-      .select()
-      .from(tokens)
-      .where(
-        and(
-          eq(tokens.isHidden, false),
-          inArray(tokens.address, checksummedAddresses),
-          ...(excluded ? [excluded] : []),
-        ),
-      );
+    const dbRowsRaw = await tryApiDbRead(
+      "api_db.tokens_list_graduated_hydrate",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.isHidden, false),
+              inArray(tokens.address, checksummedAddresses),
+              ...(excluded ? [excluded] : []),
+            ),
+          ),
+      { addressCount: checksummedAddresses.length },
+    );
+    if (dbRowsRaw === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
 
     // Pull the live-LT snapshot in parallel with everything else above —
     // see `lib/lt-availability.ts`. We pass the rows through the filter
@@ -676,16 +685,24 @@ listRoute.get("/", async (c) => {
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
     const excluded = excludedUnderlyingCondition();
-    const dbRowsRaw = await db
-      .select()
-      .from(tokens)
-      .where(
-        and(
-          eq(tokens.isHidden, false),
-          inArray(tokens.address, checksummedAddresses),
-          ...(excluded ? [excluded] : []),
-        ),
-      );
+    const dbRowsRaw = await tryApiDbRead(
+      "api_db.tokens_list_graduating_hydrate",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.isHidden, false),
+              inArray(tokens.address, checksummedAddresses),
+              ...(excluded ? [excluded] : []),
+            ),
+          ),
+      { addressCount: checksummedAddresses.length },
+    );
+    if (dbRowsRaw === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
 
     const availability = await getLiveLtAvailability({ databaseUrl: c.env.HYPERDRIVE.connectionString }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
@@ -925,10 +942,18 @@ listRoute.get("/", async (c) => {
         // insert time in `lib/token-registration.ts`); the indexer
         // returns lowercased — checksum each for the SQL `IN (...)`.
         const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
-        const filteredRows = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions, inArray(tokens.address, checksummed)));
+        const filteredRows = await tryApiDbRead(
+          "api_db.tokens_list_trending_hydrate",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions, inArray(tokens.address, checksummed))),
+          { candidateCount: checksummed.length, sort },
+        );
+        if (filteredRows === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
         trendingVolumeByAddress = new Map(
           candidates.map((c) => [c.tokenAddress, c.volume24hUsd]),
         );
@@ -975,30 +1000,57 @@ listRoute.get("/", async (c) => {
       // requested key before the post-enrich slice paginates.
       trendingDegraded = true;
       if (sort === "trending") {
-        dbTokens = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions))
-          .orderBy(desc(tokens.createdAt))
-          .limit(limit)
-          .offset(offset);
+        const fallbackRows = await tryApiDbRead(
+          "api_db.tokens_list_trending_fallback_page",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions))
+              .orderBy(desc(tokens.createdAt))
+              .limit(limit)
+              .offset(offset),
+          { limit, offset, sort },
+        );
+        if (fallbackRows === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
+        dbTokens = fallbackRows;
       } else {
-        dbTokens = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions))
-          .orderBy(desc(tokens.createdAt))
-          .limit(TRENDING_POOL_SIZE);
+        const fallbackPool = await tryApiDbRead(
+          "api_db.tokens_list_trending_fallback_pool",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions))
+              .orderBy(desc(tokens.createdAt))
+              .limit(TRENDING_POOL_SIZE),
+          { poolSize: TRENDING_POOL_SIZE, sort },
+        );
+        if (fallbackPool === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
+        dbTokens = fallbackPool;
       }
     }
   } else {
-    dbTokens = await db
-      .select()
-      .from(tokens)
-      .where(and(...conditions))
-      .orderBy(dir(sortColumn))
-      .limit(limit)
-      .offset(offset);
+    const pageRows = await tryApiDbRead(
+      "api_db.tokens_list_default",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(dir(sortColumn))
+          .limit(limit)
+          .offset(offset),
+      { limit, offset, sort, status: status ?? null },
+    );
+    if (pageRows === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
+    dbTokens = pageRows;
   }
 
   if (dbTokens.length === 0) {
@@ -1157,18 +1209,27 @@ listRoute.get("/search", async (c) => {
   const excludedUnderlying = excludedUnderlyingCondition();
 
   const db = createDb(c.env.HYPERDRIVE.connectionString);
-  const results = await db
-    .select()
-    .from(tokens)
-    .where(
-      and(
-        eq(tokens.isHidden, false),
-        or(...conditions),
-        liveLtFilter,
-        excludedUnderlying,
-      ),
-    )
-    .limit(20);
+  const results = await tryApiDbRead(
+    "api_db.tokens_search",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(
+          and(
+            eq(tokens.isHidden, false),
+            or(...conditions),
+            liveLtFilter,
+            excludedUnderlying,
+          ),
+        )
+        .limit(20),
+    { isAddressQuery, queryLength: q.length },
+  );
+
+  if (results === null) {
+    return c.json(formatError("Token metadata unavailable"), 503);
+  }
 
   return c.json(formatSuccess(results));
 });

@@ -4,6 +4,7 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import {
   checkIndexerHealth,
   fetchTokenBalancesByWallet,
@@ -51,10 +52,18 @@ balancesV2.get("/:wallet", async (c) => {
   // Hidden tokens are intentionally NOT filtered here (issue #712): a
   // wallet that already holds a token the admin has since hidden must
   // still be able to see it in their positions so they can sell out.
-  const dbTokens = await db
-    .select()
-    .from(tokens)
-    .where(inArray(tokens.address, tokenAddresses));
+  const dbTokens = await tryApiDbRead(
+    "api_db.balances_tokens_hydrate",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(inArray(tokens.address, tokenAddresses)),
+    { wallet, tokenCount: tokenAddresses.length },
+  );
+  if (dbTokens === null) {
+    return c.json(formatError("Token metadata unavailable"), 503);
+  }
 
   const tokenMap = new Map(dbTokens.map((t) => [t.address.toLowerCase(), t]));
 

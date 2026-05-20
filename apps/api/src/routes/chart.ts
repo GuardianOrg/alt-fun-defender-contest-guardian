@@ -8,6 +8,7 @@ import formatError from "../utils/format-error.js";
 import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import {
   checkIndexerHealth,
   fetchTokenChartContext,
@@ -544,11 +545,16 @@ chart.get("/:address", async (c) => {
   // fan-out rationale; the helpers behind it changed from Ponder GraphQL
   // to direct-Postgres in the cut-over.
   const [dbTokenResult, indexerHealthy, chartContext] = await Promise.all([
-    db
-      .select({ ltPair: tokens.ltPair })
-      .from(tokens)
-      .where(eq(tokens.address, getAddress(rawAddress)))
-      .limit(1),
+    tryApiDbRead(
+      "api_db.chart_token_lookup",
+      () =>
+        db
+          .select({ ltPair: tokens.ltPair })
+          .from(tokens)
+          .where(eq(tokens.address, getAddress(rawAddress)))
+          .limit(1),
+      { address: rawAddress },
+    ),
     checkIndexerHealth(db),
     fetchTokenChartContext(db, address),
   ]);
@@ -563,6 +569,13 @@ chart.get("/:address", async (c) => {
   if (chartContext === "unavailable") {
     return c.json(
       formatError("Indexer unavailable — chart data cannot be loaded"),
+      503,
+    );
+  }
+
+  if (dbTokenResult === null) {
+    return c.json(
+      formatError("Token metadata unavailable — chart data cannot be loaded"),
       503,
     );
   }

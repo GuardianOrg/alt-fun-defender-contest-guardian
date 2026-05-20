@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   useQuery,
@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 
 import { applyGraduationRatchet } from "./graduationRatchet";
+import { cacheTokenDetail, readCachedToken } from "./tokenDetailCache";
 import { useWallet } from "./useWallet";
 import {
   applyTokenOverride,
@@ -23,14 +24,11 @@ import type { Token } from "../services/types";
  * by `useInfiniteTokens` and shared with `useTokens` per its JSDoc).
  * Returns the first match (case-insensitive on address) or `undefined`.
  *
- * Used as `placeholderData` for `useToken` so navigating from a list
- * paints the token's image / ticker / name / leverage / mcap on the
- * very first frame instead of waiting for the `/tokens/:address`
- * round-trip. The fresh fetch still runs in the background and any
- * detail-only fields (description, social links, exact curve
- * breakdown) snap in once it resolves — matching React Query's
- * standard placeholder semantics, with `isPlaceholderData` flagging
- * the transient state for any consumer that cares.
+ * Used before the localStorage token-detail cache so navigating from a
+ * list paints the freshest in-session copy first; a recently visited
+ * token still has a persisted fallback after a reload or flaky endpoint.
+ * The fresh fetch runs in the background and detail-only fields snap in
+ * once it resolves.
  */
 function findCachedTokenInLists(
   queryClient: QueryClient,
@@ -92,12 +90,8 @@ const GRADUATING_POLL_INTERVAL_MS = 3_000;
  * so the graduating-window safety-net behaviour can be unit-tested
  * without rendering the hook through a `QueryClient`.
  */
-export function tokenRefetchInterval(
-  token: Token | undefined,
-): number | false {
-  return token?.status === "graduating"
-    ? GRADUATING_POLL_INTERVAL_MS
-    : false;
+export function tokenRefetchInterval(token: Token | undefined): number | false {
+  return token?.status === "graduating" ? GRADUATING_POLL_INTERVAL_MS : false;
 }
 
 export function useToken(address: string | undefined) {
@@ -115,7 +109,8 @@ export function useToken(address: string | undefined) {
   // queryClient ref + address so a wallet switch (which re-keys the
   // query) still picks up the latest cached snapshot.
   const placeholder = useMemo(
-    () => findCachedTokenInLists(queryClient, address),
+    () =>
+      findCachedTokenInLists(queryClient, address) ?? readCachedToken(address),
     [queryClient, address],
   );
   const query = useQuery({
@@ -142,7 +137,8 @@ export function useToken(address: string | undefined) {
   );
 
   const data = useMemo(() => {
-    if (!query.data) return query.data;
+    const rawData = query.data ?? (query.isError ? placeholder : undefined);
+    if (!rawData) return rawData;
     // Pin the graduated lifecycle before any other transform: the
     // ratchet protects against the API's degraded path silently
     // flipping a previously-graduated token back to `status: "curve"`
@@ -151,10 +147,15 @@ export function useToken(address: string | undefined) {
     // `graduationRatchet.ts`). Running the ratchet *first* means any
     // dev override layered on top still wins for QA flows that
     // explicitly want to inspect a non-graduated lens.
-    const ratcheted = applyGraduationRatchet(query.data);
+    const ratcheted = applyGraduationRatchet(rawData);
     if (!override) return ratcheted;
     return applyTokenOverride(ratcheted, override);
-  }, [query.data, override]);
+  }, [query.data, query.isError, placeholder, override]);
+
+  useEffect(() => {
+    if (!data) return;
+    cacheTokenDetail(data);
+  }, [data]);
 
   // Re-shape the query result with the transformed `data`. We can't
   // just mutate `query.data` (TanStack Query owns that reference) and

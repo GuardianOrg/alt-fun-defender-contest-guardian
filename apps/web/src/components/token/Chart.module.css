@@ -131,10 +131,18 @@
   animation: livep 2s ease-in-out infinite;
 }
 
+.liveIndicatorReconnecting .liveDot {
+  background: var(--amber);
+}
+
 .liveText {
   font-size: 11px;
   color: var(--txt-4);
   font-family: var(--font-mono);
+}
+
+.liveIndicatorReconnecting .liveText {
+  color: var(--amber);
 }
 
 /* The chart shares vertical space inside `.leftPanel` with the bottom-tab
