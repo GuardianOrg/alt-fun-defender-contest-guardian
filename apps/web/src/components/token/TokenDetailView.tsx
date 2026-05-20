@@ -295,6 +295,7 @@ export default function TokenDetailView() {
         <Modal
           onClose={() => setTradeModalOpen(false)}
           panelClassName={styles.tradeModalPanel}
+          hideCloseButton
         >
           <ErrorBoundary
             fallback={
