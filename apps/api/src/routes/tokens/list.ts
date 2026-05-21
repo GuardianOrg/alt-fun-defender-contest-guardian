@@ -454,16 +454,24 @@ listRoute.get("/", async (c) => {
     // for map lookups below where we compare against Ponder strings.
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
-    const dbRowsRaw = await db
-      .select()
-      .from(tokens)
-      .where(
-        and(
-          eq(tokens.isHidden, false),
-          inArray(tokens.address, checksummedAddresses),
-          supportedUnderlyingCondition(),
-        ),
-      );
+    const dbRowsRaw = await tryApiDbRead(
+      "api_db.tokens_list_graduated_hydrate",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.isHidden, false),
+              inArray(tokens.address, checksummedAddresses),
+              supportedUnderlyingCondition(),
+            ),
+          ),
+      { candidateCount: checksummedAddresses.length, status },
+    );
+    if (dbRowsRaw === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
 
     const dbByAddress = new Map<string, DbToken>();
     for (const row of dbRowsRaw) {
@@ -632,16 +640,24 @@ listRoute.get("/", async (c) => {
     // for map lookups below where we compare against Ponder strings.
     const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
-    const dbRowsRaw = await db
-      .select()
-      .from(tokens)
-      .where(
-        and(
-          eq(tokens.isHidden, false),
-          inArray(tokens.address, checksummedAddresses),
-          supportedUnderlyingCondition(),
-        ),
-      );
+    const dbRowsRaw = await tryApiDbRead(
+      "api_db.tokens_list_graduating_hydrate",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(
+            and(
+              eq(tokens.isHidden, false),
+              inArray(tokens.address, checksummedAddresses),
+              supportedUnderlyingCondition(),
+            ),
+          ),
+      { candidateCount: checksummedAddresses.length, status },
+    );
+    if (dbRowsRaw === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
 
     const dbByAddress = new Map<string, DbToken>();
     for (const row of dbRowsRaw) {
@@ -1087,17 +1103,25 @@ listRoute.get("/search", async (c) => {
   }
 
   const db = createDb(c.env.DATABASE_URL);
-  const results = await db
-    .select()
-    .from(tokens)
-    .where(
-      and(
-        eq(tokens.isHidden, false),
-        or(...conditions),
-        supportedUnderlyingCondition(),
-      ),
-    )
-    .limit(20);
+  const results = await tryApiDbRead(
+    "api_db.tokens_search",
+    () =>
+      db
+        .select()
+        .from(tokens)
+        .where(
+          and(
+            eq(tokens.isHidden, false),
+            or(...conditions),
+            supportedUnderlyingCondition(),
+          ),
+        )
+        .limit(20),
+    { query: q },
+  );
+  if (results === null) {
+    return c.json(formatError("Token metadata unavailable"), 503);
+  }
 
   return c.json(formatSuccess(results));
 });
