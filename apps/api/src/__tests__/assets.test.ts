@@ -10,7 +10,7 @@ vi.stubGlobal("fetch", mockFetch);
 const HYPE_2L = "0xa000000000000000000000000000000000000001";
 const HYPE_5L = "0xa000000000000000000000000000000000000002";
 const DOGE_3L = "0xa000000000000000000000000000000000000003";
-const CBRS_2L = "0xa000000000000000000000000000000000000004";
+const GOLD_2L = "0xa000000000000000000000000000000000000004";
 
 const DIRECTORY: LiveLeveragedToken[] = [
   {
@@ -56,10 +56,10 @@ const DIRECTORY: LiveLeveragedToken[] = [
     baseAssetBalance: "0",
   },
   {
-    address: CBRS_2L,
-    symbol: "CBRS2L",
-    name: "CBRS 2x Long",
-    targetAsset: "xyz:CBRS",
+    address: GOLD_2L,
+    symbol: "GOLD2L",
+    name: "GOLD 2x Long",
+    targetAsset: "xyz:GOLD",
     targetLeverage: 2,
     isLong: true,
     decimals: 18,
@@ -93,7 +93,7 @@ function installRouter() {
           ? (JSON.parse(String(init.body)) as { dex?: string })
           : {};
         if (body.dex === "xyz") {
-          return jsonResponse({ "xyz:CBRS": "9.87" });
+          return jsonResponse({ "xyz:GOLD": "9.87" });
         }
         return jsonResponse({ HYPE: "12.34", DOGE: "0.42" });
       }
@@ -158,7 +158,7 @@ describe("GET /assets", () => {
       "HYPE2L",
       "HYPE5L",
       "DOGE3L",
-      "CBRS2L",
+      "GOLD2L",
     ]);
   });
 
@@ -172,10 +172,15 @@ describe("GET /assets", () => {
 
     const hype = body.data.underlying.find((u) => u.symbol === "HYPE");
     const doge = body.data.underlying.find((u) => u.symbol === "DOGE");
-    const cbrs = body.data.underlying.find((u) => u.symbol === "xyz:CBRS");
+    const gold = body.data.underlying.find((u) => u.symbol === "xyz:GOLD");
+    expect(body.data.underlying.map((u) => u.symbol)).toEqual([
+      "DOGE",
+      "xyz:GOLD",
+      "HYPE",
+    ]);
     expect(hype?.price).toBe("12.34");
     expect(doge?.price).toBe("0.42");
-    expect(cbrs?.price).toBe("9.87");
+    expect(gold?.price).toBe("9.87");
     expect(body.data.underlying.some((u) => u.symbol === "BTC")).toBe(false);
   });
 

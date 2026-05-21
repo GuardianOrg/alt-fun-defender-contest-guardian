@@ -171,7 +171,10 @@ export default function ProgressBar({
         onMouseLeave={() => setTooltip(false)}
       >
         <div
-          className={styles.buySegment}
+          className={cn(
+            styles.buySegment,
+            leveragePercent <= 0 && styles.buySegmentSolo,
+          )}
           style={{ width: `${buyPercent}%` }}
         >
           {/* One-shot whitening flash fired every time a buy lands.
@@ -200,6 +203,7 @@ export default function ProgressBar({
           <div
             className={cn(
               styles.leverageSegment,
+              buyPercent <= 0 && styles.leverageSegmentSolo,
               "leverage-fire",
               isShort ? "leverage-fire-red" : "leverage-fire-mint",
             )}

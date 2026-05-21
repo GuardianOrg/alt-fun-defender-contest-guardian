@@ -117,6 +117,11 @@
     width 0.3s ease-out;
 }
 
+.buySegmentSolo {
+  border-top-right-radius: 9999px;
+  border-bottom-right-radius: 9999px;
+}
+
 /* Graduated lifecycle marker — bar collapses to a single solid amber fill
  * (no organic/boost split per `apps/web/AGENTS.md`) and intentionally
  * skips mint so a feed of graduated rows doesn't read as "everything is
@@ -237,6 +242,13 @@
   position: absolute;
   top: 0;
   height: 100%;
+  border-top-right-radius: 9999px;
+  border-bottom-right-radius: 9999px;
+}
+
+.leverageSegmentSolo {
+  border-top-left-radius: 9999px;
+  border-bottom-left-radius: 9999px;
 }
 
 .labelWrap {
