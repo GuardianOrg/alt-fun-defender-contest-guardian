@@ -386,9 +386,9 @@ describe("GET /tokens?status=graduating", () => {
   const noLtRate: Partial<MarketDataItem> = { ltExchangeRate: null };
 
   it("includes only tokens with curveFilled >= 75% and sorts them desc", async () => {
-    // Four candidates spanning the gate: above (95, 90, 85) and below
-    // (80, 50). The 80% / 50% rows must be filtered out; the rest must
-    // come back in 95 → 90 → 85 order regardless of how Ponder / the DB
+    // Four candidates spanning the gate: above (95, 90, 75) and below
+    // (70, 50). The 70% / 50% rows must be filtered out; the rest must
+    // come back in 95 → 90 → 75 order regardless of how Ponder / the DB
     // mock ordered them.
     const onchainA = makeOnchain(ADDR_A, {
       curveSupply: curveSupplyForSupplyFilled(95),
@@ -397,12 +397,12 @@ describe("GET /tokens?status=graduating", () => {
       curveSupply: curveSupplyForSupplyFilled(90),
     });
     const onchainC = makeOnchain(ADDR_C, {
-      curveSupply: curveSupplyForSupplyFilled(85),
+      curveSupply: curveSupplyForSupplyFilled(75),
     });
     const ADDR_D = "0x4444444444444444444444444444444444444444";
     const ADDR_E = "0x5555555555555555555555555555555555555555";
     const onchainD = makeOnchain(ADDR_D, {
-      curveSupply: curveSupplyForSupplyFilled(80),
+      curveSupply: curveSupplyForSupplyFilled(70),
     });
     const onchainE = makeOnchain(ADDR_E, {
       curveSupply: curveSupplyForSupplyFilled(50),
@@ -446,7 +446,7 @@ describe("GET /tokens?status=graduating", () => {
     };
     expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB", "CCC"]);
     expect(body.data.map((t) => Math.round(t.curveFilled))).toEqual([
-      95, 90, 85,
+      95, 90, 75,
     ]);
   });
 
