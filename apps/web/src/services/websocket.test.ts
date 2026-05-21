@@ -33,7 +33,9 @@ interface WsClientLike {
   ) => () => void;
   wakeAll: () => void;
   onReconnect: (handler: () => void) => () => void;
+  subscribeStatus: (handler: () => void) => () => void;
   dispose: () => void;
+  hasConnectionIssue: boolean;
 }
 
 interface WsClientConstructor {
@@ -195,6 +197,21 @@ describe("SubjectSocket ping/pong lifecycle", () => {
     ws.triggerMessage({ type: "ping" });
     expect(ws.sent).toHaveLength(1);
     expect(JSON.parse(ws.sent[0])).toEqual({ type: "pong" });
+  });
+
+  it("reports a reconnecting issue after an established socket drops", async () => {
+    const WebSocketClient = await importClient();
+    const client = new WebSocketClient("wss://example.com/ws");
+    const statusHandler = vi.fn();
+    client.subscribeStatus(statusHandler);
+    client.subscribe("trade", () => {});
+    const ws = latestWs();
+    ws.triggerOpen();
+    expect(client.hasConnectionIssue).toBe(false);
+
+    ws.close();
+    expect(client.hasConnectionIssue).toBe(true);
+    expect(statusHandler).toHaveBeenCalled();
   });
 
   it("delivers channel payloads to every subscriber for the subject", async () => {

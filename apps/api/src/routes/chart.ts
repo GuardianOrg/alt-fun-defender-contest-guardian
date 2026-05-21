@@ -8,11 +8,12 @@ import formatError from "../utils/format-error.js";
 import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import {
   checkIndexerHealth,
   fetchTokenChartContext,
-  fetchTokenChartSnapshots,
 } from "../lib/indexer-reads.js";
+import { fetchTokenChartSnapshotsCached } from "../lib/indexer-cached-reads.js";
 
 import type { ChartTokenSnapshotRow } from "../lib/indexer-reads.js";
 import type { AppBindings } from "../lib/types.js";
@@ -544,11 +545,16 @@ chart.get("/:address", async (c) => {
   // fan-out rationale; the helpers behind it changed from Ponder GraphQL
   // to direct-Postgres in the cut-over.
   const [dbTokenResult, indexerHealthy, chartContext] = await Promise.all([
-    db
-      .select({ ltPair: tokens.ltPair })
-      .from(tokens)
-      .where(eq(tokens.address, getAddress(rawAddress)))
-      .limit(1),
+    tryApiDbRead(
+      "api_db.chart_token_lookup",
+      () =>
+        db
+          .select({ ltPair: tokens.ltPair })
+          .from(tokens)
+          .where(eq(tokens.address, getAddress(rawAddress)))
+          .limit(1),
+      { address: rawAddress },
+    ),
     checkIndexerHealth(db),
     fetchTokenChartContext(db, address),
   ]);
@@ -563,6 +569,13 @@ chart.get("/:address", async (c) => {
   if (chartContext === "unavailable") {
     return c.json(
       formatError("Indexer unavailable — chart data cannot be loaded"),
+      503,
+    );
+  }
+
+  if (dbTokenResult === null) {
+    return c.json(
+      formatError("Token metadata unavailable — chart data cannot be loaded"),
       503,
     );
   }
@@ -629,7 +642,11 @@ chart.get("/:address", async (c) => {
       ) t
       ORDER BY s.t
     ` as unknown as Promise<LtSnapshotRow[]>,
-    fetchTokenChartSnapshots(db, address, fromSec),
+    // Per-isolate memo (issue #1125, solution #3) — multiple concurrent
+    // chart loads for the hot token in the same PoP collapse to one
+    // Postgres round-trip per `(address, fromSec)` per
+    // `HOT_TOKEN_READ_TTL_MS` window.
+    fetchTokenChartSnapshotsCached(db, address, fromSec),
   ]);
 
   if (ltRows.length === 0) {

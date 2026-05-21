@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { createDb } from "../db/client.js";
 import { userProfiles } from "../db/schema.js";
+import { tryApiDbRead } from "../lib/api-db-reads.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { zodValidator } from "../utils/validation.js";
@@ -72,10 +73,19 @@ profilesRoute.get("/:address", async (c) => {
   const address = getAddress(rawAddress);
 
   const db = createDb(c.env.DATABASE_URL);
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.address, address));
+  const profileRows = await tryApiDbRead(
+    "api_db.profile_lookup",
+    () =>
+      db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.address, address)),
+    { address },
+  );
+  if (profileRows === null) {
+    return c.json(formatError("Profile data unavailable"), 503);
+  }
+  const [profile] = profileRows;
 
   if (!profile) {
     return c.json(

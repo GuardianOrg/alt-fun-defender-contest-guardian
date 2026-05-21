@@ -327,11 +327,11 @@
 }
 
 .dotRed {
-  background: var(--red);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .dotAqua {
-  background: var(--aqua);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .tooltipLabel {
@@ -347,7 +347,7 @@
 }
 
 .tooltipValueAmber {
-  color: var(--amber);
+  color: var(--txt);
   font-weight: 600;
   margin-left: auto;
   padding-left: 1.2rem;

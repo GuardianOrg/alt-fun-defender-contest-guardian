@@ -1,11 +1,25 @@
-import { eq, gt, desc, asc, ilike, or, and, inArray, type SQL } from "drizzle-orm";
+import {
+  eq,
+  gt,
+  desc,
+  asc,
+  ilike,
+  or,
+  and,
+  inArray,
+  type SQL,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
-import { SUPPORTED_UNDERLYING_ASSETS, isSupportedUnderlying } from "@launchpad/shared";
+import {
+  SUPPORTED_UNDERLYING_ASSETS,
+  isSupportedUnderlying,
+} from "@launchpad/shared";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import { tryApiDbRead } from "../../lib/api-db-reads.js";
 import {
   buildBatchFromTokens,
   computeMarketDataForAddresses,
@@ -67,14 +81,16 @@ const STATUS_POOL_SIZE = 500;
  * continues to drive the GRADUATING pill / trade-panel overlay
  * regardless of this threshold.
  *
- * 85% picks the closing-stretch slice: gives users a clear "shortlist
+ * 75% picks the closing-stretch slice: gives users a clear "shortlist
  * of tokens about to graduate" without diluting the tab with
  * mid-curve tokens that haven't earned the spotlight yet. Centralised
  * here so the route + tests + any future docs share the constant.
  */
-const GRADUATING_TAB_MIN_CURVE_FILLED = 85;
+const GRADUATING_TAB_MIN_CURVE_FILLED = 75;
 
-function parseNonNegativeInt(value: string | undefined): number | undefined | null {
+function parseNonNegativeInt(
+  value: string | undefined,
+): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
@@ -335,7 +351,9 @@ listRoute.get("/", async (c) => {
 
   const statusRaw = c.req.query("status");
   const status: StatusFilter | undefined =
-    statusRaw === "curve" || statusRaw === "graduating" || statusRaw === "graduated"
+    statusRaw === "curve" ||
+    statusRaw === "graduating" ||
+    statusRaw === "graduated"
       ? statusRaw
       : undefined;
 
@@ -422,7 +440,10 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -463,7 +484,10 @@ listRoute.get("/", async (c) => {
       const row = dbByAddress.get(addr);
       if (!row) continue;
       if (!matchesFilters(row, filters)) continue;
-      if (createdAfterMs !== undefined && row.createdAt.getTime() <= createdAfterMs) {
+      if (
+        createdAfterMs !== undefined &&
+        row.createdAt.getTime() <= createdAfterMs
+      ) {
         continue;
       }
       orderedDbRows.push(row);
@@ -472,7 +496,10 @@ listRoute.get("/", async (c) => {
 
     if (orderedDbRows.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -490,8 +517,12 @@ listRoute.get("/", async (c) => {
       ? (sort as "trending" | "mcap" | "change24h")
       : null;
 
-    const enrichInputDbRows = scoredSort ? orderedDbRows : orderedDbRows.slice(offset, offset + limit);
-    const enrichInputOnchain = scoredSort ? orderedOnchain : orderedOnchain.slice(offset, offset + limit);
+    const enrichInputDbRows = scoredSort
+      ? orderedDbRows
+      : orderedDbRows.slice(offset, offset + limit);
+    const enrichInputOnchain = scoredSort
+      ? orderedOnchain
+      : orderedOnchain.slice(offset, offset + limit);
 
     // Reuse the already-resolved indexer tokens — saves a round-trip
     // compared to computeMarketDataForAddresses which re-fetches them.
@@ -547,7 +578,9 @@ listRoute.get("/", async (c) => {
     const response = c.json(
       formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
     );
-    const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    const ttl = marketResult.ok
+      ? LIST_CACHE_TTL_SECONDS
+      : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
@@ -564,7 +597,7 @@ listRoute.get("/", async (c) => {
   // filter. See `lib/market-data.ts` and `lib/token-enrich.ts` for the
   // rationale.
   //
-  // We can't push the 85% gate or the curveFilled sort into the Ponder
+  // We can't push the threshold gate or the curveFilled sort into the Ponder
   // query because `curveFilled` is USD-denominated (`realLt × rate /
   // threshold × 100`) and depends on the BounceTech LT exchange rate,
   // which Ponder doesn't have. We instead fetch a bounded pool ordered
@@ -585,7 +618,10 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -644,14 +680,17 @@ listRoute.get("/", async (c) => {
 
     if (candidatesDb.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
     // Resolve market data for the *full* candidate pool — not just the
     // paginated slice. We need every candidate's `curveFilled` to
-    // evaluate the 85% gate and the `curveFilled desc` sort *before*
+    // evaluate the threshold gate and the `curveFilled desc` sort *before*
     // applying `offset` / `limit`, otherwise pagination would reference
     // unfiltered positions and produce short / wrong pages. The pool is
     // capped at `STATUS_POOL_SIZE`, matching the per-request work budget
@@ -674,7 +713,7 @@ listRoute.get("/", async (c) => {
     } else {
       // Degraded: enrich without market data. `curveFilled` falls back
       // to supplyFilled (driven purely by `curveSupply`), which is still
-      // enough to evaluate the 85% gate for the overwhelming majority of
+      // enough to evaluate the threshold gate for the overwhelming majority of
       // tokens (USD progress lags supply progress at typical LT-rate
       // ranges — see `computeCurveFilledBreakdown` docstring). Better
       // than blanking the tab while BounceTech is down.
@@ -722,7 +761,9 @@ listRoute.get("/", async (c) => {
     const response = c.json(
       formatSuccess(paged, marketResult.ok ? "live" : "degraded"),
     );
-    const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    const ttl = marketResult.ok
+      ? LIST_CACHE_TTL_SECONDS
+      : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
@@ -740,9 +781,11 @@ listRoute.get("/", async (c) => {
   if (createdAfter) conditions.push(gt(tokens.createdAt, createdAfter));
 
   const sortColumn =
-    sort === "leverage" ? tokens.leverage :
-    sort === "name" ? tokens.name :
-    tokens.createdAt;
+    sort === "leverage"
+      ? tokens.leverage
+      : sort === "name"
+        ? tokens.name
+        : tokens.createdAt;
 
   // Scored sorts (trending / mcap / change24h) all use the same
   // candidate pool — rolling 24h gross USDC volume desc, top‑N from
@@ -803,10 +846,18 @@ listRoute.get("/", async (c) => {
         // insert time in `lib/token-registration.ts`); the indexer
         // returns lowercased — checksum each for the SQL `IN (...)`.
         const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
-        const filteredRows = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions, inArray(tokens.address, checksummed)));
+        const filteredRows = await tryApiDbRead(
+          "api_db.tokens_list_trending_hydrate",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions, inArray(tokens.address, checksummed))),
+          { candidateCount: checksummed.length, sort },
+        );
+        if (filteredRows === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
         trendingVolumeByAddress = new Map(
           candidates.map((c) => [c.tokenAddress, c.volume24hUsd]),
         );
@@ -853,30 +904,57 @@ listRoute.get("/", async (c) => {
       // requested key before the post-enrich slice paginates.
       trendingDegraded = true;
       if (sort === "trending") {
-        dbTokens = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions))
-          .orderBy(desc(tokens.createdAt))
-          .limit(limit)
-          .offset(offset);
+        const fallbackRows = await tryApiDbRead(
+          "api_db.tokens_list_trending_fallback_page",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions))
+              .orderBy(desc(tokens.createdAt))
+              .limit(limit)
+              .offset(offset),
+          { limit, offset, sort },
+        );
+        if (fallbackRows === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
+        dbTokens = fallbackRows;
       } else {
-        dbTokens = await db
-          .select()
-          .from(tokens)
-          .where(and(...conditions))
-          .orderBy(desc(tokens.createdAt))
-          .limit(TRENDING_POOL_SIZE);
+        const fallbackPool = await tryApiDbRead(
+          "api_db.tokens_list_trending_fallback_pool",
+          () =>
+            db
+              .select()
+              .from(tokens)
+              .where(and(...conditions))
+              .orderBy(desc(tokens.createdAt))
+              .limit(TRENDING_POOL_SIZE),
+          { poolSize: TRENDING_POOL_SIZE, sort },
+        );
+        if (fallbackPool === null) {
+          return c.json(formatError("Token metadata unavailable"), 503);
+        }
+        dbTokens = fallbackPool;
       }
     }
   } else {
-    dbTokens = await db
-      .select()
-      .from(tokens)
-      .where(and(...conditions))
-      .orderBy(dir(sortColumn))
-      .limit(limit)
-      .offset(offset);
+    const pageRows = await tryApiDbRead(
+      "api_db.tokens_list_default",
+      () =>
+        db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(dir(sortColumn))
+          .limit(limit)
+          .offset(offset),
+      { limit, offset, sort, status: status ?? null },
+    );
+    if (pageRows === null) {
+      return c.json(formatError("Token metadata unavailable"), 503);
+    }
+    dbTokens = pageRows;
   }
 
   if (dbTokens.length === 0) {

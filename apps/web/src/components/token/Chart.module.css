@@ -131,10 +131,18 @@
   animation: livep 2s ease-in-out infinite;
 }
 
+.liveIndicatorReconnecting .liveDot {
+  background: var(--amber);
+}
+
 .liveText {
   font-size: 11px;
   color: var(--txt-4);
   font-family: var(--font-mono);
+}
+
+.liveIndicatorReconnecting .liveText {
+  color: var(--amber);
 }
 
 /* The chart shares vertical space inside `.leftPanel` with the bottom-tab
@@ -167,9 +175,11 @@
   gap: 0.2rem;
 }
 
+/* WebKit quirk: absolutely position the canvas so it fills `.chartArea`'s
+ * `min-height` box on mobile (`height: 100%` collapses to 0 on iOS). */
 .chartCanvas {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 
 .mcapOverlay {

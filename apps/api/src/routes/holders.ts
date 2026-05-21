@@ -5,10 +5,8 @@ import { CONTRACT_ADDRESSES } from "@launchpad/shared";
 import { createDb } from "../db/client.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import {
-  fetchHolders,
-  fetchTokenPairAddresses,
-} from "../lib/indexer-reads.js";
+import { fetchTokenPairAddresses } from "../lib/indexer-reads.js";
+import { fetchHoldersCached } from "../lib/indexer-cached-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -80,7 +78,11 @@ holders.get("/:address", async (c) => {
     }
   }
 
-  const result = await fetchHolders(db, {
+  // Cached variant memoises the top-N holders + total count for a few
+  // seconds (issue #1125, solution #3) so the viral-token burst collapses
+  // to one Postgres round-trip per `(token, limit, excluded)` per
+  // `HOT_TOKEN_READ_TTL_MS` window per PoP.
+  const result = await fetchHoldersCached(db, {
     tokenAddress: address,
     limit,
     excludedWallets,

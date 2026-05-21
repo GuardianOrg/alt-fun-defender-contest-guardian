@@ -8,6 +8,7 @@ import {
 import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+import { useWebSocketReconnecting } from "../../hooks/useWebSocketStatus";
 import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
@@ -80,7 +81,11 @@ export default function Chart({ address, token }: Props) {
     };
   }, [intervalMenuOpen]);
 
-  const { mcapUsd: polledMcapUsd, change24h } = useTokenMarketStats(address);
+  const {
+    mcapUsd: polledMcapUsd,
+    change24h,
+    isError: marketDataError,
+  } = useTokenMarketStats(address);
 
   const { candles, loading, liveMcapUsd } = useChartData(
     address,
@@ -122,6 +127,7 @@ export default function Chart({ address, token }: Props) {
   });
 
   const isEmpty = !loading && candles.length === 0;
+  const reconnecting = useWebSocketReconnecting() || marketDataError || isEmpty;
 
   const isTimeframeActive = (tf: ChartTimeframe) =>
     mode.kind === "timeframe" && mode.value === tf;
@@ -204,9 +210,16 @@ export default function Chart({ address, token }: Props) {
           })}
         </div>
 
-        <div className={styles.liveIndicator}>
+        <div
+          className={cn(
+            styles.liveIndicator,
+            reconnecting && styles.liveIndicatorReconnecting,
+          )}
+        >
           <div className={styles.liveDot} />
-          <span className={styles.liveText}>live</span>
+          <span className={styles.liveText}>
+            {reconnecting ? "connecting" : "live"}
+          </span>
         </div>
       </div>
       <div className={styles.chartArea}>
@@ -217,9 +230,7 @@ export default function Chart({ address, token }: Props) {
         )}
         {isEmpty && (
           <div className={styles.emptyState}>
-            <span className={styles.emptyText}>
-              No price data available yet
-            </span>
+            <span className={styles.emptyText}>Fetching chart data...</span>
           </div>
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />

@@ -198,7 +198,11 @@ function makeMarket(overrides: Partial<MarketDataItem> = {}): MarketDataItem {
 }
 
 function marketBatchOk(
-  entries: Array<{ address: string; onchain: PonderTokenOnchain; market: MarketDataItem }>,
+  entries: Array<{
+    address: string;
+    onchain: PonderTokenOnchain;
+    market: MarketDataItem;
+  }>,
 ): MarketDataBatchResult {
   const market: Record<string, MarketDataItem> = {};
   for (const e of entries) {
@@ -364,10 +368,10 @@ describe("GET /tokens?status=graduating", () => {
   // stay legible without faking USD math.
   const noLtRate: Partial<MarketDataItem> = { ltExchangeRate: null };
 
-  it("includes only tokens with curveFilled >= 85% and sorts them desc", async () => {
-    // Four candidates spanning the gate: above (95, 90, 85) and below
-    // (80, 50). The 80% / 50% rows must be filtered out; the rest must
-    // come back in 95 → 90 → 85 order regardless of how Ponder / the DB
+  it("includes only tokens with curveFilled >= 75% and sorts them desc", async () => {
+    // Four candidates spanning the gate: above (95, 90, 75) and below
+    // (70, 50). The 70% / 50% rows must be filtered out; the rest must
+    // come back in 95 → 90 → 75 order regardless of how Ponder / the DB
     // mock ordered them.
     const onchainA = makeOnchain(ADDR_A, {
       curveSupply: curveSupplyForSupplyFilled(95),
@@ -376,12 +380,12 @@ describe("GET /tokens?status=graduating", () => {
       curveSupply: curveSupplyForSupplyFilled(90),
     });
     const onchainC = makeOnchain(ADDR_C, {
-      curveSupply: curveSupplyForSupplyFilled(85),
+      curveSupply: curveSupplyForSupplyFilled(75),
     });
     const ADDR_D = "0x4444444444444444444444444444444444444444";
     const ADDR_E = "0x5555555555555555555555555555555555555555";
     const onchainD = makeOnchain(ADDR_D, {
-      curveSupply: curveSupplyForSupplyFilled(80),
+      curveSupply: curveSupplyForSupplyFilled(70),
     });
     const onchainE = makeOnchain(ADDR_E, {
       curveSupply: curveSupplyForSupplyFilled(50),
@@ -425,7 +429,7 @@ describe("GET /tokens?status=graduating", () => {
     };
     expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB", "CCC"]);
     expect(body.data.map((t) => Math.round(t.curveFilled))).toEqual([
-      95, 90, 85,
+      95, 90, 75,
     ]);
   });
 
@@ -472,10 +476,7 @@ describe("GET /tokens?status=graduating", () => {
     const body = (await res.json()) as {
       data: Array<{ ticker: string }>;
     };
-    expect(body.data.map((t) => t.ticker)).toEqual([
-      "HIGH_MCAP",
-      "LOW_MCAP",
-    ]);
+    expect(body.data.map((t) => t.ticker)).toEqual(["HIGH_MCAP", "LOW_MCAP"]);
   });
 
   it("drops graduated tokens defensively even if they slipped past the Ponder filter", async () => {
@@ -592,7 +593,6 @@ describe("GET /tokens?status=graduating", () => {
     expect(body.data).toEqual([]);
   });
 });
-
 
 describe("GET /tokens — totalVolumeUsd enrichment", () => {
   beforeEach(() => {
@@ -753,10 +753,7 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     const body = (await res.json()) as {
       data: Array<{ ticker: string }>;
     };
-    expect(body.data.map((t) => t.ticker)).toEqual([
-      "HIGH_MCAP",
-      "LOW_MCAP",
-    ]);
+    expect(body.data.map((t) => t.ticker)).toEqual(["HIGH_MCAP", "LOW_MCAP"]);
   });
 
   it("falls back to a createdAt-DESC pool + marks degraded when the indexer is down", async () => {
@@ -980,9 +977,21 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     // The volume-driven candidate order (A → B → C) must be overridden.
     mockComputeMarketDataForAddresses.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000 }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 10_000_000 }) },
-        { address: ADDR_C, onchain: onchainC, market: makeMarket({ mcapUsd: 50_000 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ mcapUsd: 1_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ mcapUsd: 10_000_000 }),
+        },
+        {
+          address: ADDR_C,
+          onchain: onchainC,
+          market: makeMarket({ mcapUsd: 50_000 }),
+        },
       ]),
     );
 
@@ -1004,8 +1013,16 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     // (from the candidate pool stub) → A must come first.
     mockComputeMarketDataForAddresses.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000_000 }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 1_000_000 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ mcapUsd: 1_000_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ mcapUsd: 1_000_000 }),
+        },
       ]),
     );
 
@@ -1033,9 +1050,21 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     // middle of the list" guard.
     mockComputeMarketDataForAddresses.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: 50 }) },
-        { address: ADDR_C, onchain: onchainC, market: makeMarket({ change24h: -30 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ change24h: null }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ change24h: 50 }),
+        },
+        {
+          address: ADDR_C,
+          onchain: onchainC,
+          market: makeMarket({ change24h: -30 }),
+        },
       ]),
     );
 
@@ -1046,7 +1075,11 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ ticker: string }> };
-    expect(body.data.map((t) => t.ticker)).toEqual(["PUMP", "DUMP", "DEGRADED"]);
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "PUMP",
+      "DUMP",
+      "DEGRADED",
+    ]);
   });
 
   it("sort=change24h is stable when every row has null change24h (no NaN crash on the comparator)", async () => {
@@ -1064,8 +1097,16 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     ];
     mockComputeMarketDataForAddresses.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null, mcapUsd: 1_000 }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: null, mcapUsd: 10_000_000 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ change24h: null, mcapUsd: 1_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ change24h: null, mcapUsd: 10_000_000 }),
+        },
       ]),
     );
 
@@ -1076,7 +1117,10 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ ticker: string }> };
-    expect(body.data.map((t) => t.ticker)).toEqual(["BIG_DEGRADED", "SMALL_DEGRADED"]);
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "BIG_DEGRADED",
+      "SMALL_DEGRADED",
+    ]);
   });
 
   it("uses the trending candidate pool for every scored sort (anti-spam preserved)", async () => {
@@ -1116,9 +1160,18 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     // return. Three onchain rows but only one DB row → page size of 1
     // with no offset/limit query means we still only enrich the
     // visible page.
-    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
-    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
-    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    const onchainA = makeOnchain(ADDR_A, {
+      graduated: true,
+      graduatedAt: "1700003000",
+    });
+    const onchainB = makeOnchain(ADDR_B, {
+      graduated: true,
+      graduatedAt: "1700002000",
+    });
+    const onchainC = makeOnchain(ADDR_C, {
+      graduated: true,
+      graduatedAt: "1700001000",
+    });
     mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
       onchainA,
       onchainB,
@@ -1148,14 +1201,24 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     // Only the 2 paged rows should have been sent to BounceTech (the
     // cheap path's whole reason for existing).
     expect(mockBuildBatchFromTokens).toHaveBeenCalledTimes(1);
-    const passedOnchain = mockBuildBatchFromTokens.mock.calls[0][2] as PonderTokenOnchain[];
+    const passedOnchain = mockBuildBatchFromTokens.mock
+      .calls[0][2] as PonderTokenOnchain[];
     expect(passedOnchain).toHaveLength(2);
   });
 
   it("sort=mcap re-ranks the graduated cohort by mcap desc (enriches the full pool before paginating)", async () => {
-    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
-    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
-    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    const onchainA = makeOnchain(ADDR_A, {
+      graduated: true,
+      graduatedAt: "1700003000",
+    });
+    const onchainB = makeOnchain(ADDR_B, {
+      graduated: true,
+      graduatedAt: "1700002000",
+    });
+    const onchainC = makeOnchain(ADDR_C, {
+      graduated: true,
+      graduatedAt: "1700001000",
+    });
     // Indexer returns A, B, C in `graduatedAt desc` order. The scored
     // sort must override that with mcap desc → B (biggest) → A → C.
     mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
@@ -1170,9 +1233,21 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     ];
     mockBuildBatchFromTokens.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000_000 }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 100_000_000 }) },
-        { address: ADDR_C, onchain: onchainC, market: makeMarket({ mcapUsd: 1_000 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ mcapUsd: 1_000_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ mcapUsd: 100_000_000 }),
+        },
+        {
+          address: ADDR_C,
+          onchain: onchainC,
+          market: makeMarket({ mcapUsd: 1_000 }),
+        },
       ]),
     );
 
@@ -1191,14 +1266,24 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     // The scored-sort path enriches the WHOLE filtered pool (3 rows),
     // not just the paginated slice. That's the trade we pay for honest
     // ordering across the page boundary.
-    const passedOnchain = mockBuildBatchFromTokens.mock.calls[0][2] as PonderTokenOnchain[];
+    const passedOnchain = mockBuildBatchFromTokens.mock
+      .calls[0][2] as PonderTokenOnchain[];
     expect(passedOnchain).toHaveLength(3);
   });
 
   it("sort=change24h on graduated routes null change values to the bottom", async () => {
-    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
-    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
-    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    const onchainA = makeOnchain(ADDR_A, {
+      graduated: true,
+      graduatedAt: "1700003000",
+    });
+    const onchainB = makeOnchain(ADDR_B, {
+      graduated: true,
+      graduatedAt: "1700002000",
+    });
+    const onchainC = makeOnchain(ADDR_C, {
+      graduated: true,
+      graduatedAt: "1700001000",
+    });
     mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
       onchainA,
       onchainB,
@@ -1211,9 +1296,21 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     ];
     mockBuildBatchFromTokens.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null }) },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: 25 }) },
-        { address: ADDR_C, onchain: onchainC, market: makeMarket({ change24h: -10 }) },
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ change24h: null }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ change24h: 25 }),
+        },
+        {
+          address: ADDR_C,
+          onchain: onchainC,
+          market: makeMarket({ change24h: -10 }),
+        },
       ]),
     );
 
@@ -1224,6 +1321,10 @@ describe("GET /tokens?status=graduated with scored sort overrides", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ ticker: string }> };
-    expect(body.data.map((t) => t.ticker)).toEqual(["PUMP", "DUMP", "DEGRADED"]);
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "PUMP",
+      "DUMP",
+      "DEGRADED",
+    ]);
   });
 });

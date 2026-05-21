@@ -8,12 +8,12 @@ import {
   fetchHistoricalCurveSnapshots as readHistoricalCurveSnapshots,
   fetchNonGraduatedTokensOnchain as readNonGraduatedTokensOnchain,
   fetchRouterTradeActivity as readRouterTradeActivity,
-  fetchTokenOnchain as readTokenOnchain,
   fetchTokensOnchainByAddresses as readTokensOnchainByAddresses,
   fetchTrendingCandidatesByVolume as readTrendingCandidatesByVolume,
   quantizeTrailing24hCutoffSec,
   type TrendingVolumeCandidate,
 } from "./indexer-reads.js";
+import { fetchTokenOnchainCached as readTokenOnchainCached } from "./indexer-cached-reads.js";
 import { readLiveLtRates } from "./lt-directory-reads.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
@@ -280,9 +280,9 @@ export async function fetchGraduatedTokensOnchain(
  *
  * `pendingGraduation: true` tokens (phase 1 has fired) are included by
  * the `graduated: false` filter — their `curveSupply` reflects the
- * threshold-crossing buy's post-trade state (≥85% supplyFilled by
+ * threshold-crossing buy's post-trade state (≥75% supplyFilled by
  * definition, since the trigger fired), so they naturally rank first
- * under the `curveSupply asc` ordering and pass the 85% gate.
+ * under the `curveSupply asc` ordering and pass the 75% gate.
  */
 /**
  * Top-K trending candidates ranked by **rolling 24h gross USDC volume**.
@@ -316,7 +316,7 @@ export type { TrendingVolumeCandidate };
 /**
  * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
  * sold-out first). Used by the GRADUATING tab to derive a bounded candidate
- * pool before the route applies the USD-denominated `curveFilled >= 85%`
+ * pool before the route applies the USD-denominated `curveFilled >= 75%`
  * gate in memory.
  */
 export async function fetchNonGraduatedTokensOnchain(
@@ -356,7 +356,12 @@ export async function fetchTokenOnchain(
   databaseUrl: string,
   address: string,
 ): Promise<PonderTokenOnchain | null | "unavailable"> {
-  return readTokenOnchain(createDb(databaseUrl), address);
+  // Per-isolate cache memoises the single-token read for a few seconds
+  // (issue #1125, solution #3) so the burst of `/tokens/:addr` requests
+  // for a viral token collapses to one Postgres round-trip per
+  // `HOT_TOKEN_READ_TTL_MS` window per PoP. Transient transport failures
+  // (`"unavailable"`) are not pinned — see `indexer-reads.ts`.
+  return readTokenOnchainCached(createDb(databaseUrl), address);
 }
 
 /**
