@@ -279,7 +279,7 @@ export async function fetchGraduatedTokensOnchain(
 /**
  * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
  * sold-out first). Used by the GRADUATING tab to derive a bounded candidate
- * pool before applying the USD-denominated `curveFilled >= 85%` gate in the
+ * pool before applying the USD-denominated `curveFilled >= 75%` gate in the
  * route handler — see `apps/api/AGENTS.md` → "Why fetch the Ponder pool
  * sorted by `curveSupply asc`".
  */

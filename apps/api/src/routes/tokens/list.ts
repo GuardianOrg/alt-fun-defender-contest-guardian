@@ -1,8 +1,22 @@
-import { eq, gt, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
+import {
+  eq,
+  gt,
+  desc,
+  asc,
+  ilike,
+  or,
+  and,
+  inArray,
+  notInArray,
+  type SQL,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
-import { EXCLUDED_UNDERLYING_ASSETS, isExcludedUnderlying } from "@launchpad/shared";
+import {
+  EXCLUDED_UNDERLYING_ASSETS,
+  isExcludedUnderlying,
+} from "@launchpad/shared";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
@@ -72,14 +86,16 @@ const STATUS_POOL_SIZE = 500;
  * continues to drive the GRADUATING pill / trade-panel overlay
  * regardless of this threshold.
  *
- * 85% picks the closing-stretch slice: gives users a clear "shortlist
+ * 75% picks the closing-stretch slice: gives users a clear "shortlist
  * of tokens about to graduate" without diluting the tab with
  * mid-curve tokens that haven't earned the spotlight yet. Centralised
  * here so the route + tests + any future docs share the constant.
  */
-const GRADUATING_TAB_MIN_CURVE_FILLED = 85;
+const GRADUATING_TAB_MIN_CURVE_FILLED = 75;
 
-function parseNonNegativeInt(value: string | undefined): number | undefined | null {
+function parseNonNegativeInt(
+  value: string | undefined,
+): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
@@ -407,7 +423,9 @@ listRoute.get("/", async (c) => {
 
   const statusRaw = c.req.query("status");
   const status: StatusFilter | undefined =
-    statusRaw === "curve" || statusRaw === "graduating" || statusRaw === "graduated"
+    statusRaw === "curve" ||
+    statusRaw === "graduating" ||
+    statusRaw === "graduated"
       ? statusRaw
       : undefined;
 
@@ -494,7 +512,10 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -529,7 +550,9 @@ listRoute.get("/", async (c) => {
     // see `lib/lt-availability.ts`. We pass the rows through the filter
     // before pagination so `offset` / `limit` reference the visible slice
     // and we don't end up with short pages.
-    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
+    const availability = await getLiveLtAvailability({
+      databaseUrl: c.env.DATABASE_URL,
+    }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -551,7 +574,10 @@ listRoute.get("/", async (c) => {
       const row = dbByAddress.get(addr);
       if (!row) continue;
       if (!matchesFilters(row, filters)) continue;
-      if (createdAfterMs !== undefined && row.createdAt.getTime() <= createdAfterMs) {
+      if (
+        createdAfterMs !== undefined &&
+        row.createdAt.getTime() <= createdAfterMs
+      ) {
         continue;
       }
       orderedDbRows.push(row);
@@ -560,7 +586,10 @@ listRoute.get("/", async (c) => {
 
     if (orderedDbRows.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -578,8 +607,12 @@ listRoute.get("/", async (c) => {
       ? (sort as "trending" | "mcap" | "change24h")
       : null;
 
-    const enrichInputDbRows = scoredSort ? orderedDbRows : orderedDbRows.slice(offset, offset + limit);
-    const enrichInputOnchain = scoredSort ? orderedOnchain : orderedOnchain.slice(offset, offset + limit);
+    const enrichInputDbRows = scoredSort
+      ? orderedDbRows
+      : orderedDbRows.slice(offset, offset + limit);
+    const enrichInputOnchain = scoredSort
+      ? orderedOnchain
+      : orderedOnchain.slice(offset, offset + limit);
 
     // Reuse the already-resolved indexer tokens — saves a round-trip
     // compared to computeMarketDataForAddresses which re-fetches them.
@@ -635,7 +668,9 @@ listRoute.get("/", async (c) => {
     const response = c.json(
       formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
     );
-    const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    const ttl = marketResult.ok
+      ? LIST_CACHE_TTL_SECONDS
+      : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
@@ -652,7 +687,7 @@ listRoute.get("/", async (c) => {
   // filter. See `lib/market-data.ts` and `lib/token-enrich.ts` for the
   // rationale.
   //
-  // We can't push the 85% gate or the curveFilled sort into the Ponder
+  // We can't push the threshold gate or the curveFilled sort into the Ponder
   // query because `curveFilled` is USD-denominated (`realLt × rate /
   // threshold × 100`) and depends on the BounceTech LT exchange rate,
   // which Ponder doesn't have. We instead fetch a bounded pool ordered
@@ -673,7 +708,10 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -704,7 +742,9 @@ listRoute.get("/", async (c) => {
       return c.json(formatError("Token metadata unavailable"), 503);
     }
 
-    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
+    const availability = await getLiveLtAvailability({
+      databaseUrl: c.env.DATABASE_URL,
+    }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -744,14 +784,17 @@ listRoute.get("/", async (c) => {
 
     if (candidatesDb.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+      empty.headers.set(
+        "Cache-Control",
+        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
+      );
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
 
     // Resolve market data for the *full* candidate pool — not just the
     // paginated slice. We need every candidate's `curveFilled` to
-    // evaluate the 85% gate and the `curveFilled desc` sort *before*
+    // evaluate the threshold gate and the `curveFilled desc` sort *before*
     // applying `offset` / `limit`, otherwise pagination would reference
     // unfiltered positions and produce short / wrong pages. The pool is
     // capped at `STATUS_POOL_SIZE`, matching the per-request work budget
@@ -774,7 +817,7 @@ listRoute.get("/", async (c) => {
     } else {
       // Degraded: enrich without market data. `curveFilled` falls back
       // to supplyFilled (driven purely by `curveSupply`), which is still
-      // enough to evaluate the 85% gate for the overwhelming majority of
+      // enough to evaluate the threshold gate for the overwhelming majority of
       // tokens (USD progress lags supply progress at typical LT-rate
       // ranges — see `computeCurveFilledBreakdown` docstring). Better
       // than blanking the tab while BounceTech is down.
@@ -822,7 +865,9 @@ listRoute.get("/", async (c) => {
     const response = c.json(
       formatSuccess(paged, marketResult.ok ? "live" : "degraded"),
     );
-    const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    const ttl = marketResult.ok
+      ? LIST_CACHE_TTL_SECONDS
+      : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
@@ -838,7 +883,9 @@ listRoute.get("/", async (c) => {
   // whenever a slice contained any LT that BounceTech retired. See
   // `lib/lt-availability.ts` for the cache + HEAD-check semantics and the
   // fail-open rationale.
-  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
+  const availability = await getLiveLtAvailability({
+    databaseUrl: c.env.DATABASE_URL,
+  }).catch(() => null);
 
   const conditions: SQL[] = [eq(tokens.isHidden, false)];
   // Hide retired markets (issue #639) from every DB-first response.
@@ -879,9 +926,11 @@ listRoute.get("/", async (c) => {
   }
 
   const sortColumn =
-    sort === "leverage" ? tokens.leverage :
-    sort === "name" ? tokens.name :
-    tokens.createdAt;
+    sort === "leverage"
+      ? tokens.leverage
+      : sort === "name"
+        ? tokens.name
+        : tokens.createdAt;
 
   // Scored sorts (trending / mcap / change24h) all use the same
   // candidate pool — rolling 24h gross USDC volume desc, top‑N from
@@ -1191,9 +1240,13 @@ listRoute.get("/search", async (c) => {
   // path, and skip the clause entirely if `checksumDirectoryAddresses`
   // filtered every entry out (malformed directory payload) so a 500 from
   // `inArray([])` / `getAddress("not-an-address")` can't take down search.
-  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
+  const availability = await getLiveLtAvailability({
+    databaseUrl: c.env.DATABASE_URL,
+  }).catch(() => null);
   const checksummedDirectory =
-    availability && availability.fresh && availability.directoryAddresses.size > 0
+    availability &&
+    availability.fresh &&
+    availability.directoryAddresses.size > 0
       ? checksumDirectoryAddresses(availability.directoryAddresses)
       : [];
   const liveLtFilter: SQL | undefined =

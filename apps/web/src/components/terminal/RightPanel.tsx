@@ -46,7 +46,7 @@ const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 // Cap on how many "graduating soon" rows we render. The
 // `?status=graduating` endpoint returns every non-graduated token at
-// `≥ 85%` curveFilled (sorted `curveFilled desc`), which can grow into
+// `≥ 75%` curveFilled (sorted `curveFilled desc`), which can grow into
 // the dozens during a viral hour. The right column has no internal
 // scroll for this section (`flex-shrink: 0` — see RightPanel.module.css)
 // so an unbounded list would push MY POSITIONS / RECENT TRADES off
@@ -202,7 +202,7 @@ export default function RightPanel() {
     .slice(0, POSITION_LIMIT);
 
   // No client-side `t.status === "graduating"` filter here: the API
-  // already returns the right set (non-graduated, `curveFilled ≥ 85%`,
+  // already returns the right set (non-graduated, `curveFilled ≥ 75%`,
   // sorted `curveFilled desc`). Slicing happens AFTER the API filter
   // so the top entries are always the closest-to-graduation tokens
   // regardless of how many tokens are currently in flight.
