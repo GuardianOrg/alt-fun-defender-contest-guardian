@@ -42,8 +42,8 @@
   gap: 0.8rem;
   padding-left: 0.8rem;
   padding-right: 0.8rem;
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
 }
 
 .assetLogo {
@@ -56,6 +56,8 @@
 .assetMeta {
   display: flex;
   flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .assetRowBorder {
@@ -64,15 +66,19 @@
 
 .assetName {
   font-size: 14px;
+  line-height: 1rem;
   font-weight: 700;
   color: var(--txt);
+  white-space: nowrap;
 }
 
 .assetChange {
   font-size: 12px;
+  line-height: 0.875rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   margin-top: 0.2rem;
+  min-width: 3.4rem;
 }
 
 .assetChangeUp {
@@ -85,10 +91,14 @@
 
 .assetPrice {
   font-size: 14px;
+  line-height: 1rem;
   font-weight: 600;
   color: var(--txt);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
+  width: 4.25rem;
+  flex-shrink: 0;
+  text-align: right;
 }
 
 /* Skeleton placeholders for the initial loading window. Mirror the
@@ -126,15 +136,16 @@
 }
 
 .skeletonChange {
-  width: 2.4rem;
-  height: 0.7rem;
-  margin-top: 0.3rem;
+  width: 3.4rem;
+  height: 0.875rem;
+  margin-top: 0.2rem;
 }
 
 .skeletonPrice {
-  width: 2.4rem;
-  height: 0.8rem;
+  width: 4.25rem;
+  height: 1rem;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 /* Respect users who opt out of motion: keep the placeholder visible but
