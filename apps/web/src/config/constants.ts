@@ -89,9 +89,9 @@ export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
 
 export const SEED_PCT_OPTIONS = [1, 2, 3, 5] as const;
 
-// Re-export the canonical asset / leverage sets from `@launchpad/shared` so
-// the create flow and the API stay in lock-step. Adding a new BounceTech LT
-// asset is a one-line change in `packages/shared/src/constants/bouncetech.ts`.
+// Re-export the canonical asset / leverage allowlists from `@launchpad/shared`.
+// Visible market lists are narrowed by the live LT directory so newly allowed
+// assets do not appear before the contract-backed mirror detects them.
 export {
   SUPPORTED_UNDERLYING_ASSETS as UNDERLYING_ASSETS,
   SUPPORTED_LEVERAGES as LEVERAGE_OPTIONS,

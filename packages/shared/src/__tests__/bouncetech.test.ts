@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 
-import type { LiveLeveragedToken, LeveragedTokenInfo } from "../constants/bouncetech.js";
+import type {
+  LiveLeveragedToken,
+  LeveragedTokenInfo,
+} from "../constants/bouncetech.js";
 import {
   filterSupportedLTs,
   findLT,
@@ -12,7 +15,9 @@ import {
   SUPPORTED_LEVERAGES,
 } from "../constants/bouncetech.js";
 
-function makeLiveLT(overrides: Partial<LiveLeveragedToken> = {}): LiveLeveragedToken {
+function makeLiveLT(
+  overrides: Partial<LiveLeveragedToken> = {},
+): LiveLeveragedToken {
   return {
     address: "0x0000000000000000000000000000000000000001",
     symbol: "HYPE2L",
@@ -30,7 +35,9 @@ function makeLiveLT(overrides: Partial<LiveLeveragedToken> = {}): LiveLeveragedT
   };
 }
 
-function makeLTInfo(overrides: Partial<LeveragedTokenInfo> = {}): LeveragedTokenInfo {
+function makeLTInfo(
+  overrides: Partial<LeveragedTokenInfo> = {},
+): LeveragedTokenInfo {
   return {
     address: "0x0000000000000000000000000000000000000001",
     symbol: "HYPE2L",
@@ -94,9 +101,7 @@ describe("filterSupportedLTs", () => {
   });
 
   it("returns empty array when no LTs match", () => {
-    const lts = [
-      makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 10 }),
-    ];
+    const lts = [makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 10 })];
     const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(0);
   });
@@ -171,6 +176,7 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "ZEC",
       "kPEPE",
       "FARTCOIN",
+      "xyz:CBRS",
       "xyz:CL",
       "xyz:BRENTOIL",
       "xyz:GOLD",
@@ -181,7 +187,6 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:XYZ100",
     ]);
   });
-
 });
 
 describe("isSupportedUnderlying", () => {
@@ -227,4 +232,3 @@ describe("getHyperliquidDex", () => {
     expect(getHyperliquidDex("kPEPE")).toBeNull();
   });
 });
-

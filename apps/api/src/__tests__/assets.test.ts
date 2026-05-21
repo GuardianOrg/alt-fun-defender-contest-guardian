@@ -10,6 +10,7 @@ vi.stubGlobal("fetch", mockFetch);
 const HYPE_2L = "0xa000000000000000000000000000000000000001";
 const HYPE_5L = "0xa000000000000000000000000000000000000002";
 const DOGE_3L = "0xa000000000000000000000000000000000000003";
+const CBRS_2L = "0xa000000000000000000000000000000000000004";
 
 const DIRECTORY: LiveLeveragedToken[] = [
   {
@@ -54,6 +55,20 @@ const DIRECTORY: LiveLeveragedToken[] = [
     totalAssets: "0",
     baseAssetBalance: "0",
   },
+  {
+    address: CBRS_2L,
+    symbol: "CBRS2L",
+    name: "CBRS 2x Long",
+    targetAsset: "xyz:CBRS",
+    targetLeverage: 2,
+    isLong: true,
+    decimals: 18,
+    mintPaused: false,
+    exchangeRate: "1000000000000000000",
+    totalSupply: "0",
+    totalAssets: "0",
+    baseAssetBalance: "0",
+  },
 ];
 
 function jsonResponse(body: unknown): Response {
@@ -65,20 +80,30 @@ function jsonResponse(body: unknown): Response {
 }
 
 function installRouter() {
-  mockFetch.mockImplementation(async (input: string | Request, init?: RequestInit) => {
-    const method = (init?.method ?? "GET").toUpperCase();
-    const url = typeof input === "string" ? input : input.url;
+  mockFetch.mockImplementation(
+    async (input: string | Request, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      const url = typeof input === "string" ? input : input.url;
 
-    if (url.startsWith("https://api.hyperliquid.xyz/info") && method === "POST") {
-      return jsonResponse({ HYPE: "12.34", DOGE: "0.42" });
-    }
-    throw new Error(`Unhandled fetch in test: ${method} ${url}`);
-  });
+      if (
+        url.startsWith("https://api.hyperliquid.xyz/info") &&
+        method === "POST"
+      ) {
+        const body = init?.body
+          ? (JSON.parse(String(init.body)) as { dex?: string })
+          : {};
+        if (body.dex === "xyz") {
+          return jsonResponse({ "xyz:CBRS": "9.87" });
+        }
+        return jsonResponse({ HYPE: "12.34", DOGE: "0.42" });
+      }
+      throw new Error(`Unhandled fetch in test: ${method} ${url}`);
+    },
+  );
 }
 
-const mockReadSupportedLtDirectory = vi.fn<
-  (databaseUrl: string) => Promise<LiveLeveragedToken[] | null>
->();
+const mockReadSupportedLtDirectory =
+  vi.fn<(databaseUrl: string) => Promise<LiveLeveragedToken[] | null>>();
 vi.mock("../lib/lt-directory-reads.js", () => ({
   readLtDirectory: vi.fn(),
   readSupportedLtDirectory: mockReadSupportedLtDirectory,
@@ -87,9 +112,8 @@ vi.mock("../lib/lt-directory-reads.js", () => ({
   readDirectoryLastUpdatedAt: vi.fn(),
 }));
 
-const { default: assetsRoute, _resetAssetsRouteCache } = await import(
-  "../routes/assets.js"
-);
+const { default: assetsRoute, _resetAssetsRouteCache } =
+  await import("../routes/assets.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
@@ -134,10 +158,11 @@ describe("GET /assets", () => {
       "HYPE2L",
       "HYPE5L",
       "DOGE3L",
+      "CBRS2L",
     ]);
   });
 
-  it("publishes the hardcoded supported underlying list with Hyperliquid mids", async () => {
+  it("publishes only detected supported underlyings with Hyperliquid mids", async () => {
     const app = createApp();
     const res = await app.request("/assets", {}, makeEnv());
 
@@ -147,11 +172,22 @@ describe("GET /assets", () => {
 
     const hype = body.data.underlying.find((u) => u.symbol === "HYPE");
     const doge = body.data.underlying.find((u) => u.symbol === "DOGE");
+    const cbrs = body.data.underlying.find((u) => u.symbol === "xyz:CBRS");
     expect(hype?.price).toBe("12.34");
     expect(doge?.price).toBe("0.42");
+    expect(cbrs?.price).toBe("9.87");
+    expect(body.data.underlying.some((u) => u.symbol === "BTC")).toBe(false);
   });
 
-  it("returns an empty leveragedTokens list when the LT directory mirror is degraded", async () => {
+  it("serves the detected asset set from the local route cache", async () => {
+    const app = createApp();
+    await app.request("/assets", {}, makeEnv());
+    await app.request("/assets", {}, makeEnv());
+
+    expect(mockReadSupportedLtDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns empty asset lists when the LT directory mirror is degraded", async () => {
     mockReadSupportedLtDirectory.mockReset();
     mockReadSupportedLtDirectory.mockResolvedValue(null);
 
@@ -165,7 +201,7 @@ describe("GET /assets", () => {
         leveragedTokens: unknown[];
       };
     };
-    expect(body.data.underlying.length).toBeGreaterThan(0);
+    expect(body.data.underlying).toEqual([]);
     expect(body.data.leveragedTokens).toEqual([]);
   });
 });

@@ -1,7 +1,4 @@
-import {
-  getAssetDisplayName,
-  SUPPORTED_UNDERLYING_ASSETS,
-} from "@launchpad/shared";
+import { getAssetDisplayName } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
@@ -11,75 +8,80 @@ import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 import Button from "../shared/Button";
 
-import type { Asset } from "../../services/types";
-
-type StaticMarketRow = Pick<Asset, "name">;
-type MarketRow = Asset | StaticMarketRow;
-
-function hasMarketData(row: MarketRow): row is Asset {
-  return "priceUsd" in row;
-}
+const MARKET_SKELETON_COUNT = 18;
 
 export default function Sidebar() {
   const navigate = useNavigate();
-  const { data: assets, isLoading: assetsLoading } = useAssets();
-  const marketRows: readonly MarketRow[] =
-    assets ?? SUPPORTED_UNDERLYING_ASSETS.map((name) => ({ name }));
+  const { data: assets } = useAssets();
 
   return (
     <div className={styles.sidebar}>
       <div className={cn(styles.panel, styles.marketsPanel)}>
         <div className={styles.sectionHeader}>MARKETS</div>
-        {marketRows.map((a, i) => {
-          const marketDataLoaded = !assetsLoading && hasMarketData(a);
-          return (
-            <div
-              key={a.name}
-              className={cn(
-                styles.assetRow,
-                i < marketRows.length - 1 && styles.assetRowBorder,
-              )}
-              aria-busy={!marketDataLoaded || undefined}
-            >
-              <AssetIcon
-                asset={a.name}
-                size={24}
-                className={styles.assetLogo}
-              />
-              <div className={styles.assetMeta}>
-                <div className={styles.assetName}>
-                  {getAssetDisplayName(a.name)}
-                </div>
-                {marketDataLoaded ? (
+        {assets === undefined
+          ? Array.from({ length: MARKET_SKELETON_COUNT }, (_, i) => (
+              <div
+                key={`market-skeleton-${i}`}
+                className={cn(
+                  styles.assetRow,
+                  i < MARKET_SKELETON_COUNT - 1 && styles.assetRowBorder,
+                )}
+                aria-busy="true"
+              >
+                <div
+                  className={cn(styles.skeletonBlock, styles.assetLogo)}
+                  aria-hidden="true"
+                />
+                <div className={styles.assetMeta}>
                   <div
-                    className={cn(
-                      styles.assetChange,
-                      a.change24h >= 0
-                        ? styles.assetChangeUp
-                        : styles.assetChangeDown,
-                    )}
-                  >
-                    {a.change24h >= 0 ? "+" : ""}
-                    {a.change24h.toFixed(2)}%
-                  </div>
-                ) : (
+                    className={cn(styles.skeletonBlock, styles.skeletonPrice)}
+                    aria-hidden="true"
+                  />
                   <div
                     className={cn(styles.skeletonBlock, styles.skeletonChange)}
                     aria-hidden="true"
                   />
-                )}
-              </div>
-              {marketDataLoaded ? (
-                <div className={styles.assetPrice}>{a.priceUsd}</div>
-              ) : (
+                </div>
                 <div
                   className={cn(styles.skeletonBlock, styles.skeletonPrice)}
                   aria-hidden="true"
                 />
-              )}
-            </div>
-          );
-        })}
+              </div>
+            ))
+          : assets.map((a, i) => {
+              return (
+                <div
+                  key={a.name}
+                  className={cn(
+                    styles.assetRow,
+                    i < assets.length - 1 && styles.assetRowBorder,
+                  )}
+                >
+                  <AssetIcon
+                    asset={a.name}
+                    size={24}
+                    className={styles.assetLogo}
+                  />
+                  <div className={styles.assetMeta}>
+                    <div className={styles.assetName}>
+                      {getAssetDisplayName(a.name)}
+                    </div>
+                    <div
+                      className={cn(
+                        styles.assetChange,
+                        a.change24h >= 0
+                          ? styles.assetChangeUp
+                          : styles.assetChangeDown,
+                      )}
+                    >
+                      {a.change24h >= 0 ? "+" : ""}
+                      {a.change24h.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div className={styles.assetPrice}>{a.priceUsd}</div>
+                </div>
+              );
+            })}
       </div>
 
       <div className={styles.ctaSection}>
