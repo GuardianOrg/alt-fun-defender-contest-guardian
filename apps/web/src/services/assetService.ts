@@ -1,5 +1,6 @@
 import {
   HYPERLIQUID_INFO_API,
+  getAssetDisplayName,
   getHyperliquidDex,
   isSupportedUnderlying,
 } from "@launchpad/shared";
@@ -47,6 +48,18 @@ let cached24hPrices: { data: Record<string, AssetChange>; ts: number } | null =
   null;
 const CHANGE_CACHE_TTL = 60_000;
 
+function compareAssetTickers(a: string, b: string): number {
+  return getAssetDisplayName(a).localeCompare(getAssetDisplayName(b));
+}
+
+function sortAssetsByTicker<T extends { name: string }>(
+  assets: readonly T[],
+): T[] {
+  return [...assets].sort((a, b) =>
+    compareAssetTickers(a.name, b.name),
+  );
+}
+
 interface CachedAssetsPayload {
   ts: number;
   assets: Asset[];
@@ -75,7 +88,7 @@ export function readCachedAssets(): Asset[] | undefined {
     if (Date.now() - parsed.ts > ASSET_CACHE_MAX_AGE_MS) return undefined;
     if (!Array.isArray(parsed.assets)) return undefined;
     const assets = parsed.assets.filter(isCachedAsset);
-    return assets.length > 0 ? assets : undefined;
+    return assets.length > 0 ? sortAssetsByTicker(assets) : undefined;
   } catch {
     return undefined;
   }
@@ -185,7 +198,7 @@ const liveAssetService: IAssetService = {
         apiAssets.map((asset) => [asset.symbol, asset.price ?? ""]),
       );
       const changes = await fetch24hChanges(mids, trackedAssets);
-      const assets = trackedAssets.map((name) => {
+      const assets = [...trackedAssets].sort(compareAssetTickers).map((name) => {
         const mid = parseFloat(mids[name] ?? "");
         const ch = changes[name];
         return {
