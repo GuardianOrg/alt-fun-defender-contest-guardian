@@ -9,6 +9,7 @@ import PairSelector from "./PairSelector";
 import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
+import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
@@ -78,6 +79,12 @@ export default function CreateView() {
   });
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
+  const availableAssets = useAvailableUnderlyingAssets();
+  const noDetectedPairs = availableAssets.length === 0;
+  useEffect(() => {
+    if (availableAssets.length === 0 || availableAssets.includes(asset)) return;
+    setAsset(availableAssets[0]);
+  }, [asset, availableAssets]);
   const seedAmt = parseFloat(seedAmount) || 0;
   // Mirrors `Zap.MIN_SEED_USDC` on-chain: the contract reverts with
   // `BelowMinSeed` if `seedUsdcAmount < $20`. Block the Launch button at
@@ -121,6 +128,7 @@ export default function CreateView() {
     }
     if (!trimmedName || !trimmedTicker) return;
     if (seedBelowMin) return;
+    if (noDetectedPairs) return;
     // Belt-and-braces for the geo gate — the Launch button is disabled
     // while geo-blocked, but a stale render between a country flip and
     // the click shouldn't be able to slip a launch tx through.
@@ -206,6 +214,7 @@ export default function CreateView() {
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
+    if (noDetectedPairs) return "LOADING PAIRS…";
     if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "⚡ LAUNCH TOKEN";
@@ -317,6 +326,7 @@ export default function CreateView() {
                   launchStep === "confirmed" ||
                   vanity.status === "error" ||
                   isGeoBlocked ||
+                  noDetectedPairs ||
                   pairMintPaused ||
                   (isConnected && seedBelowMin)
                 }

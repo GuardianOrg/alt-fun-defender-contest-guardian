@@ -18,6 +18,7 @@ import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
 import tesla from "../../assets/Logos/tesla.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
+import cbrs from "../../assets/Logos/xyz_CBRS.svg";
 import xyz_CL from "../../assets/Logos/xyz_CL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
@@ -34,6 +35,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   ZEC: zec,
   kPEPE: kPepe,
   FARTCOIN: fartcoin,
+  "xyz:CBRS": cbrs,
   "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,
   "xyz:GOLD": xyz_GOLD,

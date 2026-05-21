@@ -4,8 +4,11 @@ import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
-import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
-import { useAssetChanges } from "../../hooks/useAssets";
+import { LEVERAGE_OPTIONS } from "../../config/constants";
+import {
+  useAssetChanges,
+  useAvailableUnderlyingAssets,
+} from "../../hooks/useAssets";
 import { cn, formatPercent, getLtDisplayName } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
@@ -30,6 +33,7 @@ export default function PairSelector({
   onLeverageChange,
 }: Props) {
   const assetChanges = useAssetChanges();
+  const availableAssets = useAvailableUnderlyingAssets();
   const isLong = direction === "long";
   const baseChg = assetChanges[asset];
   const chg =
@@ -143,7 +147,7 @@ export default function PairSelector({
 
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
-        {UNDERLYING_ASSETS.map((a) => {
+        {availableAssets.map((a) => {
           const change = assetChanges[a];
           const hasData = change != null;
           const up = hasData && change >= 0;

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import {
+  getHyperliquidDex,
   HYPERLIQUID_INFO_API,
+  HYPERLIQUID_XYZ_DEX,
   SUPPORTED_UNDERLYING_ASSETS,
 } from "@launchpad/shared";
 
@@ -11,10 +13,19 @@ import {
 import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
+import type { LiveLeveragedToken } from "@launchpad/shared";
 
 let cachedMids: { data: Record<string, string>; ts: number } | null = null;
+let cachedSupportedDirectory:
+  | {
+      lts: LiveLeveragedToken[];
+      underlyings: string[];
+      ts: number;
+    }
+  | null = null;
 
 const CACHE_TTL_MS = 10_000;
+const DIRECTORY_CACHE_TTL_MS = 15_000;
 // Bound the Hyperliquid `/info` fan-out so a stalled CDN can't pin the
 // request indefinitely. The endpoint is p99 ≪ 1 s under normal load;
 // the 5 s cap absorbs transient latency spikes while still failing
@@ -34,6 +45,7 @@ const EXTERNAL_FETCH_TIMEOUT_MS = 5_000;
  */
 export function _resetAssetsRouteCache(): void {
   cachedMids = null;
+  cachedSupportedDirectory = null;
 }
 
 /**
@@ -59,26 +71,93 @@ async function fetchWithTimeout(
   }
 }
 
-async function fetchMids(): Promise<Record<string, string>> {
+async function fetchMids(
+  trackedAssets: readonly string[] = SUPPORTED_UNDERLYING_ASSETS,
+): Promise<Record<string, string>> {
   if (cachedMids && Date.now() - cachedMids.ts < CACHE_TTL_MS) {
     return cachedMids.data;
   }
   try {
-    const res = await fetchWithTimeout(
-      HYPERLIQUID_INFO_API,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "allMids" }),
-      },
-      EXTERNAL_FETCH_TIMEOUT_MS,
-    );
-    const data = (await res.json()) as Record<string, string>;
+    const requests: Promise<Record<string, string>>[] = [
+      fetchWithTimeout(
+        HYPERLIQUID_INFO_API,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type: "allMids" }),
+        },
+        EXTERNAL_FETCH_TIMEOUT_MS,
+      ).then((res) => res.json() as Promise<Record<string, string>>),
+    ];
+    if (trackedAssets.some((asset) => getHyperliquidDex(asset))) {
+      requests.push(
+        fetchWithTimeout(
+          HYPERLIQUID_INFO_API,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              type: "allMids",
+              dex: HYPERLIQUID_XYZ_DEX,
+            }),
+          },
+          EXTERNAL_FETCH_TIMEOUT_MS,
+        )
+          .then((res) => res.json() as Promise<Record<string, string>>)
+          .catch(() => ({}) as Record<string, string>),
+      );
+    }
+    const data = Object.assign({}, ...(await Promise.all(requests))) as Record<
+      string,
+      string
+    >;
     cachedMids = { data, ts: Date.now() };
     return data;
   } catch {
     return cachedMids?.data ?? {};
   }
+}
+
+function detectedSupportedUnderlyings(
+  lts: readonly { targetAsset: string }[],
+): string[] {
+  const detected = new Set(lts.map((lt) => lt.targetAsset));
+  return SUPPORTED_UNDERLYING_ASSETS.filter((symbol) => detected.has(symbol));
+}
+
+async function readCachedSupportedDirectory(databaseUrl: string): Promise<{
+  lts: LiveLeveragedToken[];
+  underlyings: string[];
+  degraded: boolean;
+}> {
+  if (
+    cachedSupportedDirectory &&
+    Date.now() - cachedSupportedDirectory.ts < DIRECTORY_CACHE_TTL_MS
+  ) {
+    return {
+      lts: cachedSupportedDirectory.lts,
+      underlyings: cachedSupportedDirectory.underlyings,
+      degraded: false,
+    };
+  }
+
+  const lts = await withDbTimeout(
+    readSupportedLtDirectory(databaseUrl),
+    null,
+    DB_READ_TIMEOUT_MS,
+    "readSupportedLtDirectory",
+  );
+  if (lts === null) {
+    return {
+      lts: cachedSupportedDirectory?.lts ?? [],
+      underlyings: cachedSupportedDirectory?.underlyings ?? [],
+      degraded: true,
+    };
+  }
+
+  const underlyings = detectedSupportedUnderlyings(lts);
+  cachedSupportedDirectory = { lts, underlyings, ts: Date.now() };
+  return { lts, underlyings, degraded: false };
 }
 
 /**
@@ -107,7 +186,7 @@ const DB_READ_TIMEOUT_MS = 4_000;
  * failure. CodeRabbit feedback on the original implementation: a
  * blanket `.catch(() => resolve(fallback))` would have silently
  * swallowed e.g. an auth error from `readSupportedLtDirectory` and
- * served a degraded "show everything" page on top of a permanent
+ * served a degraded empty market list on top of a permanent
  * misconfiguration. The `settled` latch covers the race where the
  * wrapped promise eventually rejects *after* the timer has already
  * fired — the rejection is still observed (no unhandled rejection in
@@ -160,24 +239,10 @@ function withDbTimeout<T>(
 const assets = new Hono<{ Bindings: AppBindings }>();
 
 assets.get("/", async (c) => {
-  const [mids, lts] = await Promise.all([
-    fetchMids(),
-    // `null` from the DB read means the `lt_directory` mirror is degraded
-    // (poller hasn't backfilled yet or the DB read failed). Fall back to
-    // an empty LT list; the underlying asset list is hardcoded below.
-    // Wrapped in `withDbTimeout` so a cold Neon compute can't pin the
-    // route past `DB_READ_TIMEOUT_MS` — a hung HTTPS-to-Neon connection
-    // is the failure mode we saw in CI cold-start runs (the lib's own
-    // try/catch only handles thrown errors, not stalls).
-    withDbTimeout(
-      readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
-      [],
-      DB_READ_TIMEOUT_MS,
-      "readSupportedLtDirectory",
-    ),
-  ]);
+  const directory = await readCachedSupportedDirectory(c.env.DATABASE_URL);
+  const mids = await fetchMids(directory.underlyings);
 
-  const leveragedTokens = lts.map((lt) => ({
+  const leveragedTokens = directory.lts.map((lt) => ({
     address: lt.address,
     symbol: lt.symbol,
     name: lt.name,
@@ -188,12 +253,17 @@ assets.get("/", async (c) => {
     mintPaused: lt.mintPaused,
   }));
 
-  const underlying = SUPPORTED_UNDERLYING_ASSETS.map((symbol) => ({
+  const underlying = directory.underlyings.map((symbol) => ({
     symbol,
     price: mids[symbol] ?? null,
   }));
 
-  return c.json(formatSuccess({ underlying, leveragedTokens }));
+  return c.json(
+    formatSuccess(
+      { underlying, leveragedTokens },
+      directory.degraded ? "degraded" : undefined,
+    ),
+  );
 });
 
 /**

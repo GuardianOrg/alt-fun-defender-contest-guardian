@@ -22,7 +22,9 @@ interface ApiResponse<T> {
 const DEGRADED_EVENT = "launchpad:degraded";
 
 function emitDegradedState(degraded: boolean) {
-  window.dispatchEvent(new CustomEvent(DEGRADED_EVENT, { detail: { degraded } }));
+  window.dispatchEvent(
+    new CustomEvent(DEGRADED_EVENT, { detail: { degraded } }),
+  );
 }
 
 export { DEGRADED_EVENT };
@@ -292,7 +294,9 @@ export interface TokenMeta {
   symbol: string;
 }
 
-export async function fetchTokenMeta(address: string): Promise<TokenMeta | null> {
+export async function fetchTokenMeta(
+  address: string,
+): Promise<TokenMeta | null> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/tokens/${address}/meta`);
     const json = (await res.json()) as ApiResponse<TokenMeta>;
@@ -388,18 +392,18 @@ export type ChartTimeframe = "1d" | "5d" | "1m";
  * tick cadence and the curve's snapshot-per-trade write rate).
  */
 export const CHART_INTERVAL_SECONDS = [
-  5,        // 5s
-  15,       // 15s
-  30,       // 30s
-  60,       // 1m
-  300,      // 5m
-  900,      // 15m
-  1_800,    // 30m
-  3_600,    // 1h
-  14_400,   // 4h
-  21_600,   // 6h
-  43_200,   // 12h
-  86_400,   // 1D
+  5, // 5s
+  15, // 15s
+  30, // 30s
+  60, // 1m
+  300, // 5m
+  900, // 15m
+  1_800, // 30m
+  3_600, // 1h
+  14_400, // 4h
+  21_600, // 6h
+  43_200, // 12h
+  86_400, // 1D
 ] as const;
 
 export type ChartIntervalSeconds = (typeof CHART_INTERVAL_SECONDS)[number];
@@ -582,11 +586,6 @@ export function fetchMarketDataForToken(
   return apiFetch(`/api/v1/market-data/${address.toLowerCase()}`);
 }
 
-/**
- * Per-asset response shape from `GET /api/v1/assets`. Currently only
- * exposes the current Hyperliquid mid — kept narrow so we can extend
- * the API without a breaking change to consumers.
- */
 export interface ApiBalance {
   address: string;
   name: string;
@@ -605,6 +604,25 @@ export interface ApiBalance {
    */
   isHidden: boolean;
   balance: string;
+}
+
+/**
+ * Per-asset response shape from `GET /api/v1/assets`. The API only
+ * returns underlyings that are backed by at least one supported LT in
+ * the contract-backed mirror.
+ */
+export interface ApiAsset {
+  symbol: string;
+  price: string | null;
+}
+
+interface ApiAssetsResponse {
+  underlying: ApiAsset[];
+}
+
+export async function fetchAssets(): Promise<ApiAsset[]> {
+  const res = await apiFetch<ApiAssetsResponse>("/api/v1/assets");
+  return res.underlying;
 }
 
 export function fetchBalances(wallet: string): Promise<ApiBalance[]> {

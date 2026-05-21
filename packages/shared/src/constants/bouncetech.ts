@@ -62,6 +62,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "ZEC",
   "kPEPE",
   "FARTCOIN",
+  "xyz:CBRS",
   "xyz:CL",
   "xyz:BRENTOIL",
   "xyz:GOLD",

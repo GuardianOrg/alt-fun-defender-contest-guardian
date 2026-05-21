@@ -59,14 +59,20 @@ describe("liveAssetService.getAssets", () => {
   type FetchMock = ReturnType<typeof vi.fn>;
   let fetchMock: FetchMock;
   let originalFetch: typeof globalThis.fetch;
+  let storage: Map<string, string>;
 
   function mockMidsResponse(): Response {
     return new Response(
       JSON.stringify({
-        HYPE: "42",
-        ETH: "3000",
-        BTC: "60000",
-        SOL: "150",
+        status: "success",
+        data: {
+          underlying: [
+            { symbol: "HYPE", price: "42" },
+            { symbol: "xyz:CBRS", price: "9.87" },
+          ],
+          leveragedTokens: [],
+        },
+        error: null,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
@@ -82,8 +88,21 @@ describe("liveAssetService.getAssets", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     fetchMock = vi.fn();
+    storage = new Map<string, string>();
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
     vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    } as unknown as Storage);
     vi.stubEnv("VITE_API_URL", "https://api.test");
     vi.resetModules();
   });
@@ -97,7 +116,7 @@ describe("liveAssetService.getAssets", () => {
   it("returns the supported asset list with Hyperliquid mids", async () => {
     fetchMock.mockImplementation((url: string | URL | Request) => {
       const u = typeof url === "string" ? url : url.toString();
-      if (u.includes("hyperliquid")) {
+      if (u.includes("/api/v1/assets")) {
         return Promise.resolve(mockMidsResponse());
       }
       return Promise.resolve(mockCandleResponse());
@@ -106,20 +125,44 @@ describe("liveAssetService.getAssets", () => {
     const { assetService } = await import("./assetService");
     const assets = await assetService.getAssets();
 
-    expect(assets.length).toBeGreaterThan(1);
+    expect(assets.map((a) => a.name)).toEqual(["HYPE", "xyz:CBRS"]);
     expect(assets.find((a) => a.name === "HYPE")?.priceUsd).toBe("$42.00");
+    expect(assets.find((a) => a.name === "xyz:CBRS")?.priceUsd).toBe("$9.87");
     expect(
-      fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/assets")),
-    ).toBe(false);
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/v1/assets"),
+      ),
+    ).toBe(true);
   });
 
-  it("returns the supported set with dash prices when Hyperliquid fails", async () => {
-    fetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
+  it("returns no visible assets when the API asset directory fails", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.reject(new Error("network down")),
+    );
 
     const { assetService } = await import("./assetService");
     const assets = await assetService.getAssets();
 
-    expect(assets.length).toBeGreaterThan(1);
-    expect(assets.every((a) => a.priceUsd === "—")).toBe(true);
+    expect(assets).toEqual([]);
+  });
+
+  it("falls back to the cached detected asset list when the API fails", async () => {
+    fetchMock.mockImplementation((url: string | URL | Request) => {
+      const u = typeof url === "string" ? url : url.toString();
+      if (u.includes("/api/v1/assets")) {
+        return Promise.resolve(mockMidsResponse());
+      }
+      return Promise.resolve(mockCandleResponse());
+    });
+
+    const { assetService } = await import("./assetService");
+    await assetService.getAssets();
+
+    fetchMock.mockImplementation(() =>
+      Promise.reject(new Error("network down")),
+    );
+    const cached = await assetService.getAssets();
+
+    expect(cached.map((a) => a.name)).toEqual(["HYPE", "xyz:CBRS"]);
   });
 });

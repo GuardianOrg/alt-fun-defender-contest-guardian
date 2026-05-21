@@ -5,7 +5,8 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./TableFilters.module.css";
-import { LEVERAGE_OPTIONS, UNDERLYING_ASSETS } from "../../config/constants";
+import { LEVERAGE_OPTIONS } from "../../config/constants";
+import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
 import {
   clearTokenFilters,
   selectActiveFilter,
@@ -277,7 +278,7 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
  *     API. The trigger is hidden on NEW + GRADUATING — those tabs
  *     have a fixed natural ordering (`createdAt desc` / `curveFilled
  *     desc`) and any override would fight the tab's own semantics.
- *   - Market: every supported underlying (HYPE, ETH, BTC, GOLD, …).
+ *   - Market: every detected supported underlying (HYPE, ETH, BTC, GOLD, …).
  *   - Leverage: 2× / 3× / 5×.
  *   - Direction: Long / Short.
  *
@@ -311,7 +312,9 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
  * sentence-case option rows in Market / Leverage / Direction (which
  * surface free-form values like `HYPE` / `Long`, not column names).
  */
-function defaultSortLabel(activeFilter: ReturnType<typeof selectActiveFilter>): string {
+function defaultSortLabel(
+  activeFilter: ReturnType<typeof selectActiveFilter>,
+): string {
   return activeFilter === "graduated" ? "RECENTLY GRADUATED" : "24H VOLUME";
 }
 
@@ -332,6 +335,7 @@ export default function TableFilters() {
   const filters = useSelector(selectTokenFilters);
   const activeFilter = useSelector(selectActiveFilter);
   const tokenSort = useSelector(selectTokenSort);
+  const availableAssets = useAvailableUnderlyingAssets();
   const [open, setOpen] = useState<OpenPopover>(null);
 
   const sortRef = useRef<HTMLDivElement | null>(null);
@@ -449,9 +453,7 @@ export default function TableFilters() {
         <FilterTrigger
           label="Market"
           value={
-            filters.underlying
-              ? getAssetDisplayName(filters.underlying)
-              : null
+            filters.underlying ? getAssetDisplayName(filters.underlying) : null
           }
           active={filters.underlying !== undefined}
           open={open === "market"}
@@ -467,7 +469,7 @@ export default function TableFilters() {
               >
                 <span>All markets</span>
               </OptionRow>
-              {UNDERLYING_ASSETS.map((a) => (
+              {availableAssets.map((a) => (
                 <OptionRow
                   key={a}
                   selected={filters.underlying === a}
