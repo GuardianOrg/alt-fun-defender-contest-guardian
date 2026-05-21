@@ -92,7 +92,7 @@ export const token = onchainTable("token", (t) => ({
   // seq-scans the whole table and sorts in memory. The composite lets
   // the planner walk the `graduated = false` segment in ascending
   // `curveSupply` order (closest-to-sold-out first — the candidate
-  // ordering the route's USD-denominated 85% gate consumes; see
+  // ordering the route's USD-denominated 75% gate consumes; see
   // `routes/tokens/list.ts → fetchNonGraduatedTokensOnchain`).
   curveSupplyIdx: index().on(table.graduated, table.curveSupply),
   // Backs `fetchPendingGraduationTokens` in `graduation-keeper.ts`:

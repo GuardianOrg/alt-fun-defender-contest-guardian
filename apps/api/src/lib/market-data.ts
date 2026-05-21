@@ -281,9 +281,9 @@ export async function fetchGraduatedTokensOnchain(
  *
  * `pendingGraduation: true` tokens (phase 1 has fired) are included by
  * the `graduated: false` filter — their `curveSupply` reflects the
- * threshold-crossing buy's post-trade state (≥85% supplyFilled by
+ * threshold-crossing buy's post-trade state (≥75% supplyFilled by
  * definition, since the trigger fired), so they naturally rank first
- * under the `curveSupply asc` ordering and pass the 85% gate.
+ * under the `curveSupply asc` ordering and pass the 75% gate.
  */
 /**
  * Top-K trending candidates ranked by **rolling 24h gross USDC volume**.
@@ -317,7 +317,7 @@ export type { TrendingVolumeCandidate };
 /**
  * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
  * sold-out first). Used by the GRADUATING tab to derive a bounded candidate
- * pool before the route applies the USD-denominated `curveFilled >= 85%`
+ * pool before the route applies the USD-denominated `curveFilled >= 75%`
  * gate in memory.
  */
 export async function fetchNonGraduatedTokensOnchain(

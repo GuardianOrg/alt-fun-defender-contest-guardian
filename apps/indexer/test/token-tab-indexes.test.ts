@@ -10,7 +10,7 @@
  *   ORDER BY graduated_at DESC
  *   LIMIT 500
  *
- *   -- GRADUATING tab (route then applies the 85%-curve-filled gate
+ *   -- GRADUATING tab (route then applies the 75%-curve-filled gate
  *   --                in memory; see routes/tokens/list.ts)
  *   SELECT ... FROM ponder_views.token
  *   WHERE graduated = false
