@@ -1141,9 +1141,28 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // No-op on a freshly-created pair (balance == reserves == 0).
         IUniswapV2Pair(pair).skim(address(this));
 
-        (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
-        // Regime 1 — pristine pair, direct mint at exact curve-close ratio.
-        if (r0 == 0 && r1 == 0) {
+        // Regime 1/4 — no LP has been minted yet. Covers both the pristine
+        // empty pair (~99% of graduations) and the `sync()`-dust shape an
+        // attacker can produce by `transfer(pair, dust) + pair.sync()`:
+        // `getReserves()` returns non-zero but `totalSupply == 0` because no
+        // one ever called `pair.mint`. The non-empty-reserve branch of the
+        // earlier `r0 == 0 && r1 == 0` check missed this state and fell
+        // through to Regime 3, where the rebalance swap rounds to zero for
+        // 1-wei reserves and the deposit lands at the attacker's synced
+        // ratio (auditor finding, $-drain on graduation).
+        //
+        // Direct-minting against a non-empty + zero-supply pair is safe:
+        // V2's `mint` falls into the first-liquidity branch
+        // (`liquidity = sqrt(amount0 · amount1) − MINIMUM_LIQUIDITY`), so
+        // our `tokensForLP / ltFromPair` are the only inputs to the LP
+        // price. The attacker's dust becomes part of the pool's reserves
+        // with no LP claim — i.e. it is donated to the locked LP holder.
+        // For 1-wei dust the opening ratio is indistinguishable from the
+        // curve-close ratio; for a larger attacker stake the attacker
+        // gifts that capital to us at the cost of a short-lived arb gap
+        // that closes back to true price within blocks. Net attacker P&L
+        // is strictly ≤ 0 either way.
+        if (IUniswapV2Pair(pair).totalSupply() == 0) {
             IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
             IERC20(lt).safeTransfer(pair, ltFromPair);
             liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
