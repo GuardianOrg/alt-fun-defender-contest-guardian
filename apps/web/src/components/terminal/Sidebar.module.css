@@ -96,7 +96,6 @@
   color: var(--txt);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
-  width: 4.25rem;
   flex-shrink: 0;
   text-align: right;
 }
