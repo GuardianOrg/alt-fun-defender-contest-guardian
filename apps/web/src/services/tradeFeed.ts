@@ -12,46 +12,14 @@ import { getWebSocketClient } from "./websocket";
 
 import type { Trade, TradeBroadcast } from "./types";
 
-/**
- * REST poll cadence while the WS connection is healthy. With WS pushing
- * live trades as they happen, the REST poll is a slow safety net — long
- * enough to be cheap, short enough that a wedged WS still surfaces
- * trades within ~one cadence.
- */
+// Slow REST safety-net cadence while WS is healthy.
 const POLL_INTERVAL_WS_OPEN_MS = 15_000;
 
-/**
- * REST poll cadence while the WS connection is down or hasn't yet
- * opened. Tighter than the WS-open cadence so a tab without a working
- * WS stays semi-live, but still loose enough to avoid the back-to-back
- * `/api/v1/trades` bursts the previous immediate-fire + 3s-rescheduled
- * shape produced during the WS handshake (see audit in the "duplicate
- * /api/v1/trades bursts" task).
- */
+// Tighter fallback cadence while WS is closed or not yet open.
 const POLL_INTERVAL_WS_CLOSED_MS = 5_000;
 
-/**
- * Convert a raw WS trade broadcast into the client's formatted `Trade`.
- *
- * The trade-feed only consumes the **`Zap:Buy` / `Zap:Sell`** variant of
- * the `trade` channel, identified by the presence of `usdcAmount`. That
- * broadcast carries the gross USDC the user paid/received — the canonical
- * user-facing value — and its `id` matches `routerTrade.id`, so it dedupes
- * cleanly against the REST `/api/v1/trades` poll fallback.
- *
- * Chart-state broadcasts on the same channel (`Bonding:Trade`,
- * `HyperSwapPair:Sync`) carry `curveSupply` / `ltReserve` only — they're
- * picked up by `useChartData` and skipped here. Surfacing them as rows
- * would produce two entries per trade because the Bonding broadcast
- * records LT consumed by the curve (which can be strictly less than the
- * gross USDC — e.g. a graduation-triggering buy whose final increment
- * hits the supply cap) while the Zap broadcast records the gross USDC.
- */
+/** Format Zap trade broadcasts; chart-state broadcasts on the same channel are skipped. */
 function formatWsTrade(raw: TradeBroadcast): Trade | null {
-  // `TradeBroadcast` is a discriminated union: `usdcAmount` presence
-  // narrows to the trade-list variant. The chart-state variant has
-  // `usdcAmount?: never` so the type-system guarantees the other four
-  // trade-list fields are populated after this check.
   if (raw.usdcAmount === undefined) return null;
   const trade = routerTradeToTrade({
     id: raw.id,
@@ -62,15 +30,7 @@ function formatWsTrade(raw: TradeBroadcast): Trade | null {
     tokenAmount: raw.tokenAmount,
     timestamp: raw.timestamp,
   });
-  // Prefer the indexer-resolved label on the broadcast — it closes the
-  // race window where the first buy for a brand-new token lands in the
-  // feed before the Ponder GraphQL endpoint has caught up to the
-  // indexer's write (issue #703). Fall back through `tokenSymbol` →
-  // `tokenName` → the existing cache lookup (which itself falls back
-  // to a truncated address). Seed the cache while we're here so
-  // subsequent trades for the same token, other components, and the
-  // `subscribeTokenName` healer all see the resolved label without a
-  // separate fetch.
+  // Prefer broadcast labels and seed the shared name cache.
   ingestResolvedTokenName(raw.tokenAddress, raw.tokenSymbol);
   ingestResolvedTokenName(raw.tokenAddress, raw.tokenName);
   const broadcastLabel =
@@ -93,10 +53,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       if (!trade) return;
       seenIds.add(raw.id);
       cb(trade);
-      // Fire-and-forget: warm the name cache so subsequent trades for
-      // this token render with the real symbol instead of a truncated
-      // address. The current trade may show truncated for a brand-new
-      // token; the next one will pick up the resolved name.
+      // Warm the name cache for subsequent rows.
       void prefetchTokenName(raw.tokenAddress);
     });
   }
@@ -104,13 +61,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let polling = false;
-  // Set when a fresh-poll trigger (typically a WS reconnect) lands
-  // while `poll()` is already in flight. The in-flight poll's `finally`
-  // block honours the request once it resolves, so a reconnect's
-  // refresh is never silently dropped just because the regular tick
-  // happened to run a few hundred ms before it. Without this, the
-  // polling-guard early-return would swallow the reconnect's refresh
-  // until the next 15 s tick.
+  // Reconnect-triggered polls wait for the in-flight poll's `finally`.
   let pendingPollRequest = false;
 
   const poll = async () => {
@@ -122,27 +73,11 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     polling = true;
     pendingPollRequest = false;
     try {
-      // `routerTrade` covers both curve and post-graduation trades (any
-      // `Zap.buy/sell` regardless of execution venue), so a single poll
-      // catches everything. The previous Ponder `trades` GraphQL path was
-      // bonding-only and silently dropped post-grad activity from the feed.
-      // Pull 50 — `RightPanel` keeps up to 50 in `useTradeFeed` so the
-      // scrollable feed has enough rows to feel populated on first paint,
-      // and the API caps `limit` at 100 so we have headroom.
+      // Router trades cover both curve and post-grad venues; pull 50 for first paint.
       const trades = await fetchRouterTradesGlobal(50);
       if (cancelled) return;
 
-      // The API now returns `tokenSymbol` / `tokenName` enriched from
-      // the indexer's `token` row (issue #703), so the row's display
-      // label lands on first paint without a second Ponder round-trip.
-      // Seed `tokenNameMap` from the response so the WS path's
-      // `subscribeTokenName` heal flow (and any other consumer) picks
-      // up the same labels without redoing the work.
-      //
-      // For older API builds that don't return the labels, fall back
-      // through `prefetchTokenName` (Ponder GraphQL) — same code path
-      // as before this PR. Both paths are idempotent, so calling them
-      // together for the same address is cheap.
+      // Seed enriched labels, then prefetch any older/unresolved rows.
       for (const t of trades) {
         ingestResolvedTokenName(t.tokenAddress, t.tokenSymbol);
         ingestResolvedTokenName(t.tokenAddress, t.tokenName);
@@ -157,10 +92,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
         const mapped = routerTradeToTrade(t);
-        // Mirror the WS path: prefer the API-enriched label, then fall
-        // back to the cache (which we already seeded above for the
-        // enriched case anyway — kept as a defence-in-depth fallback
-        // when the API hasn't been redeployed with #703 yet).
+        // Mirror the WS path: prefer API labels, then cache fallback.
         const apiLabel =
           t.tokenSymbol?.trim() || t.tokenName?.trim() || "";
         mapped.tokenName = apiLabel || resolveTokenName(t.tokenAddress);
@@ -173,15 +105,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     } finally {
       polling = false;
       if (!cancelled) {
-        // Single source of truth for re-arming the timer: a reconnect
-        // (or any other trigger) that landed mid-flight gets an
-        // immediate refresh, otherwise we drop back to the standard
-        // cadence. Previously the cadence reschedule lived on the
-        // timer's outer `.finally(...)` and ran *after* this block,
-        // so the `reschedulePoll(0)` we'd queue here for a pending
-        // request was silently overwritten by the long-delay
-        // reschedule a microtask later — the pending refresh waited
-        // up to a full WS-open cadence (15 s) instead of firing now.
+        // Re-arm cadence here so reconnect refreshes cannot be overwritten.
         if (pendingPollRequest) {
           pendingPollRequest = false;
           reschedulePoll(0);
@@ -196,20 +120,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     }
   };
 
-  // Single source of truth for the polling cadence: cancels any
-  // pending timer and starts a fresh one. Previously the code path
-  // mixed an unconditional `void poll()` on subscribe with a separate
-  // `schedulePoll` recursion AND a parallel `void poll()` on every WS
-  // reconnect, which produced two near-simultaneous `/api/v1/trades`
-  // requests on first paint (immediate fire + 3 s rescheduled tick
-  // during the WS handshake) and another race window every reconnect
-  // (parallel poll + scheduled tick landing inside 50 ms of each
-  // other). See the "duplicate /api/v1/trades bursts" audit. Funnelling
-  // every trigger through `reschedulePoll` collapses those races: at
-  // most one timer is queued at a time, and `poll()`'s own re-entry
-  // guard + `pendingPollRequest` flag handle the in-flight overlap.
-  // Cadence rescheduling lives entirely inside `poll()`'s `finally`
-  // block — see the comment there.
+  // One timer path prevents duplicate REST bursts on subscribe/reconnect.
   const reschedulePoll = (delay: number) => {
     if (cancelled) return;
     if (pollTimer !== null) {
@@ -222,19 +133,10 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     }, delay);
   };
 
-  // Initial fetch fires immediately — the WS only pushes live trades
-  // (no snapshot/backfill on subscribe), so the recent-trades feed
-  // depends on this REST call to populate its initial rows.
+  // WS has no snapshot/backfill, so REST seeds initial rows.
   reschedulePoll(0);
 
-  // Re-poll when the WS reconnects (e.g. after a tab wake,
-  // captive-portal blip, NAT eviction). The regular 15s cadence would
-  // otherwise leave the feed stale for up to a full cycle before live
-  // events resume, and any trades broadcast WHILE the socket was
-  // wedged are visible only via REST until then. Issue #824. We
-  // *reschedule* through the shared timer (rather than firing a
-  // parallel `void poll()`) so a reconnect that lands 50 ms before a
-  // scheduled tick coalesces into one request instead of two.
+  // Re-poll on reconnect to backfill trades missed while the socket was wedged.
   if (ws) {
     unsubReconnect = ws.onReconnect(() => {
       reschedulePoll(0);
@@ -259,9 +161,7 @@ export function subscribeTokenTrades(
   const seenIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
-  // Warm the cache for the single token this subscription cares about.
-  // No await needed — the WS handler and poll path both fall back to a
-  // truncated address until the prefetch resolves.
+  // Warm the cache for this token; fallback renders until it resolves.
   void prefetchTokenName(address);
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
@@ -282,8 +182,7 @@ export function subscribeTokenTrades(
 
   let cancelled = false;
   let polling = false;
-  // Same role as `subscribeFeed`'s `pendingPollRequest` — see that
-  // helper's JSDoc for the rationale.
+  // Same role as `subscribeFeed`'s `pendingPollRequest`.
   let pendingPollRequest = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -296,17 +195,10 @@ export function subscribeTokenTrades(
     polling = true;
     pendingPollRequest = false;
     try {
-      // Same rationale as `subscribeFeed`: `routerTrade` is the only
-      // graduation-aware trade source. Curve-phase trades still live there
-      // (Zap also wraps on-curve buys/sells), so a single fetch path covers
-      // both phases.
+      // Router trades cover both curve and post-grad venues.
       const trades = await fetchRouterTradesByToken(address, 30);
       if (cancelled) return;
-      // Seed the name cache from the API-enriched labels (issue #703).
-      // Strictly an optimisation for the per-token tab today
-      // (`TradesTab` renders the parent token's ticker rather than
-      // each trade's `tokenName`), but keeps the cache hydrated for
-      // any other surface watching this address's name.
+      // Seed the cache from API-enriched labels.
       for (const t of trades) {
         ingestResolvedTokenName(t.tokenAddress, t.tokenSymbol);
         ingestResolvedTokenName(t.tokenAddress, t.tokenName);
@@ -329,10 +221,7 @@ export function subscribeTokenTrades(
     } finally {
       polling = false;
       if (!cancelled) {
-        // See `subscribeFeed`'s mirror block for the full rationale —
-        // re-arm the timer here (immediate for a pending request,
-        // cadence-based otherwise) so the cadence reschedule can't
-        // overwrite the pending-request reschedule a microtask later.
+        // Re-arm cadence here so reconnect refreshes cannot be overwritten.
         if (pendingPollRequest) {
           pendingPollRequest = false;
           reschedulePoll(0);
@@ -347,8 +236,7 @@ export function subscribeTokenTrades(
     }
   };
 
-  // Single-timer polling cadence — see `subscribeFeed`'s
-  // `reschedulePoll` JSDoc for the rationale.
+  // Single-timer polling cadence.
   const reschedulePoll = (delay: number) => {
     if (cancelled) return;
     if (timer !== null) {
@@ -361,16 +249,10 @@ export function subscribeTokenTrades(
     }, delay);
   };
 
-  // Initial fetch fires immediately — the WS doesn't backfill, so
-  // populating the per-token trade list depends on this REST call.
+  // WS has no snapshot/backfill, so REST seeds initial rows.
   reschedulePoll(0);
 
-  // Re-poll on WS reconnect so the per-token tab catches any trades
-  // that fired while the socket was wedged. Same rationale as
-  // `subscribeFeed` above (issue #824) — reschedule through the
-  // shared timer instead of firing a parallel `void poll()` so a
-  // reconnect that lands close to a scheduled tick coalesces into
-  // one request.
+  // Re-poll on reconnect to backfill trades missed while the socket was wedged.
   if (ws) {
     unsubReconnect = ws.onReconnect(() => {
       reschedulePoll(0);

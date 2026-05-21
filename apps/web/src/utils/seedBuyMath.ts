@@ -1,31 +1,12 @@
 import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
 
-/**
- * Bonding curve math for seed buy estimation.
- *
- * The bonding curve is a constant-product AMM (x * y = k) where:
- *   reserve0 = virtual token reserve (initialised to TOTAL_SUPPLY, 1B)
- *   reserve1 = virtual LT reserve (set so opening MC ≈ `VIRTUAL_LIQUIDITY_USD`)
- *
- * Only CURVE_SUPPLY (75% = 750M) of real tokens are transferred to the pair;
- * the other 25% is reserved for graduation LP seeding. The virtual reserve
- * design pins `tokensForLP ≤ LP_RESERVE` at graduation. See `docs/contracts-scope.md`.
- *
- * Because both the virtual reserve and the LT minted from USDC scale
- * inversely with the LT exchange rate, the rate cancels out — the number
- * of tokens received depends only on the USDC amount.
- *
- * All values mirror the on-chain Bonding.sol constants.
- */
+/** Bonding-curve seed-buy estimator mirroring on-chain constants. */
 
 const TOTAL_SUPPLY = 1_000_000_000;
 const CURVE_BPS = 7500;
 const BPS_DENOM = 10_000;
 const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real sellable cap
-/// Mirrors the USD magnitude of `Bonding.VIRTUAL_LIQUIDITY_USD` as a plain
-/// JS integer (USD dollars), not the on-chain 18-dp wei representation.
-/// Exported so tests can derive expected curve outputs without re-hardcoding
-/// the value (which would silently drift the moment the on-chain dial moves).
+/// Plain USD mirror of `Bonding.VIRTUAL_LIQUIDITY_USD` for UI/tests.
 export const VIRTUAL_LIQUIDITY_USD = 3000;
 const BUY_FEE_BPS = 75; // 0.75%
 
@@ -35,22 +16,7 @@ export interface SeedBuyStats {
   curveFilled: number;
 }
 
-/**
- * Compute seed buy stats from a USDC amount using the constant-product formula.
- *
- *   usdcAfterFee = usdcAmount × (1 − buyFee)
- *   tokensOut    = totalSupply × usdcAfterFee / (virtualLiquidity + usdcAfterFee)
- *                  (then clamped to curveSupply — on-chain `Router.buy` caps at real balance)
- *   supplyPct    = tokensOut / totalSupply × 100
- *   curveFilled  = usdcAfterFee / DEFAULT_GRADUATION_THRESHOLD_USD × 100
- *
- * The graduation threshold is fixed at `DEFAULT_GRADUATION_THRESHOLD_USD`
- * ($9000) — set once at `Bonding` proxy initialisation, no on-chain setter.
- * Tracking it as a compile-time constant rather than a live RPC read means
- * the preview is rendered synchronously and is impossible to leave blank
- * on a cold cache. If the value is ever changed via UUPS upgrade, bump
- * the shared constant in lockstep.
- */
+/** Compute seed-buy stats from a USDC amount using the local curve mirror. */
 export function seedBuyStats(usdcAmount: number): SeedBuyStats {
   if (!Number.isFinite(usdcAmount) || usdcAmount <= 0) {
     return { tokensReceived: 0, supplyPct: 0, curveFilled: 0 };
@@ -66,16 +32,7 @@ export function seedBuyStats(usdcAmount: number): SeedBuyStats {
   return { tokensReceived, supplyPct, curveFilled };
 }
 
-/**
- * Compute the USDC amount needed to acquire a target percentage of total supply.
- *
- * Derived by inverting the constant-product formula:
- *   pct = 100 × usdcAfterFee / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee)
- *   ⟹  usdcAfterFee = VIRTUAL_LIQUIDITY_USD × pct / (100 − pct)
- *   ⟹  usdcAmount   = usdcAfterFee / (1 − buyFee)
- *
- * Returns 0 for pct <= 0 or pct >= 75 (can't buy more than CURVE_SUPPLY of real tokens).
- */
+/** Invert the curve mirror to estimate USDC needed for a target supply percent. */
 export function usdcForSupplyPct(pct: number): number {
   const curveSupplyPct = (CURVE_BPS / BPS_DENOM) * 100; // 75
   if (!Number.isFinite(pct) || pct <= 0 || pct >= curveSupplyPct) return 0;

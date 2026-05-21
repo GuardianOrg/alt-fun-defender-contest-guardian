@@ -14,22 +14,7 @@ export function formatUsd(value: number): string {
   return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
-/**
- * Market-cap USD formatter. Mirrors `formatUsd` for the K/M ranges, but
- * rounds sub-$1K values to whole dollars — sub-dollar precision on a
- * market cap is noise (a `$123.45` mcap is for all practical purposes a
- * `$123` mcap, and the trailing cents distract from the column rather
- * than informing it). Use this for any UI that surfaces a token's
- * market cap; keep `formatUsd` for balances / trade amounts / position
- * values where cent-level precision still matters to the user.
- *
- * Non-finite inputs (`NaN`, ±`Infinity`) collapse to `$0` rather than
- * leaking `$NaN` / `$InfinityM` into the rows on a degraded feed —
- * components that want an explicit "no data" indicator should pass
- * `null` / `undefined` to {@link formatMcapUsdOrDash} so the dash
- * sentinel is preserved. Negative inputs are similarly clamped to `0`
- * so an off-by-one upstream can never surface a `-$0` rendering.
- */
+/** Market-cap formatter: whole dollars under `$1K`, K/M above, non-finite as `$0`. */
 export function formatMcapUsd(value: number): string {
   if (!Number.isFinite(value)) return "$0";
   const safe = Math.max(0, value);
@@ -39,15 +24,7 @@ export function formatMcapUsd(value: number): string {
   return `$${Math.round(safe).toLocaleString()}`;
 }
 
-/**
- * Per-token USD price formatter. Used by the chart's price scale when the
- * unit toggle is set to `price`. Pump.fun-class launches sit at sub-cent
- * prices for their entire curve life (a $3K-mcap launch with 1B supply is
- * $3e-6/token), so `formatUsd`'s 2-decimal cap collapses every label to
- * `$0.00` and the chart becomes unreadable. We fall back to 4 significant
- * figures with fixed (non-scientific) notation in the sub-cent regime so
- * users can still read precise prices off the axis.
- */
+/** Per-token USD price formatter that preserves sub-cent chart labels. */
 export function formatPriceUsd(value: number): string {
   if (!isFinite(value) || value <= 0) return "$0";
   if (value >= 1_000) return formatUsd(value);
@@ -65,22 +42,7 @@ export function formatPercent(value: number): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
-/**
- * Signed USD price delta (e.g. trailing-24h asset move). Magnitude-aware
- * so a delta renders at granularity appropriate to the underlying price:
- *   - abs ≥ 10,000   → integer with locale separators (`+$1,234`)
- *   - abs ≥ 100      → integer (`+$150`)
- *   - abs ≥ 0.01     → 2 decimals (`+$1.50`, `+$0.50`) — handles every
- *                      mainstream crypto / equity move at sensible cent
- *                      precision
- *   - sub-cent       → 4 significant digits, fixed (non-scientific) so
- *                      kPEPE-class deltas (~$1e-6 / token) still convey
- *                      a meaningful number
- *
- * Negative values render with a leading `-`; an exact zero (or a
- * non-finite input from a degraded feed) is `$0.00` with no sign so we
- * never surface a misleading `+$0`.
- */
+/** Signed USD price delta with magnitude-aware precision. */
 export function formatPriceChange(value: number): string {
   if (!Number.isFinite(value) || value === 0) return "$0.00";
   const sign = value > 0 ? "+" : "-";
@@ -88,9 +50,7 @@ export function formatPriceChange(value: number): string {
   if (abs >= 10_000) return `${sign}$${Math.round(abs).toLocaleString()}`;
   if (abs >= 100) return `${sign}$${abs.toFixed(0)}`;
   if (abs >= 0.01) return `${sign}$${abs.toFixed(2)}`;
-  // Sub-cent: pick decimals so we land on ~4 significant figures, never
-  // collapsing to "+$0.00" on tiny but real moves. Mirrors
-  // `formatPriceUsd`'s sub-cent treatment.
+  // Preserve tiny real moves instead of collapsing to `+$0.00`.
   const exp = Math.floor(Math.log10(abs));
   const decimals = Math.min(20, 3 - exp);
   return `${sign}$${abs.toFixed(decimals)}`;
@@ -102,8 +62,7 @@ export function formatUsdOrDash(value: number | null | undefined): string {
   return formatUsd(value);
 }
 
-/** Nullable variant of {@link formatMcapUsd}; renders `—` when null/undefined
- *  so a row whose market cap hasn't loaded yet doesn't collapse to `$0`. */
+/** Nullable variant of {@link formatMcapUsd}; renders `—` when unknown. */
 export function formatMcapUsdOrDash(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return formatMcapUsd(value);
@@ -115,9 +74,7 @@ export function formatPercentOrDash(value: number | null | undefined): string {
   return formatPercent(value);
 }
 
-/** Curve-filled progress (0–100, integer). Unknown renders as `—` rather than
- *  silently collapsing to 0, so a degraded indexer can't make live curves look
- *  empty. */
+/** Curve-filled progress; unknown renders as `—`, not `0%`. */
 export function formatCurveFilled(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${Math.round(value)}%`;
@@ -145,9 +102,7 @@ export function getLtDisplayName(
   leverage: Leverage,
   direction: Direction,
 ): string {
-  // Drop the `xyz:` namespace prefix on equity / commodity perps (e.g.
-  // `xyz:SP500` → `SP500 3× Long`). The on-chain `targetAsset` keeps the
-  // prefix so identifiers remain unambiguous everywhere it matters.
+  // Drop the display-only `xyz:` namespace prefix.
   const display = getAssetDisplayName(asset);
   return `${display} ${leverage}× ${direction === "long" ? "Long" : "Short"}`;
 }
@@ -164,24 +119,7 @@ export function getErrorMessage(e: unknown): string {
   if (raw.includes("0x05eb05ac")) {
     return `Amount below minimum ($${MIN_USDC_BUY_AMOUNT} buy / $${MIN_USDC_SELL_AMOUNT} sell).`;
   }
-  // OpenZeppelin `Clones.FailedDeployment()` selector — thrown by
-  // `Bonding._deployAndSeed` when the predicted CREATE2 address
-  // already has bytecode. The `useCreateToken` pre-flight loop
-  // auto-recovers from the common cache-collision case by re-mining
-  // a fresh salt before the wallet popup, so the only realistic way
-  // we still see this raw selector is a parallel-tab race: two
-  // simultaneous launches by the same wallet for the same
-  // `(name, ticker)` whose pre-flights both pass against the same
-  // empty CREATE2 slot, then land in the same block — the loser
-  // reverts here. Clicking Launch again triggers the pre-flight
-  // again, which now sees the winning bytecode and re-mines around
-  // it, so the recovery is just "retry".
-  // Lowercase match on the named selector so we still catch RPC/wallet
-  // wrappers that normalise the error string casing (e.g. some
-  // providers re-emit "faileddeployment()" or wrap the revert in a
-  // pre-formatted "execution reverted: faileddeployment" line). The
-  // raw 4-byte selector is fixed-case hex, so a literal `includes` is
-  // sufficient for that arm.
+  // CREATE2 clone collision; retrying lets the pre-flight re-mine around it.
   if (raw.includes("0xb06ebf3d") || lower.includes("faileddeployment")) {
     return (
       "Another launch claimed that address before yours landed. " +
@@ -221,25 +159,10 @@ export function formatTimeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
-/**
- * Default "recently deployed" window. Aligns with the 24h change semantic:
- * a token younger than this can't have a meaningful 24h price comparison
- * (it didn't exist 24h ago), and the indexer's `/market-data` snapshot may
- * not have populated its row yet either. Inside the window we treat null
- * mcap/24h-change as `0` rather than "unknown" so the home page doesn't
- * flash a wall of `—` for every fresh launch (issue #709).
- */
+// Fresh tokens cannot have real 24h deltas yet, so null market data can render as 0.
 export const RECENTLY_DEPLOYED_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
-/**
- * `true` when `createdAt` is within the trailing `windowMs` window ending
- * at `now`. Used by the home page token list to coerce unknown mcap /
- * 24h-change to `0` for fresh launches whose data isn't in the indexer
- * snapshot yet. An invalid / unparseable / future `createdAt` returns
- * `false` (treat as "old") so we never accidentally hide real
- * degradation — or corrupted timestamps — behind a "—" that's silently
- * replaced by "0".
- */
+/** Whether `createdAt` falls inside the fresh-token window. */
 export function isRecentlyDeployed(
   createdAt: string | null | undefined,
   windowMs: number = RECENTLY_DEPLOYED_WINDOW_MS,
@@ -248,10 +171,7 @@ export function isRecentlyDeployed(
   const created = new Date(createdAt).getTime();
   if (!Number.isFinite(created)) return false;
   const age = Date.now() - created;
-  // Future timestamps (negative `age`) likely indicate corrupted data
-  // or significant client-clock skew, not a fresh launch. Bail rather
-  // than mask the bad data with a "0" placeholder that would persist
-  // until wall-clock advances past the future timestamp.
+  // Future timestamps likely indicate bad data or client-clock skew.
   if (age < 0) return false;
   return age < windowMs;
 }
