@@ -165,52 +165,6 @@
   color: var(--red);
 }
 
-.addressRow {
-  padding: 0.6rem 1.2rem;
-  border-top: 1px solid rgba(77, 232, 180, 0.06);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-}
-
-.addressLabel {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--txt-4);
-  font-weight: 500;
-}
-
-.addressValue {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.8125rem;
-  color: var(--txt-2);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.addressValueVanity {
-  color: var(--mint);
-  text-shadow: 0 0 12px rgba(77, 232, 180, 0.25);
-}
-
-.addressMining {
-  font-size: 11px;
-  color: var(--txt-3);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.miningDot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  background: var(--mint);
-  animation: livep 1.2s ease-in-out infinite;
-}
-
 .chartCard {
   border: 1px solid var(--border);
   border-radius: 0;

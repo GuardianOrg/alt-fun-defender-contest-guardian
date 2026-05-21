@@ -9,36 +9,8 @@
   position: relative;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.06);
-  /* `--fill` (0..1) is set inline by `ProgressBar.tsx` from total visible
-   * fill (buy + leverage, clamped). It drives the bar's outer halo
-   * (this filter) plus the segment's inset glow (`.buySegment` below)
-   * via `calc(var(--fill) * …)` on blur + alpha so an empty bar reads
-   * as flat and a full bar reads as hot. Fallback `0` keeps the bar
-   * safe in any consumer that forgets the inline style.
-   *
-   * The outer halo lives on the track as `filter: drop-shadow` rather
-   * than as a `box-shadow` on the buy segment because the track's
-   * `overflow: hidden` branch (no leverage) clips outer box-shadows at
-   * the pill edge — drop-shadow is unaffected by that clip because we
-   * apply it to the track itself, not a descendant. The shadow alpha
-   * is multiplied by the rendered alpha at each pixel: the buy segment
-   * is fully opaque so it casts a strong glow, the dim track
-   * background sits at 6% alpha so its contribution is negligible —
-   * the halo naturally traces the filled portion instead of the full
-   * pill. Transition smooths live curve updates from the WS feed. */
+  /* Track-level drop-shadow avoids clipping the outer halo in hidden-overflow mode. */
   --fill: 0;
-  /* Two-layer halo: a steeper-scaling primary glow gives narrow bars
-   * (170px terminal rows) enough punch to read at a glance, and a
-   * tighter inner ring keeps the edge sharp on wider sibling bars
-   * (~600–1000px on the token page curve strip) where the primary
-   * layer alone would smear into a vague wash. Both layers track
-   * `--fill` so empty bars stay completely halo-free — important
-   * because the dim track background (6% alpha) would otherwise emit
-   * a faint constant glow that reads as "barely lit" instead of
-   * "empty". Peak blur is bumped from 14px → 22px and peak alpha
-   * from 0.6 → 0.85 on the primary layer; the secondary 6px/0.5
-   * layer adds nothing visible on its own but tightens the falloff
-   * on bars wider than the row column. */
   filter: drop-shadow(
       0 0 calc(var(--fill, 0) * 22px)
         rgba(77, 232, 180, calc(var(--fill, 0) * 0.85))
@@ -50,21 +22,7 @@
   transition: filter 0.4s ease-out;
 }
 
-/* Graduated lifecycle marker on the track itself — swaps the mint halo
- * for amber to match `.buySegmentGraduated`'s fill colour. Hardcoded
- * (rather than `--fill`-driven) because the graduated branch always
- * runs at full intensity and we don't want the amber halo to pulse if
- * `--fill` ever wobbles. Order matters: this rule must come after
- * `.track` in source so the cascade picks the amber filter over the
- * mint one. */
 .trackGraduated {
-  /* Two-layer amber halo, intentionally softer than the mint halo on
-   * `.track`. The mint halo on an active curve doubles as a live
-   * "this bar is hot" signal — graduated is a finished state, not a
-   * live one, so the bar should still mark the row as graduated
-   * without competing with active rows for attention. Hardcoded (no
-   * `--fill`) because the graduated branch always runs at one fixed
-   * intensity — see `.track` above for the live-bar counterpart. */
   filter: drop-shadow(0 0 12px rgba(240, 180, 41, 0.45))
     drop-shadow(0 0 4px rgba(240, 180, 41, 0.25));
 }
@@ -93,20 +51,6 @@
   border-top-left-radius: 9999px;
   border-bottom-left-radius: 9999px;
   background: var(--mint-dim);
-  /* Inset glow that scales with `--fill`, layered on top of the
-   * track-level `filter: drop-shadow` halo for sharpness at the bar
-   * edge. Baseline alpha (0.5) and baseline blur (5px) ensure even a
-   * 5–20% terminal row still reads as "lit" rather than flat — that
-   * range is the dominant case in a busy feed, and at the old 0.35 /
-   * 3px floor narrow bars looked dim next to the wide curve-strip
-   * sibling on the token page (same component, but ~4× the bar
-   * width = ~4× the perceived halo). The slope (× 0.45) carries the
-   * rest of the way to a hot full-bar look. The white inner
-   * highlight slope is bumped slightly (× 0.4) so full bars get a
-   * stronger "glowing core". Outer halo is intentionally NOT here —
-   * it gets clipped by the track's `overflow: hidden` branch, see
-   * the comment on `.track`. Transition smooths WS-driven feed
-   * updates. */
   box-shadow:
     inset 0 0 calc(5px + var(--fill, 0) * 10px)
       rgba(77, 232, 180, calc(0.5 + var(--fill, 0) * 0.45)),
@@ -122,16 +66,6 @@
   border-bottom-right-radius: 9999px;
 }
 
-/* Graduated lifecycle marker — bar collapses to a single solid amber fill
- * (no organic/boost split per `apps/web/AGENTS.md`) and intentionally
- * skips mint so a feed of graduated rows doesn't read as "everything is
- * up". Pairs with `overflowHidden` on the track so the right edge of a
- * 100% fill gets clipped into a clean pill by the track's 9999px
- * radius. The amber-tinted inset glow overrides the mint inset on
- * `.buySegment` (same property, later rule wins) and runs at full
- * intensity. The outer amber halo lives on `.trackGraduated` instead —
- * see that rule for why filter:drop-shadow on the track is the only
- * way to escape the `overflow: hidden` clip. */
 .buySegmentGraduated {
   background: var(--amber);
   box-shadow:
@@ -139,30 +73,7 @@
     inset 0 0 2px rgba(255, 255, 255, 0.18);
 }
 
-/* In-flight `graduating` lifecycle indicator. The bar stays a solid
- * 100%-wide mint pill throughout — only the GLOW (inset + outer
- * `box-shadow`) animates between fully off and fully on, fading the
- * halo in and out on a 1.5s ease-in-out cycle without ever fading the
- * bar itself.
- *
- * Three shadows interpolate as a single list; same structure at both
- * keyframes (two `inset` + one outer, identical order, identical
- * `inset` flag) so the browser interpolates them as a triplet instead
- * of treating one keyframe's `none` as a discrete swap. Each shadow
- * goes from `0px / 0 alpha` at the trough to its full value at the
- * peak, which gives the unmistakable fade-in-and-out the user
- * expects.
- *
- * `border-radius: 9999px` on the segment matches the track's pill
- * shape — the consuming branch in `ProgressBar.tsx` flips the track to
- * `overflowVisible` so the outer halo isn't clipped, and overriding
- * the segment's left-only radius from `.buySegment` here keeps the
- * right edge clean now that the track isn't doing the clipping.
- *
- * Keyframe is co-located here (not in `index.css`) so the animation
- * reference can't be orphaned by CSS-module scoping under this Vite
- * setup — same precedent as `feedFlash` in `RightPanel.module.css`,
- * `TokenRow.module.css`, and `BottomTabs.module.css`. */
+/* Keep module-scoped keyframes here so Vite CSS-module hashing cannot orphan them. */
 @keyframes graduatingPulse {
   0%,
   100% {
@@ -185,34 +96,6 @@
   animation: graduatingPulse 2s ease-in-out infinite;
 }
 
-/* One-shot trade flash — when a buy lands the FILLED portion of the
- * bar briefly lightens with a translucent white wash that fades out
- * over ~350ms. Visual signal is "something just happened on this
- * bar" without any motion vocabulary; deliberately scrappy compared
- * to the looping `GRADUATED` pill shine since this is per-event, not
- * a state indicator.
- *
- * Mounted as a child of `.buySegment` with `inset: 0`, so the wash
- * naturally inherits the parent's animated width — as the buy
- * segment's `width 0.3s ease-out` transition grows the bar, the
- * flash grows with it; no separate sizing logic to keep in sync.
- *
- * `border-radius: inherit` copies the parent's rounded-left /
- * square-right corner pattern (top-left + bottom-left @ 9999px,
- * other two corners default to 0) so the wash matches the bar's
- * silhouette without us having to hardcode the radii here too —
- * change the buy segment's shape and the flash follows.
- *
- * Animation fades opacity from `1` (full strength of the rgba()
- * background = 0.55-alpha white wash) to `0` over 800ms ease-out,
- * with `forwards` so the element stays invisible at the end rather
- * than snapping back to opaque. The element is unmounted on the next
- * trade trigger via React `key` change in `ProgressBar.tsx`, so the
- * `forwards`-parked invisible state is just a safety net.
- *
- * Keyframe is co-located for the same reason as `graduatingPulse`
- * above — global `@keyframes` referenced from a CSS module can be
- * orphaned by Vite's hashing in this codebase. */
 @keyframes tradeFlash {
   from {
     opacity: 1;

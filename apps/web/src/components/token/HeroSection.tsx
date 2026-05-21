@@ -4,8 +4,6 @@ import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { cn } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
-import { tierFor } from "../../utils/vanityTier";
-import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 import Chip from "../shared/Chip";
 import GraduatedPill from "../shared/GraduatedPill";
@@ -27,8 +25,6 @@ export default function HeroSection({ token }: Props) {
     copyShareUrl(window.location.href);
   };
 
-  const vanityTier = tierFor(token.address);
-
   const hasImage = Boolean(token.image && !imgError);
   const fallbackEmoji = token.emoji || "🪙";
   const devShort = `${token.creatorAddress.slice(0, 6)}…${token.creatorAddress.slice(-4)}`;
@@ -44,30 +40,28 @@ export default function HeroSection({ token }: Props) {
     <div className={styles.wrapper}>
       {/* Left: image + ticker / name / by-dev */}
       <div className={styles.rightGroup}>
-        <VanityEffect tier={vanityTier} size="hero" as="block">
-          <button
-            type="button"
-            className={cn(styles.avatar, styles.avatarClickable)}
-            onClick={() => setEnlarged(true)}
-            aria-label={`Enlarge ${token.name} image`}
-          >
-            {hasImage ? (
-              <img
-                key={token.image}
-                src={transformImageUrl(token.image, { width: 96 })}
-                srcSet={srcSetFor(token.image, 96) || undefined}
-                alt={token.name}
-                width={96}
-                height={96}
-                className={styles.avatarImage}
-                onError={() => setImgError(true)}
-                decoding="async"
-              />
-            ) : (
-              fallbackEmoji
-            )}
-          </button>
-        </VanityEffect>
+        <button
+          type="button"
+          className={cn(styles.avatar, styles.avatarClickable)}
+          onClick={() => setEnlarged(true)}
+          aria-label={`Enlarge ${token.name} image`}
+        >
+          {hasImage ? (
+            <img
+              key={token.image}
+              src={transformImageUrl(token.image, { width: 96 })}
+              srcSet={srcSetFor(token.image, 96) || undefined}
+              alt={token.name}
+              width={96}
+              height={96}
+              className={styles.avatarImage}
+              onError={() => setImgError(true)}
+              decoding="async"
+            />
+          ) : (
+            fallbackEmoji
+          )}
+        </button>
 
         <div className={styles.nameStack}>
           <div className={styles.tickerNameContainer}>

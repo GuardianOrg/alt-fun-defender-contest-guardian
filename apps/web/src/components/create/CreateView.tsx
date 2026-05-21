@@ -15,7 +15,6 @@ import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
-import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
@@ -34,17 +33,13 @@ export default function CreateView() {
     telegram: "",
     website: "",
   });
-  // Default to the on-chain `MIN_SEED_USDC` floor so the form lands valid
-  // out of the box — nothing below this can be submitted anyway.
+  // Default to the on-chain seed floor so the form starts valid.
   const [seedAmount, setSeedAmount] = useState(String(MIN_USDC_BUY_AMOUNT));
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
-  // CDN-derived geo gate. Token creation always includes a mandatory seed
-  // buy that mints LT, so the same compliance constraint that disables
-  // BUYS in the trade panel applies here. Fail-open while the trace
-  // fetch is in flight (hook returns `false` until it resolves).
+  // Creation includes a seed buy, so the buy-side geo gate applies here too.
   const { isGeoBlocked } = useIsGeoBlocked();
   const {
     step: launchStep,
@@ -53,15 +48,7 @@ export default function CreateView() {
     tokenAddress,
     create,
   } = useCreateToken();
-  // Mining starts as soon as the wallet is connected *and* the user has
-  // entered a name + ticker — both feed into the on-chain salt mix, so we
-  // can't begin mining without them. We debounce the trimmed values into
-  // the hook so the worker pool doesn't tear down + reseed per keystroke;
-  // by the time the user clicks Launch the salt is usually already mined.
-  // `ensureSalt(trimmedName, trimmedTicker)` flushes the debounce by
-  // force-restarting against the live values if they differ — see the
-  // hook for the race resolution. There is no random-salt fallback: the
-  // contract enforces the vanity suffix on-chain.
+  // Debounce salt inputs so the worker pool does not restart per keystroke.
   const trimmedName = name.trim();
   const trimmedTicker = ticker.trim();
   const [debouncedName, setDebouncedName] = useState(trimmedName);
@@ -86,17 +73,9 @@ export default function CreateView() {
     setAsset(availableAssets[0]);
   }, [asset, availableAssets]);
   const seedAmt = parseFloat(seedAmount) || 0;
-  // Mirrors `Zap.MIN_SEED_USDC` on-chain: the contract reverts with
-  // `BelowMinSeed` if `seedUsdcAmount < $20`. Block the Launch button at
-  // the UI layer so the user never signs a reverting tx.
+  // Mirror `Zap.MIN_SEED_USDC` so users do not sign a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
-  // Pull the live BounceTech LT directory so we can refuse to launch
-  // against a paused LT — token creation always includes a mandatory
-  // seed buy (`Zap.MIN_SEED_USDC`) and that buy mints LT, which would
-  // revert. `selectedLT === undefined` while the directory is loading
-  // (or the asset/leverage tuple isn't supported); the latter is already
-  // caught downstream in `useCreateToken`, so we only block on the
-  // affirmative "yes, paused" signal here.
+  // Refuse launches against LTs that are known to be mint-paused.
   const { data: liveLTs } = useLeveragedTokens();
   const isLong = direction === "long";
   const selectedLT = liveLTs?.find(
@@ -129,28 +108,18 @@ export default function CreateView() {
     if (!trimmedName || !trimmedTicker) return;
     if (seedBelowMin) return;
     if (noDetectedPairs) return;
-    // Belt-and-braces for the geo gate — the Launch button is disabled
-    // while geo-blocked, but a stale render between a country flip and
-    // the click shouldn't be able to slip a launch tx through.
+    // Guard stale renders between geo polling and a click.
     if (isGeoBlocked) return;
-    // Mirrored in `useCreateToken` as a belt-and-braces — if the directory
-    // is loading we let the click through and the hook handles the case
-    // with the same error message before any wallet popup.
+    // `useCreateToken` repeats this before any wallet popup.
     if (pairMintPaused) return;
     if (vanity.status === "error") {
       setVanityError(
-        "Vanity address miner failed to start. Please refresh and try again.",
+        "Address miner failed to start. Please refresh and try again.",
       );
       return;
     }
 
-    // Wait for the miner. With a worker pool this almost always returns
-    // immediately (mining starts at wallet connect and finishes in
-    // 50-300ms); on slow devices it may take a few seconds. We pass the
-    // live trimmed `(name, ticker)` so the hook flushes the input
-    // debounce if the user clicked Launch before it caught up — the
-    // contract reverts with `NotVanityAddress` if the salt was mined for
-    // a different tuple, so this race must be closed.
+    // Pass live trimmed inputs so `ensureSalt` can flush the debounce before launch.
     setWaitingForVanity(true);
     setVanityError(null);
     let vanityResult;
@@ -181,16 +150,7 @@ export default function CreateView() {
       },
       vanityResult.salt,
       vanityResult.address,
-      // Bytecode-at-predicted-address means the cached salt collides
-      // with a previously-deployed token. Drop the cache row, restart
-      // the miner, and resolve to the freshly-mined `(salt, address)`
-      // so the create flow can re-run the pre-flight against a
-      // different CREATE2 slot. The hook bounds the number of
-      // re-mines to keep us out of an infinite loop if the cache
-      // can't actually be cleared. We also flip `waitingForVanity`
-      // so the button label reverts from "UPLOADING IMAGE…" /
-      // "SIGN IN WALLET…" to "FINDING YOUR ADDRESS…" while the
-      // worker pool is busy.
+      // Cached salt collision: drop it, re-mine, and retry the CREATE2 pre-flight.
       async () => {
         setWaitingForVanity(true);
         try {
@@ -311,35 +271,28 @@ export default function CreateView() {
               </div>
             )}
 
-            <VanityEffect
-              zeros={vanity.best?.zeros ?? 0}
-              size="button"
-              as="block"
-              className={styles.launchButtonWrap}
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              busy={isBusy || waitingForVanity}
+              disabled={
+                launchStep === "confirmed" ||
+                vanity.status === "error" ||
+                isGeoBlocked ||
+                noDetectedPairs ||
+                pairMintPaused ||
+                (isConnected && seedBelowMin)
+              }
+              className={
+                launchStep === "confirmed"
+                  ? styles.launchButtonConfirmed
+                  : undefined
+              }
+              onClick={handleSubmit}
             >
-              <Button
-                variant="primary"
-                size="lg"
-                fullWidth
-                busy={isBusy || waitingForVanity}
-                disabled={
-                  launchStep === "confirmed" ||
-                  vanity.status === "error" ||
-                  isGeoBlocked ||
-                  noDetectedPairs ||
-                  pairMintPaused ||
-                  (isConnected && seedBelowMin)
-                }
-                className={
-                  launchStep === "confirmed"
-                    ? styles.launchButtonConfirmed
-                    : undefined
-                }
-                onClick={handleSubmit}
-              >
-                {buttonLabel()}
-              </Button>
-            </VanityEffect>
+              {buttonLabel()}
+            </Button>
 
             {isBusy && (
               <div className={styles.busyRow}>
@@ -382,9 +335,6 @@ export default function CreateView() {
         asset={asset}
         leverage={leverage}
         imagePreview={imagePreview}
-        predictedAddress={vanity.best?.address ?? null}
-        vanityZeros={vanity.best?.zeros ?? 0}
-        vanityStatus={vanity.status}
       />
     </div>
   );

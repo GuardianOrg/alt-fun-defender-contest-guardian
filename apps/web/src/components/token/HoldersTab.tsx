@@ -4,27 +4,15 @@ import Skeleton from "../shared/Skeleton";
 
 import type { Holder } from "../../services/types";
 
-// Number of placeholder rows to render while `useHolders` is loading the
-// first page. Matches the typical visible-row count post-load so the panel
-// reads as populated and the table height stays stable.
 const HOLDER_SKELETON_COUNT = 8;
 
-// Canonical "burn" sinks — addresses with no known private key, so
-// tokens transferred here are unrecoverable. Our own contracts burn
-// via OZ's `_burn` (which reduces `totalSupply` rather than transferring
-// to a sink), but holders can — and do — manually send tokens to either
-// address as a supply-removal signal, so surface both with the same
-// `BURNT` pill. Compared as lowercase strings (see `wallet` below).
+// Canonical sink addresses users may send tokens to as a burn signal.
 const BURN_ADDRESSES: ReadonlySet<string> = new Set([
   "0x000000000000000000000000000000000000dead",
   "0x0000000000000000000000000000000000000000",
 ]);
 
-// Vanity short-forms shown in place of the upstream `0x00…ad` /
-// `0x00…00` truncations — for these specific addresses the
-// information-bearing characters are at the tail (or non-existent),
-// not the head, so the standard 4+2 truncation actively loses the
-// signal.
+// Burn-address signal lives at the tail, so use custom short-forms.
 const BURN_DISPLAY_ADDRESS: Record<string, string> = {
   "0x000000000000000000000000000000000000dead": "0x…dead",
   "0x0000000000000000000000000000000000000000": "0x00…00",
@@ -34,12 +22,7 @@ interface Props {
   holders: Holder[];
   /** True while `useHolders` is fetching for the first time. */
   isLoading?: boolean;
-  /**
-   * The token's on-chain creator (== `Ownable` owner). When a holder row
-   * matches this address we render an `OWNER` pill so the reader can spot
-   * the dev wallet without cross-referencing the hero. Lowercased for
-   * comparison.
-   */
+  /** Token creator / contract owner, lowercased for comparison. */
   creatorAddress?: string;
 }
 
@@ -52,13 +35,7 @@ export default function HoldersTab({
   const showSkeletons = isLoading && holders.length === 0;
   const ownerAddress = creatorAddress?.toLowerCase();
 
-  // Rendered as a real `<table>` (mirroring `TradesTab`) rather than a
-  // CSS grid so the columns size to content and the parent `.tabContent`
-  // can scroll horizontally on narrow viewports instead of crushing the
-  // wallet column. Cells are `white-space: nowrap` so the wallet address
-  // and OWNER / BURNT pills never wrap onto a second line. Header/cell
-  // classes are shared with `TradesTab` to keep the two tabs visually
-  // identical.
+  // Real table layout keeps wallet columns readable on narrow horizontal scroll.
   return (
     <table
       className={styles.holdersTable}
@@ -109,10 +86,7 @@ export default function HoldersTab({
               const wallet = h.walletFull.toLowerCase();
               const isBurnt = BURN_ADDRESSES.has(wallet);
               const isOwner = !!ownerAddress && wallet === ownerAddress;
-              // Burn addresses get a vanity short-form (see
-              // `BURN_DISPLAY_ADDRESS`) — the default `0x00…ad` /
-              // `0x00…00` truncation loses the only character that
-              // distinguishes the two sinks at a glance.
+              // Default truncation hides the tail that distinguishes burn sinks.
               const displayAddress = isBurnt
                 ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
                 : h.address;
