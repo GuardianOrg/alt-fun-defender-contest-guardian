@@ -16,11 +16,7 @@ vi.mock("../lib/lt-directory-reads.js", () => ({
   readDirectoryLastUpdatedAt: vi.fn(),
 }));
 
-// The existing `GET /` route handler also fans out to the live-LT
-// availability lib (which hits `fetch`); stub `fetch` so that path doesn't
-// touch the network. The new endpoint doesn't fan out to anything beyond
-// the DB read, but the import of `getLiveLtAvailability` is at module
-// scope so we still mock it for cleanliness.
+// `/leveraged-tokens` should never hit the network.
 vi.stubGlobal(
   "fetch",
   vi.fn(async () => {

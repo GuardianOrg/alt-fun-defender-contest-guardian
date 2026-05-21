@@ -43,7 +43,7 @@ src/
     vanity.ts              Async vanity miner (dispatches to worker thread)
     vanity-core.ts         Pure mining loop (used in main + worker threads)
     vanity-worker.ts       node:worker_threads entrypoint
-    lts.ts                 BounceTech LT discovery + mint-paused filter + UI-live HEAD probe
+    lts.ts                 BounceTech LT discovery + mint-paused filter
     api-client.ts          Upload image + register token (Alt Fun API)
   scenarios/
     types.ts               `Scenario` interface — extension point
@@ -117,16 +117,12 @@ If you ever change `VANITY_SUFFIX` to anything longer than 6 chars, revisit this
 
 ## LT pool filtering
 
-`loadTradableLTs` in `src/lib/lts.ts` applies three filters in sequence before handing the pool to the scenario:
+`loadTradableLTs` in `src/lib/lts.ts` applies two filters in sequence before handing the pool to the scenario:
 
-1. **`filterSupportedLTs` from `@launchpad/shared`** — narrows to Alt Fun's whitelisted asset universe (HYPE, ETH, BTC, …, `xyz:*`), the 2x/3x/5x leverage tuple, and drops anything in `EXCLUDED_UNDERLYING_ASSETS` (e.g. PAXG, which BounceTech is winding down). This is the same filter the API and frontend run.
+1. **`filterSupportedLTs` from `@launchpad/shared`** — narrows to Alt Fun's supported asset universe (HYPE, ETH, BTC, …, `xyz:*`) and the 2x/3x/5x leverage tuple. This is the same filter the API and frontend run.
 2. **`mintPaused === false`** — every `createToken` iteration runs a mandatory `$20` seed buy which mints LT; a paused LT reverts every iteration. Skipping these keeps the harness producing useful stress signal instead of a 100%-failure log.
-3. **HEAD probe of `getBounceLtImageUrl(symbol)`** — the same "live on bounce.tech UI" oracle the API uses to decide whether to surface an LT in the markets sidebar / pair selector. Two quirks mirrored from `apps/api/src/lib/lt-availability.ts`:
-   - bounce.tech is a SPA, so a 200 OK doesn't prove the logo exists — we have to check `Content-Type` starts with `image/`.
-   - bounce.tech's Fastly CDN caches the SPA shell per-POP for up to 4h, so we send `Cache-Control: no-cache` to force revalidation.
-   - 404 is the only definitive "not published" status; every other non-2xx is fail-open. Same fail-open default as the API — losing the harness during a CDN hiccup would be worse than the rare iteration against a transient ghost LT.
 
-If you change any of these filters, mirror the change in `apps/api/src/lib/lt-availability.ts` and `apps/api/src/lib/token-registration.ts` (the API call sites for the same logic) so the harness's view of "tradable" doesn't diverge from what the product actually accepts.
+If you change these filters, keep the harness's view of "tradable" aligned with what the product actually accepts.
 
 ## Anti-snipe / trading delay
 

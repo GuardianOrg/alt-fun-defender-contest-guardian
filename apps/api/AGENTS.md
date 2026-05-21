@@ -27,7 +27,6 @@ Budget guidance — looser needs an inline comment explaining why:
 | Surface | Budget | Notes |
 |---|---|---|
 | OpenAI moderation (`lib/image-moderation.ts`) | `REQUEST_TIMEOUT_MS` (10s) | Fail-closed on timeout — no upload happens. |
-| BounceTech LT HEAD probes (`lib/lt-availability.ts`) | per-HEAD `setTimeout`, 2s | Fail-open: treat unknown as live. |
 | Asset/image proxy (`routes/assets.ts → fetchWithTimeout`) | per-call | Helper takes `timeoutMs` explicitly. |
 
 If a new route adds an outbound dependency that doesn't fit one of these, set the budget yourself — never call `fetch` bare. See `apps/telegram-bot/AGENTS.md → Timeouts on every outbound API call` for the analogous rule on the client side; the two layers reinforce each other.

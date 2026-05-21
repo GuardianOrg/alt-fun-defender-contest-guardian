@@ -79,23 +79,6 @@ vi.mock("../lib/protocol-config.js", () => ({
   _resetGraduationThresholdCache: vi.fn(),
 }));
 
-// Stub the live-LT availability lookup so these tests don't fan out to
-// BounceTech (real network in vitest). The route fail-opens on an
-// `unfresh` snapshot, so we surface an empty, non-fresh one — exactly
-// what the route handlers expect on a cold start with no warm cache.
-// LT-availability-specific behaviour is exercised in `lt-availability.test.ts`
-// and `assets.test.ts`.
-vi.mock("../lib/lt-availability.js", () => ({
-  getLiveLtAvailability: vi.fn(async () => ({
-    liveAddresses: new Set<string>(),
-    liveSymbols: new Set<string>(),
-    liveUnderlyings: new Set<string>(),
-    directoryAddresses: new Set<string>(),
-    fresh: false,
-  })),
-  _resetLtAvailabilityCache: vi.fn(),
-}));
-
 vi.stubGlobal("caches", undefined);
 
 const { default: listRoute } = await import("../routes/tokens/list.js");

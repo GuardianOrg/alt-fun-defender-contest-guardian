@@ -42,20 +42,6 @@ vi.mock("drizzle-orm", async () => {
   };
 });
 
-// Fail-open live-LT availability so the test isn't entangled with the
-// issue #621 SQL filter. The "fresh: false" snapshot triggers the same
-// fail-open path the production route takes when BounceTech is down.
-vi.mock("../lib/lt-availability.js", () => ({
-  getLiveLtAvailability: vi.fn(async () => ({
-    liveAddresses: new Set<string>(),
-    liveSymbols: new Set<string>(),
-    liveUnderlyings: new Set<string>(),
-    directoryAddresses: new Set<string>(),
-    fresh: false,
-  })),
-  _resetLtAvailabilityCache: vi.fn(),
-}));
-
 const currentDbRows: { rows: DbRow[] } = { rows: [] };
 
 interface DbChainable {

@@ -82,7 +82,9 @@ export function buildApiClient(
       // override as its third argument, which preserves the filename
       // through to multipart parsing on the Worker without forcing us
       // to instantiate a polyfilled `File` class.
-      const blob = new Blob([image.bytes], { type: image.contentType });
+      const blob = new Blob([image.bytes.buffer as ArrayBuffer], {
+        type: image.contentType,
+      });
       form.append("file", blob, image.filename);
       return postForm<{ url: string }>("/api/v1/images", form);
     },

@@ -605,7 +605,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         tags: ["Assets"],
         summary: "Get supported assets and leveraged tokens",
         description:
-          "Returns underlying assets and BounceTech Leveraged Tokens that are currently live on BounceTech's UI (per the per-LT logo at `https://bounce.tech/leveraged-tokens/<symbol>.png`). Tokens BounceTech has deployed for internal testing — i.e. live on-chain but not yet surfaced in their web app — are filtered out (issue #621). LT-availability is refreshed every minute by the API Worker's cron handler. Spot prices are cached for 10 seconds; the asset/LT filter set is cached for ~5 minutes.",
+          "Returns the hardcoded Alt Fun supported underlying assets and supported BounceTech Leveraged Tokens from the local LT directory mirror. Spot prices are cached for 10 seconds.",
         parameters: [apiKeyHeader],
         responses: {
           "200": {
@@ -618,7 +618,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
                     underlying: {
                       type: "array",
                       description:
-                        "Underlying assets with at least one live BounceTech LT. Drives the markets sidebar + asset tape on Alt Fun.",
+                        "Underlying assets currently supported by Alt Fun. Drives the markets sidebar + asset tape.",
                       items: {
                         type: "object",
                         properties: {
@@ -630,7 +630,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
                     leveragedTokens: {
                       type: "array",
                       description:
-                        "Leveraged tokens BounceTech has published on their UI. Pairs that exist on-chain but haven't been published yet are filtered out.",
+                        "Leveraged tokens in the LT directory that match Alt Fun's hardcoded supported asset/leverage set.",
                       items: {
                         type: "object",
                         properties: {
@@ -644,12 +644,6 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
                           mintPaused: { type: "boolean" },
                         },
                       },
-                    },
-                    liveUnderlyings: {
-                      type: "array",
-                      description:
-                        "Lightweight list of underlying-asset symbols (e.g. `HYPE`, `xyz:NVDA`) that currently have ≥1 live LT. Surfaced for clients (markets sidebar, asset tape, pair selector) that only need the filter set, not the per-LT payload. Falls back to the full supported list when BounceTech's UI is unreachable during a cold start.",
-                      items: { type: "string", enum: UNDERLYING_ENUM },
                     },
                   },
                 }),

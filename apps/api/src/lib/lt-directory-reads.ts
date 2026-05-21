@@ -1,8 +1,8 @@
 /**
  * Read helpers for the `lt_directory` table that the
  * `LtDirectoryPoller` Durable Object keeps fresh. These are the live
- * data path for the LT directory across the API — `lt-availability`,
- * `token-registration`, `routes/assets`, and the per-request market-data
+ * data path for the LT directory across the API — token registration,
+ * `routes/assets`, and the per-request market-data
  * lookups all read through these helpers instead of fanning out to
  * `indexing.bounce.tech`.
  *
@@ -75,9 +75,7 @@ function rowToLive(row: typeof ltDirectory.$inferSelect): LiveLeveragedToken {
 
 /**
  * Full LT directory in `LiveLeveragedToken` shape. Returns every row
- * the poller has ever seen, ordered by `lastSeenAt desc` so retired
- * LTs (still tradeable for existing holders, hidden from creation
- * surfaces — see `EXCLUDED_UNDERLYING_ASSETS`) fall to the tail.
+ * the poller has ever seen, ordered by `lastSeenAt desc`.
  * `null` on DB error.
  */
 export async function readLtDirectory(
@@ -97,8 +95,7 @@ export async function readLtDirectory(
 }
 
 /**
- * Full LT directory narrowed to LTs Alt Fun supports (passes
- * `filterSupportedLTs` and is not in `EXCLUDED_UNDERLYING_ASSETS`).
+ * Full LT directory narrowed to LTs Alt Fun supports.
  * `null` on DB error.
  */
 export async function readSupportedLtDirectory(

@@ -63,20 +63,6 @@ vi.mock("../lib/protocol-config.js", () => ({
   _resetGraduationThresholdCache: vi.fn(),
 }));
 
-// Stub the live-LT availability lookup so the search path doesn't fan
-// out to BounceTech in tests. Search-route behaviour around the LT
-// filter (issue #621) is covered in `tokens-list-live-lt.test.ts`.
-vi.mock("../lib/lt-availability.js", () => ({
-  getLiveLtAvailability: vi.fn(async () => ({
-    liveAddresses: new Set<string>(),
-    liveSymbols: new Set<string>(),
-    liveUnderlyings: new Set<string>(),
-    directoryAddresses: new Set<string>(),
-    fresh: false,
-  })),
-  _resetLtAvailabilityCache: vi.fn(),
-}));
-
 const { default: listRoute } = await import("../routes/tokens/list.js");
 
 function createApp() {

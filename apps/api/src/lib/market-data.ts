@@ -174,8 +174,7 @@ export function _resetLiveLtRatesCache(): void {
  * per isolate for `LIVE_LT_RATES_TTL_MS`.
  *
  * Coalescing: concurrent callers during a refresh share a single
- * in-flight read via the Promise lock — same pattern as
- * `lt-availability.ts`.
+ * in-flight read via the Promise lock.
  *
  * Fail-open trade-off: when the DB read fails **and** we have a stale
  * cached entry, we return the stale map instead of `null`. A transient
