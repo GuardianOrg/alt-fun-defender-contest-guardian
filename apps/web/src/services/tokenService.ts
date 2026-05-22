@@ -13,20 +13,8 @@ import type { Direction, Token, TokenFilter } from "./types";
 
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
-  const underlying = deriveUnderlying(apiToken);
+  const underlying = apiToken.underlying;
   return `${getAssetDisplayName(underlying)} ${apiToken.leverage}× ${dir}`;
-}
-
-export function deriveUnderlying(apiToken: ApiToken): Token["underlying"] {
-  if (apiToken.underlying && apiToken.underlying !== "") {
-    return apiToken.underlying as Token["underlying"];
-  }
-  const match = apiToken.ltPair.match(/^(HYPE|ETH|BTC|SOL|ARB|OP)/i);
-  return (match ? match[1].toUpperCase() : "HYPE") as Token["underlying"];
-}
-
-export function deriveDirection(apiToken: ApiToken): Direction {
-  return apiToken.ltDirection === "short" ? "short" : "long";
 }
 
 /** Map API lifecycle names to frontend statuses. */
@@ -47,8 +35,8 @@ export function fromApiToken(api: ApiToken): Token {
       ? new URL(api.imageUrl, API_BASE).toString()
       : DEFAULT_TOKEN_IMAGE,
     description: api.description,
-    direction: deriveDirection(api),
-    underlying: deriveUnderlying(api),
+    direction: api.ltDirection as Token["direction"],
+    underlying: api.underlying as Token["underlying"],
     leverage: api.leverage as Token["leverage"],
     ltName: ltDisplayName(api),
     ltAddress: api.ltPair,
