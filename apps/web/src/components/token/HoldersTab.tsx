@@ -10,12 +10,14 @@ const HOLDER_SKELETON_COUNT = 8;
 const BURN_ADDRESSES: ReadonlySet<string> = new Set([
   "0x000000000000000000000000000000000000dead",
   "0x0000000000000000000000000000000000000000",
+  "0xfefefefefefefefefefefefefefefefefefefefe",
 ]);
 
 // Burn-address signal lives at the tail, so use custom short-forms.
 const BURN_DISPLAY_ADDRESS: Record<string, string> = {
   "0x000000000000000000000000000000000000dead": "0x…dead",
   "0x0000000000000000000000000000000000000000": "0x00…00",
+  "0xfefefefefefefefefefefefefefefefefefefefe": "0xfe…fe",
 };
 
 interface Props {

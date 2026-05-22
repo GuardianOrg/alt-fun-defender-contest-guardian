@@ -701,7 +701,7 @@ describe("Change rewards wallet wizard", () => {
       }),
     );
     await h.run(
-      textUpdate("0x0000000000000000000000000000000000000000", 41),
+      textUpdate("0xfefefefefefefefefefefefefefefefefefefefe", 41),
     );
 
     // Burn warning is rendered into the origin /referral bubble via
