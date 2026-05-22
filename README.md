@@ -37,7 +37,6 @@ After running setup, open the flagged files and fill in the real secrets (Neon D
 | [`apps/api/`](./apps/api/AGENTS.md) | REST + WebSocket API | Hono on Cloudflare Workers, Drizzle, Neon (PostgreSQL), R2, Durable Objects |
 | [`apps/indexer/`](./apps/indexer/AGENTS.md) | EVM indexer | Ponder (GraphQL auto-generated from schema), Railway |
 | [`apps/telegram-bot/`](./apps/telegram-bot/AGENTS.md) | Telegram trading bot | grammY on Cloudflare Workers, KV (custodial wallets), Durable Objects |
-| [`apps/stress-test/`](./apps/stress-test/AGENTS.md) | Offline stress-testing CLI | Node + tsx, viem; not deployed |
 | [`packages/contracts/`](./packages/contracts/AGENTS.md) | Solidity contracts | Foundry, forked from Virtuals Protocol |
 | [`packages/shared/`](./packages/shared) | Shared types, ABIs, constants, pricing helpers | TypeScript, tsup |
 | [`packages/config/`](./packages/config) | Shared ESLint + TSConfig | — |
