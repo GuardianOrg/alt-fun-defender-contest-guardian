@@ -454,7 +454,11 @@ describe("/start command", () => {
       }
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -629,7 +633,11 @@ describe("/start command", () => {
       }
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -650,7 +658,11 @@ describe("/start command", () => {
       }
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -770,9 +782,11 @@ describe("/start referral onboarding", () => {
           };
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 rewardsWallet: (body.rewardsWallet ?? "").toLowerCase(),
               },
+              error: null,
             }),
             { status: 200 },
           );
@@ -795,6 +809,7 @@ describe("/start referral onboarding", () => {
           }
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 rewardsWallet: hit.rewardsWallet.toLowerCase(),
                 referredCount: 0,
@@ -802,6 +817,7 @@ describe("/start referral onboarding", () => {
                 badPaymentCount: 0,
                 attributionLossCount: 0,
               },
+              error: null,
             }),
             { status: 200 },
           );
@@ -1149,9 +1165,11 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
           };
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 rewardsWallet: (body.rewardsWallet ?? "").toLowerCase(),
               },
+              error: null,
             }),
             { status: 200 },
           );
@@ -1159,6 +1177,7 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
         if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 address: TOKEN,
                 name: "Test Token",
@@ -1172,6 +1191,7 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
                 status: "curve",
                 ltPair: null,
               },
+              error: null,
             }),
             { status: 200 },
           );
@@ -1276,7 +1296,9 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
           };
           return new Response(
             JSON.stringify({
+              status: "success",
               data: { rewardsWallet: (body.rewardsWallet ?? "").toLowerCase() },
+              error: null,
             }),
             { status: 200 },
           );
@@ -1284,6 +1306,7 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
         if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 address: TOKEN,
                 name: "Test Token",
@@ -1297,21 +1320,27 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
                 status: "curve",
                 ltPair: null,
               },
+              error: null,
             }),
             { status: 200 },
           );
         }
         if (url.includes(`/api/v1/trades/${TOKEN}`)) {
-          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+          return new Response(
+            JSON.stringify({ status: "success", data: [], error: null }),
+            { status: 200 },
+          );
         }
         if (url.includes(`/api/v1/chart/${TOKEN}`)) {
           return new Response(
             JSON.stringify({
+              status: "success",
               data: {
                 candles: [],
                 currentRatio: 1,
                 currentExchangeRate: 1,
               },
+              error: null,
             }),
             { status: 200 },
           );

@@ -94,11 +94,13 @@ describe("fetchChartSnapshot", () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "success",
           data: {
             candles: [candle(1, 1, 2, 0.5, 1.5)],
             currentRatio: 0.5,
             currentExchangeRate: 2,
           },
+          error: null,
         }),
         { status: 200 },
       ),
@@ -115,7 +117,9 @@ describe("fetchChartSnapshot", () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "success",
           data: { candles: [], currentRatio: 0, currentExchangeRate: 0 },
+          error: null,
         }),
         { status: 200 },
       ),
@@ -142,9 +146,16 @@ describe("fetchChartSnapshot", () => {
 
   it("rejects a malformed payload as `unknown`", async () => {
     fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ data: { wrong: "shape" } }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({
+          status: "success",
+          data: { wrong: "shape" },
+          error: null,
+        }),
+        {
+          status: 200,
+        },
+      ),
     );
     const result = await fetchChartSnapshot(env, ADDR);
     expect(result.ok).toBe(false);
@@ -172,7 +183,9 @@ describe("buildTrackChartPng", () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "success",
           data: { candles: [], currentRatio: 0, currentExchangeRate: 0 },
+          error: null,
         }),
         { status: 200 },
       ),
@@ -189,11 +202,13 @@ describe("buildTrackChartPng", () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
+          status: "success",
           data: {
             candles: [candle(1, 1, 2, 0.5, 1.5)],
             currentRatio: 0.5,
             currentExchangeRate: 2,
           },
+          error: null,
         }),
         { status: 200 },
       ),

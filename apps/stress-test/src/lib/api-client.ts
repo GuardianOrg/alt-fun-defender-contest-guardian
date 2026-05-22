@@ -1,3 +1,5 @@
+import type { ApiResponse } from "@launchpad/shared";
+
 import type { RandomImage } from "./images.ts";
 
 /**
@@ -17,12 +19,6 @@ import type { RandomImage } from "./images.ts";
 export interface AltFunApiClient {
   uploadImage(image: RandomImage): Promise<{ url: string }>;
   registerToken(address: `0x${string}`): Promise<void>;
-}
-
-interface ApiResponse<T> {
-  status: "success" | "error";
-  data: T | null;
-  error: string | null;
 }
 
 /**

@@ -1,3 +1,5 @@
+import type { ApiResponse } from "@launchpad/shared";
+
 import type { Env } from "./types.js";
 
 export interface ReferralStats {
@@ -126,11 +128,6 @@ const buildHeaders = (apiKey: string | undefined): HeadersInit => {
   return headers;
 };
 
-interface ApiEnvelope<T> {
-  data?: T;
-  error?: string;
-}
-
 // TEMPORARY: bumped from 10s → 30s while apps/api is degraded. Live
 // `wrangler tail launchpad-api` (2026-05-17) showed `/api/v1/market-data`
 // (the dependency of `/api/v1/tokens/:address`) regularly serving in
@@ -172,14 +169,13 @@ async function getJson<T>(
   if (res.status === 503 || res.status >= 500)
     return { ok: false, kind: "unavailable" };
   if (!res.ok) return { ok: false, kind: "unknown" };
-  let body: ApiEnvelope<T>;
+  let body: ApiResponse<T>;
   try {
-    body = (await res.json()) as ApiEnvelope<T>;
+    body = (await res.json()) as ApiResponse<T>;
   } catch {
     return { ok: false, kind: "unknown" };
   }
-  if (!body || body.data === undefined)
-    return { ok: false, kind: "unknown" };
+  if (body.status !== "success") return { ok: false, kind: "unknown" };
   return { ok: true, data: body.data };
 }
 
@@ -205,14 +201,13 @@ async function getJsonWithNotFound<T>(
   if (res.status === 503 || res.status >= 500)
     return { ok: false, kind: "unavailable" };
   if (!res.ok) return { ok: false, kind: "unknown" };
-  let body: ApiEnvelope<T>;
+  let body: ApiResponse<T>;
   try {
-    body = (await res.json()) as ApiEnvelope<T>;
+    body = (await res.json()) as ApiResponse<T>;
   } catch {
     return { ok: false, kind: "unknown" };
   }
-  if (!body || body.data === undefined)
-    return { ok: false, kind: "unknown" };
+  if (body.status !== "success") return { ok: false, kind: "unknown" };
   return { ok: true, data: body.data };
 }
 
@@ -382,14 +377,14 @@ export const setBotRewardsWallet = async (
   if (res.status === 503 || res.status >= 500)
     return { ok: false, kind: "unavailable" };
   if (!res.ok) return { ok: false, kind: "unknown" };
-  let body: ApiEnvelope<{ rewardsWallet?: unknown }>;
+  let body: ApiResponse<{ rewardsWallet?: unknown }>;
   try {
-    body = (await res.json()) as ApiEnvelope<{ rewardsWallet?: unknown }>;
+    body = (await res.json()) as ApiResponse<{ rewardsWallet?: unknown }>;
   } catch {
     return { ok: false, kind: "unknown" };
   }
   if (
-    !body ||
+    body.status !== "success" ||
     !body.data ||
     typeof body.data.rewardsWallet !== "string" ||
     !/^0x[0-9a-fA-F]{40}$/.test(body.data.rewardsWallet)

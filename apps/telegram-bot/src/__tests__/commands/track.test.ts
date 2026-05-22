@@ -139,13 +139,20 @@ const mockApi = (
         });
       }
       return new Response(
-        JSON.stringify({ data: TOKEN_INFO_FIXTURE }),
+        JSON.stringify({
+          status: "success",
+          data: TOKEN_INFO_FIXTURE,
+          error: null,
+        }),
         { status: 200 },
       );
     }
     if (url.startsWith(API_BASE) && url.includes("/api/v1/trades/")) {
       if (opts.tradesApiDown) return new Response("", { status: 503 });
-      return new Response(JSON.stringify({ data: trades }), { status: 200 });
+      return new Response(
+        JSON.stringify({ status: "success", data: trades, error: null }),
+        { status: 200 },
+      );
     }
     if (url.startsWith(API_BASE) && url.includes("/api/v1/chart/")) {
       // Chart is best-effort — default tests get an empty-candle response
@@ -154,11 +161,13 @@ const mockApi = (
       // can pass `chartCandles` to exercise the photo-send path.
       return new Response(
         JSON.stringify({
+          status: "success",
           data: {
             candles: opts.chartCandles ?? [],
             currentRatio: 1,
             currentExchangeRate: 1,
           },
+          error: null,
         }),
         { status: 200 },
       );
@@ -589,20 +598,37 @@ describe("/track command", () => {
         );
       }
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
-        return new Response(JSON.stringify({ data: TOKEN_INFO_FIXTURE }), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({
+            status: "success",
+            data: TOKEN_INFO_FIXTURE,
+            error: null,
+          }),
+          {
+            status: 200,
+          },
+        );
       }
       if (url.startsWith(API_BASE) && url.includes("/api/v1/trades/")) {
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        return new Response(
+          JSON.stringify({ status: "success", data: [], error: null }),
+          { status: 200 },
+        );
       }
       if (url.startsWith(API_BASE) && url.includes("/api/v1/chart/")) {
         await new Promise<void>((resolve) => {
           chartResolver = resolve;
         });
-        return new Response(JSON.stringify({ data: { candles: [] } }), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({
+            status: "success",
+            data: { candles: [] },
+            error: null,
+          }),
+          {
+            status: 200,
+          },
+        );
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
