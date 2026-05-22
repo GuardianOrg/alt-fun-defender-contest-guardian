@@ -40,10 +40,10 @@ If a new route adds an outbound dependency that doesn't fit one of these, set th
 | `GET /holders/:address` | `tokenBalance` index (sorted by `balance desc`) | Paginated up to 20K `routerTrades` to reconstruct balances in memory — silently undercounted on direct ERC-20 transfers. |
 | `GET /portfolio/:wallet` | `tokenBalance` (live amount) ⋈ `walletPosition` (cost basis) | Paginated up to 20K `routerTrades` to recompute both fields. |
 | `GET /security/:address` | `tokenBalance` row keyed `${creator}-${tokenAddress}` (primary-key hit) | Paginated up to 20K `routerTrades` to sum the creator's net position. |
-| `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single GraphQL query) | Paginated every trade across every token the creator has ever launched. |
+| `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single indexer read) | Paginated every trade across every token the creator has ever launched. |
 | `GET /stats` | `globalStats` singleton + last 24 `hourlyVolume` buckets | Paginated *every token in the catalogue* and *every Zap trade in the last 24h*. |
 
-All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidate=…` so the Cloudflare edge absorbs concurrent requests. The thundering-herd pattern (100 users opening the same viral token) used to fan in to up to 2,000 sequential GraphQL queries; the cache caps it at one per region per `s-maxage` window.
+All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidate=…` so the Cloudflare edge absorbs concurrent requests instead of fanning every hot page load into the indexer.
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
 
@@ -63,7 +63,7 @@ The threshold lives in `GRADUATING_TAB_MIN_CURVE_FILLED` in `routes/tokens/list.
 
 ### Why fetch the Ponder pool sorted by `curveSupply asc`
 
-`curveFilled` is USD-denominated (`realLt × rate / threshold × 100`, see *Token enrichment* below) and depends on the BounceTech LT exchange rate — neither value lives in Ponder, so we can't push the 75% gate or the `curveFilled desc` sort into the GraphQL query. Instead `fetchNonGraduatedTokensOnchain` returns up to `STATUS_POOL_SIZE` candidates sorted by `curveSupply asc` (closest-to-sold-out first). Supply curve filled is a strong proxy for USD curve filled at typical LT-rate ranges — supply-% systematically leads USD-% throughout most of the bonding curve under the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio — so the top-of-pool slice contains every realistic 75%-USD-curve-filled candidate with margin. The route then enriches the pool, applies the gate + sort + pagination in memory.
+`curveFilled` is USD-denominated (`realLt × rate / threshold × 100`, see *Token enrichment* below) and depends on the BounceTech LT exchange rate, so the 75% gate and `curveFilled desc` sort happen after enrichment. `fetchNonGraduatedTokensOnchain` returns up to `STATUS_POOL_SIZE` candidates sorted by `curveSupply asc` as a close-to-sold-out proxy, then the route filters, sorts, and paginates in memory.
 
 If the catalogue ever outgrows `STATUS_POOL_SIZE`, the right next step is a precomputed `curveFilled` column refreshed by a cron, not a bigger pool — same trajectory as `TRENDING_POOL_SIZE`.
 
@@ -77,7 +77,7 @@ If the catalogue ever outgrows `STATUS_POOL_SIZE`, the right next step is a prec
 | `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`, percent of threshold). Clamped at `curveFilled`. |
 | `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the net organic USDC raised (indexer's `organicUsdcRaised`, buys − sells, floored at 0). Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
 
-The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$500` raise toward a `$9K` threshold rendered as `~19%` instead of `~5.5%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
+The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Supply fill leads USD fill early in this AMM, so the progress bar tracks user-paid dollars while the contract's sellout trigger remains a separate bear-market backstop.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
@@ -132,7 +132,7 @@ CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by 
 
 ### Edge rate-limit rule (Cloudflare, in front of the Worker)
 
-A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to the upload paths and is the **primary** defence layer for image-upload abuse. The in-Worker per-IP write quota (added in #509) is a fallback that only fires when this rule is absent or misconfigured, or under `wrangler dev` where zone rules don't apply.
+A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to the upload paths and is the **primary** defence layer for image-upload abuse. The in-Worker per-IP write quota is a fallback for missing/misconfigured zone rules and local `wrangler dev`.
 
 | Field | Value |
 |---|---|
@@ -143,17 +143,11 @@ A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to t
 | Action | Block, custom response **429** |
 | Mitigation timeout | 60 seconds |
 
-Both paths are included intentionally. `POST /images` is being removed by #509 (the dual-mount was an accidental unauthenticated route), but the rule covers both belt-and-braces so the migration window — and any future regression that re-exposes the bare mount — stays rate-limited at the edge.
+Both paths are included intentionally so any bare `/images` exposure remains rate-limited at the edge.
 
 #### Why a separate layer from the in-Worker limiter
 
-Rate limiting inside the Worker still pays most of the cost the rule exists to avoid:
-
-- The Worker has to spin up and parse headers before the in-Worker limiter runs.
-- For the upload route specifically, the multipart body has to be fully ingested before `c.req.formData()` resolves and the size check fires — abusive requests still cost CPU + isolate memory + ingress before they're rejected.
-- The in-Worker limiter is per-isolate, so an attacker hitting different Cloudflare colos counts separately against each one. The edge rule is globally enforced across the zone.
-
-A native rate-limit rule rejects at the edge with zero Worker invocation, zero body upload, and zero isolate touched. That's the only layer that protects Worker CPU/memory under abuse and the only layer with cross-colo global enforcement; #509 stays in place as a fallback for the cases above.
+Worker-side limiting still pays startup, body-ingest, CPU, and per-isolate costs. The WAF rule rejects before Worker invocation and enforces globally across the zone; the in-Worker limiter stays as a fallback.
 
 #### Local dev caveat
 

@@ -21,57 +21,27 @@ export interface Token {
   /** LT contract address (Postgres-sourced; never requires an RPC lookup). */
   ltAddress: string;
   buyMomentum: number;
-  /**
-   * Share of `curveFilled` (0–100) attributable to LT price appreciation
-   * since the organic buys. `0` when unknown (e.g. indexer degraded) or when
-   * the LT has dropped (product decision: we never show a negative boost).
-   * See `apps/api/src/lib/token-enrich.ts` for the computation.
-   */
+  /** Share of `curveFilled` attributable to LT price appreciation, clamped at 0. */
   leverageBoost: number;
-  /**
-   * Share of `curveFilled` (0–100) attributable to organic USDC buys. `null`
-   * when unknown — render the bar as a single solid fill in that case rather
-   * than assuming 0 (which would incorrectly imply "all boost, no organic").
-   */
+  /** Organic-buy share of `curveFilled`; null when breakdown is unknown. */
   organicFilled: number | null;
-  /** Bonding curve progress (0–100). Null when the indexer is degraded —
-   *  callers must treat null as "unknown" and render a dash, never 0. */
+  /** Bonding curve progress; null means unknown, never 0. */
   curveFilled: number | null;
-  /** Live USD value of the curve's real LT reserve (`realLt × currentRate`).
-   *  Numerator behind `curveFilled`; powers the `$X raised` label on the
-   *  curve strip. Null when the breakdown is degraded (indexer/BounceTech
-   *  down) or post-graduation — render as `—` via `formatUsdOrDash`. */
+  /** Live USD value of the curve's real LT reserve; null degraded/post-grad. */
   curveRaisedUsd: number | null;
-  /**
-   * 24h USD trading volume (buys + sells through `Zap`). `null`
-   * while the indexer aggregation is degraded — render as `—`, never `$0`.
-   */
+  /** 24h USD trading volume through `Zap`; null while aggregation is degraded. */
   volume24h: number | null;
-  /**
-   * Lifetime gross USD traded through `Zap` for this token
-   * (buys + sells, never subtracts). Tracked as a running counter on the
-   * indexer so it survives pagination truncation. `null` only when the
-   * indexer is unreachable.
-   */
+  /** Lifetime gross USD traded through `Zap`; null only when indexer is unreachable. */
   totalVolumeUsd: number | null;
   athUsd: number;
-  /** Current price/mcap/24h change served by the API. Null while indexer or
-   *  BounceTech is degraded — callers must treat null as "unknown", never 0. */
+  /** Current price; null means unknown, never 0. */
   priceUsd: number | null;
   mcapUsd: number | null;
   change24h: number | null;
   status: TokenStatus;
   creatorAddress: string;
   createdAt: string;
-  /**
-   * `true` when the token has been hidden from the public listings by an
-   * admin (issue #586). When `isHidden` is true the page is only
-   * reachable by a connected wallet that holds the token — the API's
-   * `/tokens/:address?wallet=…` endpoint refuses to disclose hidden rows
-   * to non-holders (issue #712). Drives the policy-violation disclaimer
-   * banner and disables every buy path; sells stay open so holders can
-   * exit their position cleanly.
-   */
+  /** Admin-hidden; holders can still view/sell, but public buy paths are disabled. */
   isHidden: boolean;
   socialLinks?: {
     twitter?: string;
@@ -85,8 +55,7 @@ export interface Asset {
   priceUsd: string;
   /** Percent change over the trailing 24h window (e.g. `1.23` = +1.23%). */
   change24h: number;
-  /** Absolute USD price change over the trailing 24h window
-   *  (`currentMid - 24hAgoOpen`). Same sign as `change24h`. */
+  /** Absolute USD price change over the trailing 24h window. */
   priceChange24h: number;
 }
 
@@ -94,12 +63,7 @@ export interface Holder {
   rank: number;
   /** Shortened wallet address for in-row display (e.g. `0x12…78`). */
   address: string;
-  /**
-   * Full 0x-prefixed wallet address. Mirrors `Trade.walletAddressFull` so
-   * callers that need to link out to a block explorer or copy the raw
-   * address can do so without re-fetching or reconstructing it from the
-   * truncated `address` field.
-   */
+  /** Full 0x-prefixed wallet address for links/copy. */
   walletFull: string;
   tokens: string;
   percentSupply: number;
@@ -143,12 +107,7 @@ export interface HeldToken {
   amount: number;
   valueUsd: number;
   change24h: number | null;
-  /**
-   * `true` when the held token has been admin-hidden. The position keeps
-   * surfacing in the holder's "My Positions" panel (issue #712), but
-   * the row is rendered with a policy-violation marker so the user
-   * knows their only path forward is to sell.
-   */
+  /** Hidden positions still surface to holders so they can sell. */
   isHidden: boolean;
 }
 

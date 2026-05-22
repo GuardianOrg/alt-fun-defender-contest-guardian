@@ -109,25 +109,9 @@ if (!privyAppId) {
   throw new Error("VITE_PRIVY_APP_ID is not set — add it to .env.local");
 }
 
-// Chrome 140+ shows a "Sites can ask to access other apps and services on this
-// device" prompt (a.k.a. Local Network Access / Apps on device) whenever a page
-// tries to open a wallet via a native-app deep link (cbwallet://, phantom://,
-// metamask://, wc://, …) or invoke a device capability like WebAuthn/passkeys.
-// Privy's default modal surfaces every external wallet + Coinbase Smart Wallet
-// (passkey) + Solana connectors + the WalletConnect mobile launcher, which
-// triggers that dialog even though this app only targets HyperEVM. We keep the
-// injected-wallet path (MetaMask, Rabby, and anything else exposed via
-// EIP-6963) because that's how most users actually connect, and trim the
-// connectors that rely on launching another app:
-//   - `walletChainType: "ethereum-only"` drops Phantom/Solflare/Backpack/OKX
-//     Solana entries and their `phantom://` style deep links.
-//   - `walletConnect.enabled: false` skips the WalletConnect mobile relay,
-//     which is the biggest source of the prompt on mobile Chrome.
-//   - `coinbaseWallet.preference.options: "eoaOnly"` disables the Coinbase
-//     Smart Wallet passkey/WebAuthn flow (keys.coinbase.com), which is the
-//     biggest source of the prompt on desktop Chrome.
-// MetaMask/Rabby/etc. are detected purely via EIP-6963 window events, so they
-// keep working on every platform without any prompt.
+// Keep Privy's wallet list to injected EIP-6963 wallets. Native deep links,
+// WalletConnect mobile launchers, and Coinbase Smart Wallet passkeys trigger
+// Chrome's local-network/device-access prompt even though this app is HyperEVM-only.
 
 const App = () => {
   return (
@@ -142,17 +126,8 @@ const App = () => {
               theme: "dark",
               accentColor: "#00ff88",
               walletChainType: "ethereum-only",
-              // Acknowledge the wallet-first flow explicitly. Without
-              // this Privy still auto-corrects to `true` (we have no
-              // email / sms / social fallback), but along the way it
-              // logs `You should only disable showWalletLoginFirst when
-              // … is also enabled. showWalletLoginFirst has been set to
-              // true` — a console warning that surfaces on every page
-              // load for every user. Setting the value here matches
-              // what the SDK ends up doing internally and silences the
-              // warning at the source. Kept in lockstep with
-              // `loginMethods: ["wallet"]` — if we ever re-add email /
-              // social this flag should be revisited.
+              // Match the wallet-only loginMethods explicitly to avoid Privy's
+              // auto-correction warning on every page load.
               showWalletLoginFirst: true,
             },
             loginMethods: ["wallet"],

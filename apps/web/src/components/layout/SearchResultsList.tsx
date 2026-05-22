@@ -9,8 +9,6 @@ import {
   formatPercentOrDash,
 } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
-import { tierFor } from "../../utils/vanityTier";
-import VanityEffect from "../effects/VanityEffect";
 
 import type { Token } from "../../services/types";
 
@@ -55,9 +53,9 @@ export default function SearchResultsList({
           };
           const stats = getStats(t.address);
           const up = (stats.change24h ?? 0) >= 0;
-          const vanityTier = tierFor(t.address);
-          const row = (
+          return (
             <div
+              key={t.address}
               data-result-index={i}
               className={cn(
                 styles.resultRow,
@@ -103,17 +101,6 @@ export default function SearchResultsList({
                 </div>
               </div>
             </div>
-          );
-          if (vanityTier.id === "none") return row;
-          return (
-            <VanityEffect
-              key={t.address}
-              tier={vanityTier}
-              size="row"
-              as="block"
-            >
-              {row}
-            </VanityEffect>
           );
         })
       ) : (

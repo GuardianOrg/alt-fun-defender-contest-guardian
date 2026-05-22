@@ -49,7 +49,6 @@ Deeper docs:
 - Backend functional spec: [`docs/backend-scope.md`](./docs/backend-scope.md)
 - Frontend functional spec: [`docs/frontend-scope.md`](./docs/frontend-scope.md)
 - Per-app context: `AGENTS.md` in each `apps/*` and `packages/*` directory
-- Open work items: [`TODO.md`](./TODO.md)
 
 ## Common commands
 

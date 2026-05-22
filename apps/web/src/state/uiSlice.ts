@@ -7,14 +7,7 @@ import type { Direction, TokenFilter } from "../services/types";
 
 export type { TokenSort } from "../services/tokenService";
 
-/**
- * Optional pair-level filters layered on top of the tab filter (Trending /
- * New / Graduating / Graduated). Every field is independent and `undefined`
- * means "no constraint" — the home-page table renders the union, not the
- * intersection of selected facets. Forwarded straight to the API's
- * `/tokens?underlying=…&leverage=…&direction=…` query params; the server
- * handles the filtering so pagination math stays accurate.
- */
+/** Optional pair-level facets layered on top of the lifecycle tab. */
 export interface TokenTableFilters {
   underlying?: UnderlyingAsset;
   leverage?: Leverage;
@@ -26,18 +19,7 @@ interface UiState {
   earningsOpen: boolean;
   activeFilter: TokenFilter;
   tokenFilters: TokenTableFilters;
-  /**
-   * Sort axis for the home-page token table. Only meaningful on the
-   * TRENDING and GRADUATED tabs (the only two where the Sort dropdown
-   * is rendered — see `TableFilters`). `"default"` resolves per-tab:
-   * 24h volume desc on TRENDING, `graduatedAt desc` on GRADUATED. The
-   * user's override (mcap / change24h) persists across tab switches by
-   * design — picking "Mcap" on TRENDING and clicking GRADUATED leaves
-   * the rail reading "Market cap" because the intent (sort by mcap,
-   * regardless of cohort) still applies. Kept separate from
-   * `tokenFilters` because sort is an axis, not a facet, and
-   * `clearTokenFilters` should leave it alone.
-   */
+  /** Sort axis, kept separate so clearing facets does not reset sort. */
   tokenSort: TokenSort;
 }
 
@@ -93,13 +75,6 @@ const uiSlice = createSlice({
       }
     },
     clearTokenFilters(state) {
-      // `tokenSort` is deliberately NOT touched here: it's an axis the
-      // user picked on the rail (alongside Market / Leverage /
-      // Direction), but it's a different concept — "Clear filters"
-      // should reset facets, not undo the user's chosen sort order.
-      // If we ever want a separate "Reset sort" affordance we can add
-      // it; for now, leaving it sticky matches how every other
-      // dashboard table on the web handles the distinction.
       state.tokenFilters = {};
     },
     setTokenSort(state, action: PayloadAction<TokenSort>) {

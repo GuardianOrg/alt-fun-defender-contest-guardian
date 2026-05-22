@@ -14,8 +14,6 @@ import {
   isRecentlyDeployed,
 } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
-import { tierFor } from "../../utils/vanityTier";
-// import VanityEffect from "../effects/VanityEffect";
 import AssetIcon from "../shared/AssetIcon";
 import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
@@ -27,29 +25,11 @@ import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
-  /**
-   * Market stats (mcap / 24h change / volume) resolved by the parent
-   * `TokenTable`'s lifted `useTokenMarketStatsMap(pageAddresses)` call.
-   * Lifted to the parent so the table fans out into one bounded
-   * `POST /market-data` per page instead of one React Query
-   * subscription per row.
-   */
+  /** Market stats are lifted to `TokenTable` so each page makes one bounded request. */
   stats: TokenMarketStats;
-  /**
-   * When true, the row paints with a fading mint background to flag it
-   * as newly arrived (live WS update or dev-injected mock token). Set
-   * by `TokenTable` via the shared `useFlashOnNew` hook; defaults to
-   * false everywhere else.
-   */
+  /** Flash newly arrived rows from live WS updates or dev-injected mock tokens. */
   isNew?: boolean;
-  /**
-   * When true, the row's token logo loads eagerly with high fetch
-   * priority. `TokenTable` flips this on for the first few rows
-   * (above-the-fold) so the LCP race isn't gated on the lazy queue;
-   * subsequent rows lazy-load to keep the initial paint cheap (we'd
-   * otherwise fire ~30 parallel R2/CDN requests on first render even
-   * though most rows are off-screen until the user scrolls).
-   */
+  /** Eager-load above-the-fold token logos for LCP. */
   eager?: boolean;
 }
 
@@ -64,30 +44,16 @@ export default function TokenRow({
   const isGraduating = token.status === "graduating";
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";
-  // For tokens launched within the last 24h, treat a null mcap / 24h-change
-  // as `0` rather than "unknown" — they can't have a meaningful 24h price
-  // comparison yet (didn't exist 24h ago) and the `/market-data` snapshot
-  // often hasn't populated their row, so the unfiltered hook value falls back
-  // to null. Older tokens keep the existing `—` placeholder so a degraded
-  // indexer remains visible. See issue #709.
+  // Fresh tokens cannot have a meaningful 24h comparison yet; older nulls stay visible as degraded data.
   const fresh = isRecentlyDeployed(token.createdAt);
   const changeDisplay = stats.change24h ?? (fresh ? 0 : null);
   const mcapDisplay = stats.mcapUsd ?? (fresh ? 0 : null);
   const up = (changeDisplay ?? 0) >= 0;
-  // Width math renders `null` (unknown) as an empty bar — we can't guess
-  // progress, so we show none. The text-only sites use `formatCurveFilled`
-  // which renders `—` instead.
+  // Unknown progress renders as an empty bar rather than guessed fill.
   const filled = token.curveFilled ?? 0;
   const organic = token.organicFilled ?? filled;
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
-
-  // Vanity tier overrides the ordinary mint/red border for tokens whose
-  // mined address has bonus trailing zeros. The "none" tier
-  // short-circuits inside `<VanityEffect>` so 99% of rows pay zero
-  // wrapper cost.
-  const vanityTier = tierFor(token.address);
-  const hasVanityTier = vanityTier.id !== "none";
 
   const handleNavigate = () => navigate(tokenPath(token.address));
 
@@ -98,7 +64,7 @@ export default function TokenRow({
     }
   };
 
-  const rowEl = (
+  return (
     <div
       className={cn(
         styles.row,
@@ -148,12 +114,6 @@ export default function TokenRow({
         </div>
       </div>
 
-      {/* Underlying asset + direction/leverage. Single combined cell so
-       * the row reads as `{icon} HYPE 5x Long` left-to-right rather
-       * than splitting the underlying identity from its leverage
-       * descriptor across two columns. Same font / weight throughout —
-       * only the trailing `Nx Long/Short` span gets colour-coded so
-       * the long/short bias still surfaces at a glance. */}
       <div className={styles.underlyingCell}>
         <AssetIcon
           asset={token.underlying}
@@ -173,7 +133,6 @@ export default function TokenRow({
         </span>
       </div>
 
-      {/* 24h change */}
       <div className={styles.changeCell}>
         <span
           className={cn(
@@ -185,7 +144,6 @@ export default function TokenRow({
         </span>
       </div>
 
-      {/* Progress bar */}
       <div className={styles.progressCell}>
         <ProgressBar
           buyPercent={buyW}
@@ -196,17 +154,7 @@ export default function TokenRow({
         />
       </div>
 
-      {/* MCAP — same `RollingNumber` pulse the token-detail mcap overlay
-       *  uses; on a busy feed each tick lights up the row that moved.
-       *
-       *  Pass `stats.mcapUsd` directly (not the `mcapDisplay` fallback)
-       *  so a row that mounts before its `/market-data` page resolves
-       *  reads as `null → number` and snaps without firing the flash.
-       *  The fresh-token `$0` treatment from issue #709 moves to
-       *  `dashFallback` so the visible string is identical to before —
-       *  what changes is only that the synthetic `0` placeholder no
-       *  longer counts as a "previous value" that the next real mcap
-       *  would tween from. */}
+      {/* Pass raw mcap so the fresh-token `$0` fallback does not become a tween baseline. */}
       <div className={styles.mcapCell}>
         <RollingNumber
           className={styles.mcapValue}
@@ -217,13 +165,5 @@ export default function TokenRow({
         />
       </div>
     </div>
-  );
-
-  if (!hasVanityTier) return rowEl;
-  return (
-    // <VanityEffect tier={vanityTier} size="row" as="block">
-    //   {rowEl}
-    // </VanityEffect>
-    <>{rowEl}</>
   );
 }

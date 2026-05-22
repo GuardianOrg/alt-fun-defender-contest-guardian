@@ -10,13 +10,7 @@ import { API_BASE, fetchBalances } from "../services/api";
 
 import type { HeldToken } from "../services/types";
 
-/**
- * Token logos are stored as root-relative paths in the API DB so the same
- * row renders against any frontend's `API_BASE`. The balances path bypasses
- * `fromApiToken`'s normaliser (it builds `HeldToken` directly), so we
- * resolve here too — otherwise every "My Positions" logo loads from the
- * webapp's own origin and 404s.
- */
+/** Balances builds `HeldToken` directly, so resolve root-relative image URLs here. */
 function resolveImageUrl(raw: string | undefined): string {
   if (!raw) return DEFAULT_TOKEN_IMAGE;
   return new URL(raw, API_BASE).toString();
@@ -30,31 +24,14 @@ export interface RawBalance {
   leverage: number;
   balance: bigint;
   imageUrl: string;
-  /**
-   * `true` when the token is currently admin-hidden from public listings.
-   * Holders still see the position so they can sell it (issue #712); the
-   * row is marked so the UI can render the policy disclaimer and disable
-   * buys.
-   */
+  /** Admin-hidden tokens still appear to holders so they can sell. */
   isHidden: boolean;
 }
 
-/**
- * Minimum USD value a position must clear to render. Anything below is
- * dust — typically a leftover sliver from a fully-sold token. Runs
- * unconditionally: when prices haven't loaded `getPrice` returns 0,
- * collapsing every `valueUsd` to 0 and cleanly hiding ghost rows during
- * the prices-loading window. The consumer's skeleton path already keys
- * off the combined `isLoading`, so the loading state is covered without
- * surfacing $0 placeholders.
- */
+// Hide dust and suppress ghost rows while prices are still loading.
 export const MIN_DISPLAY_VALUE_USD = 0.1;
 
-/**
- * Pure builder for the `HeldToken[]` list. Extracted so the dust-filter
- * contract is exercisable in unit tests without standing up React Query
- * / viem / Privy.
- */
+/** Pure builder for unit-testing the dust filter. */
 export function buildHeldTokens(
   rawBalances: readonly RawBalance[],
   getPrice: (address: string) => number,
@@ -84,16 +61,7 @@ export function buildHeldTokens(
     .filter((t) => t.valueUsd >= MIN_DISPLAY_VALUE_USD);
 }
 
-/**
- * Read the wallet's positions from the indexer-backed
- * `/api/v1/balances-v2/:wallet` route — same response shape as the legacy
- * `/balances` GraphQL path, but reads `ponder_views.token_balance` directly
- * over Postgres (one wallet-scoped `SELECT … WHERE wallet = ? AND balance > 0`)
- * instead of paginating the Ponder GraphQL `tokenBalances` connection.
- * Joins token metadata server-side and includes admin-hidden tokens for
- * holders so they can sell out (issue #712). One HTTP call regardless of
- * catalogue size.
- */
+/** Fetch wallet positions via the indexer-backed balances endpoint. */
 async function fetchRawBalancesFromApi(
   walletAddress: string,
 ): Promise<RawBalance[]> {
@@ -110,13 +78,7 @@ async function fetchRawBalancesFromApi(
   }));
 }
 
-/**
- * React Query-backed hook powering the "MY POSITIONS" panel and the
- * Earnings / Profile balances tabs. Joins the indexer-backed `/balances`
- * read with the market-data cache (one query drives both the per-token
- * `priceUsd` lookup the dust filter reads via `getPrice` and the
- * `change24h` row column).
- */
+/** Powers MY POSITIONS and profile balances by joining balances with market data. */
 export function useBalances() {
   const { address } = useWallet();
 
@@ -127,9 +89,7 @@ export function useBalances() {
       try {
         return await fetchRawBalancesFromApi(address);
       } catch (error) {
-        // Re-throw so React Query parks the query in `error` state and
-        // applies its retry policy. Swallowing here would surface as a
-        // permanent "No positions yet" with no error UI and no retries.
+        // Re-throw so React Query can retry instead of showing a false empty state.
         console.error("Failed to fetch balances from API", error);
         throw error;
       }

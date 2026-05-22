@@ -18,7 +18,6 @@ interface ApiResponse<T> {
   dataSource?: "live" | "degraded";
 }
 
-/** Event dispatched when the API reports degraded data source */
 const DEGRADED_EVENT = "launchpad:degraded";
 
 function emitDegradedState(degraded: boolean) {
@@ -58,38 +57,19 @@ export interface ApiToken {
   creator: string;
   isHidden: boolean;
   createdAt: string;
-  // Derived on the API from Ponder + BounceTech. Optional because the
-  // `/tokens/search` endpoint returns only the base Postgres shape for speed.
-  // Nullable (when present) because the indexer or BounceTech may be
-  // temporarily unavailable — UI should treat null as "unknown", never zero.
+  // Optional on search responses; null means degraded/unknown, never zero.
   curveSupply?: string | null;
   ltReserve?: string | null;
   curveFilled?: number | null;
-  /**
-   * Organic USD contribution to `curveFilled` (0–curveFilled). Null while
-   * indexer/BounceTech are degraded or post-graduation. See
-   * `apps/api/src/lib/token-enrich.ts` for the computation.
-   */
+  /** Organic USD contribution to `curveFilled`; null while degraded/post-grad. */
   curveFilledOrganic?: number | null;
-  /**
-   * LT price-appreciation contribution to `curveFilled`. Clamped at 0 — a
-   * negative "boost" is hidden from the UI by product decision.
-   */
+  /** LT price-appreciation contribution to `curveFilled`, clamped at 0. */
   curveFilledLeverageBoost?: number | null;
-  /**
-   * Live USD value of the curve's real LT reserve (`realLt × currentRate`).
-   * Powers the `$X raised` label on the curve strip; pairs with the live
-   * `graduationThresholdUsd` to render `$X / $Y`. Null while
-   * indexer/BounceTech are degraded or post-graduation.
-   */
+  /** Live USD value of the curve's real LT reserve; null degraded/post-grad. */
   curveRaisedUsd?: number | null;
   graduated?: boolean;
   graduatedAt?: string | null;
-  /**
-   * Phase 1 of graduation has fired but `finalizeGraduation` hasn't yet —
-   * the token is contract-frozen, no buys/sells will land. Drives the
-   * "Token is graduating" overlay on the trade panel.
-   */
+  /** Phase 1 fired, phase 2 pending; token is contract-frozen. */
   pendingGraduation?: boolean;
   /** ISO timestamp when phase 1 fired. `null` if not currently in phase 1. */
   pendingGraduationAt?: string | null;
@@ -98,34 +78,14 @@ export interface ApiToken {
   priceUsd?: number | null;
   mcapUsd?: number | null;
   change24h?: number | null;
-  /**
-   * 24h percentage change of the backing LT's exchange rate (independent
-   * of any curve activity). Exposed for ad-hoc sorting/inspection; no UI
-   * surface consumes it currently.
-   */
+  /** 24h backing-LT exchange-rate change, independent of curve activity. */
   ltChange24h?: number | null;
   volume24hUsd?: number | null;
-  /**
-   * Lifetime gross USD traded through `Zap` for this token
-   * (buys + sells). Sourced from a running counter on the indexer's
-   * `token` row, so — unlike `volume24hUsd` — it doesn't go null on
-   * pagination truncation. `null` only when the indexer is unreachable;
-   * `0` when the token has never traded.
-   */
+  /** Lifetime gross USD traded through `Zap`; null only when indexer is unreachable. */
   totalVolumeUsd?: number | null;
-  /**
-   * Lifetime USD accrued to this token's creator via `FeeVault:FeeAccrued`.
-   * Lifetime counter — never decreases on claim. Sourced from a running
-   * counter on the indexer's `token` row, so the Rewards tab can show
-   * per-token earned figures in O(1) without a per-token round-trip.
-   * `null` when the indexer is unreachable; `0` when the token has never
-   * accrued fees.
-   */
+  /** Lifetime creator fees accrued; never decreases on claim. */
   creatorFeesUsd?: number | null;
-  /**
-   * Mirror of `creatorFeesUsd` for the protocol cut. Same lifetime
-   * semantics. Surfaced for symmetry with the admin dashboard.
-   */
+  /** Lifetime protocol fee mirror of `creatorFeesUsd`. */
   protocolFeesUsd?: number | null;
   lastTradeAt?: string | null;
   poolAddress?: string | null;
@@ -144,21 +104,9 @@ export type TokenListStatus = "curve" | "graduating" | "graduated";
 export interface FetchTokensOptions {
   sort?: TokenListSort;
   status?: TokenListStatus;
-  /**
-   * Filter to tokens launched by a specific creator (lowercase or
-   * checksummed address). Used by the creator-rewards tab to bound the
-   * paginated catalogue scan to one wallet's tokens. The `/api/v1/tokens`
-   * route forwards this to a `WHERE creator = …` in Postgres so the cap
-   * matches the caller's actual blast radius, not the global catalogue.
-   */
+  /** Filter to tokens launched by one creator. */
   creator?: string;
-  /**
-   * Pair-level filter facets. Forwarded to the API's `?underlying=` /
-   * `?leverage=` / `?direction=` query params so filtering happens
-   * server-side — keeping pagination honest. The API validates each
-   * value: an unknown `underlying` returns an empty page rather than
-   * 400-ing, and `leverage` is constrained to `2|3|5`.
-   */
+  /** Pair-level facets forwarded to the API so pagination stays honest. */
   underlying?: string;
   leverage?: number;
   direction?: "long" | "short";
@@ -184,41 +132,13 @@ export function fetchTokens(
   return apiFetch(`/api/v1/tokens?${params.toString()}`);
 }
 
-/**
- * Server-enforced cap on `/api/v1/tokens?limit=…` (see `MAX_PAGE_SIZE` in
- * `apps/api/src/routes/tokens/list.ts`). The paginator below requests this
- * many tokens per page; any caller asking for "everything" needs to walk
- * pages until a short page comes back.
- */
+// Server-enforced page cap for `/api/v1/tokens`.
 const MAX_TOKENS_PAGE_SIZE = 100;
 
-/**
- * Hard ceiling on how many pages `fetchAllTokens` will pull before bailing
- * out. Matches the production worst-case (~50K tokens at MAX_TOKENS_PAGE_SIZE)
- * with headroom — a runaway catalogue or a bug in the offset loop should
- * surface as a thrown error, not as an infinite request stream that
- * silently melts the client and the API.
- */
+// Hard ceiling so an offset-loop bug cannot create an infinite request stream.
 const MAX_TOKENS_PAGES = 1000;
 
-/**
- * Walk `/api/v1/tokens` until exhausted and return every matching token in
- * a single array. Use this when the caller actually needs the full
- * catalogue (or full creator slice, etc.) — e.g. the balances chain
- * fallback's multicall list, or the creator-rewards per-token grid. For
- * paginated UI surfaces (home-page list, search) keep using `fetchTokens`
- * with a bounded page size.
- *
- * The server caps each page at `MAX_TOKENS_PAGE_SIZE` (100), so the cost
- * scales linearly: ~10 sequential requests per 1K tokens. Callers pay
- * latency, not memory — every page is small and the responses concatenate
- * cheaply.
- *
- * Throws (rather than returning a partial list) if the catalogue exceeds
- * `MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE`. A silently-truncated full
- * catalogue would re-introduce the exact bug this helper exists to fix
- * (issue #476).
- */
+/** Walk `/api/v1/tokens` until exhausted; use only when a full slice is needed. */
 export async function fetchAllTokens(
   options: FetchTokensOptions = {},
 ): Promise<ApiToken[]> {
@@ -229,12 +149,7 @@ export async function fetchAllTokens(
     all.push(...batch);
     if (batch.length < MAX_TOKENS_PAGE_SIZE) return all;
   }
-  // We hit the page-count ceiling on a full page — the catalogue is either
-  // exactly `MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE` rows (perfectly
-  // exhausted) or actually overflowing. Cheap one-row probe at the next
-  // offset disambiguates: an empty probe means we're done; a non-empty one
-  // means truncation is real and we must throw rather than silently drop
-  // tail rows.
+  // Probe one more row so exact-boundary catalogues don't look truncated.
   const probe = await fetchTokens(
     1,
     MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE,
@@ -433,16 +348,7 @@ export type ChartMode =
   | { kind: "timeframe"; value: ChartTimeframe }
   | { kind: "interval"; seconds: ChartIntervalSeconds };
 
-/**
- * Y-axis unit toggle — lets users flip the chart between aggregate market cap
- * (price × `TOKEN_SUPPLY`) and per-token USD price, mirroring the
- * Dexscreener `MC | Price` toggle. The underlying data is identical (every
- * candle is just a price reading) — the unit only controls the multiplier
- * and the price-scale formatter. We keep `mcap` as the default because the
- * primary signal on a launchpad is "where on the curve are we?" rather than
- * the absolute per-token price (which is always sub-cent on a 1B-supply
- * token).
- */
+/** Chart y-axis unit toggle; data is the same, only multiplier/formatter changes. */
 export type ChartUnit = "mcap" | "price";
 
 const TIMEFRAME_WINDOW_SECONDS: Record<ChartTimeframe, number> = {
@@ -460,12 +366,7 @@ const TIMEFRAME_CANDLE_SECONDS: Record<ChartTimeframe, number> = {
 // Matches INTERVAL_MODE_BAR_COUNT in `apps/api/src/routes/chart.ts`.
 const INTERVAL_MODE_BAR_COUNT = 120;
 
-/**
- * Derives the window (chart viewport, seconds) and candle width (seconds)
- * for a given `ChartMode`. Used by the chart hooks for live-tick bucketing,
- * viewport padding, and by `fetchChart` to build the query string. Kept in
- * one place so API, `useChartData`, and `useChart` never drift.
- */
+/** Derive viewport window, candle width, query string, and stable mode key. */
 export function getChartModeConfig(mode: ChartMode): {
   windowSec: number;
   candleSec: number;
@@ -506,53 +407,21 @@ export function fetchChart(
 }
 
 export interface MarketDataEntry {
-  /**
-   * Current token price in USD, computed from live curve state and the
-   * BounceTech LT exchange rate. `null` when either input is unavailable
-   * (treat as unknown, never zero). The full-catalogue `/api/v1/market-data`
-   * payload includes this for every token, so consumers can build an
-   * address-keyed price map without hitting the 100-row cap on the
-   * `/api/v1/tokens` list endpoint (issue #476).
-   */
+  /** Current token price in USD; null means unavailable/unknown, never zero. */
   priceUsd: number | null;
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
-  /**
-   * 24h USD trading volume (buys + sells through `Zap`). `null` while the
-   * indexer aggregation is degraded — render as `—`, never `$0`. Surfaced
-   * here so the hero card can live-update volume off the same 30s
-   * `/market-data` poll that drives mcap (with WS deltas layered on top
-   * via `useLiveTokenVolume24h`).
-   */
+  /** 24h USD trading volume through `Zap`; null while aggregation is degraded. */
   volume24hUsd: number | null;
 }
 
 export type MarketDataMap = Record<string, MarketDataEntry>;
 
-/**
- * Maximum addresses per outbound `POST /api/v1/market-data` request.
- * Mirrors the server-side cap (`MAX_ADDRESSES_PER_REQUEST` in
- * `apps/api/src/routes/market-data.ts`); requests larger than this are
- * chunked client-side and merged below so the caller doesn't have to
- * page their own consumer (home-table infinite scroll will routinely
- * accumulate more than this).
- */
+// Mirrors the server-side market-data address cap; larger requests are chunked.
 const MARKET_DATA_CHUNK_SIZE = 200;
 
-/**
- * Per-page market-data fetch. Replaces the legacy catalogue-wide
- * `GET /api/v1/market-data` dump (which fanned out to O(catalogue)
- * upstream calls per cache miss). Consumers pass the address slice they
- * care about — token table page, search results, portfolio held
- * positions — and get back the same address-keyed map.
- *
- * Empty `addresses[]` short-circuits with `{}` (no round-trip). When
- * the caller passes more than `MARKET_DATA_CHUNK_SIZE` addresses we
- * fire chunked requests in parallel and merge — the server cap is a
- * defensive bound on per-request fan-out, not a user-facing limit on
- * the home table's infinite-scroll backlog.
- */
+/** Fetch bounded market data for a visible address slice, chunking over server cap. */
 export async function fetchMarketData(
   addresses: string[],
 ): Promise<MarketDataMap> {
@@ -595,22 +464,12 @@ export interface ApiBalance {
   leverage: number;
   underlying: string;
   ltDirection: string;
-  /**
-   * Whether the token is currently hidden from the public listings by an
-   * admin. Hidden positions still appear in the wallet's balances feed
-   * (issue #712) so the holder can sell out; the UI uses this flag to
-   * render the policy-violation disclaimer and disable the buy CTA on
-   * the corresponding token's detail page.
-   */
+  /** Admin-hidden tokens still appear to holders so they can sell out. */
   isHidden: boolean;
   balance: string;
 }
 
-/**
- * Per-asset response shape from `GET /api/v1/assets`. The API only
- * returns underlyings that are backed by at least one supported LT in
- * the contract-backed mirror.
- */
+/** Asset row from the contract-backed LT mirror. */
 export interface ApiAsset {
   symbol: string;
   price: string | null;
@@ -629,22 +488,7 @@ export function fetchBalances(wallet: string): Promise<ApiBalance[]> {
   return apiFetch(`/api/v1/balances-v2/${wallet}`);
 }
 
-/**
- * Per-creator pooled earnings totals served by `GET /api/v1/creators/
- * :address/earnings`. The endpoint reads the indexer's per-creator
- * `creator_earnings` row directly (one primary-key lookup) — replaces
- * the legacy frontend pattern of issuing two `FeeVault.creatorBalance`
- * / `lifetimeCreatorEarned` `eth_call`s on every 30s rewards-panel
- * poll, multiplied by every page that mounts `EarningsPanel`,
- * `ProfileView`, or `CreatorBadge`.
- *
- * Both `*Raw` (6dp decimal-string) and `*Usd` (USD float) variants
- * ride along on the response. The frontend currently only consumes
- * the floats, but the raw figures are kept on the wire so callers that
- * need exact integer math (claim amount confirmation, future
- * "claim X of Y" splits) don't have to round-trip through the float
- * back into a bigint.
- */
+/** Per-creator pooled earnings totals from the indexer's creator row. */
 export interface ApiCreatorEarnings {
   /** Lifetime USDC accrued, 6dp decimal string. Never decreases. */
   lifetimeEarnedUsdcRaw: string;
@@ -670,17 +514,7 @@ export function fetchSparkline(
   return apiFetch(`/api/v1/trades/sparkline/${address}?points=${points}`);
 }
 
-/**
- * Shape returned by `GET /api/v1/trades` and `GET /api/v1/trades/:address`.
- * Sourced from the indexer's `routerTrade` table (Zap `Buy`/`Sell` events),
- * so the same endpoint covers **both** bonding-curve and post-graduation
- * trades — no special-casing for graduated tokens.
- *
- * The router-trade shape is the canonical client-side trade type — the
- * legacy Bonding-only `PonderTrade` (browser POSTs to Ponder GraphQL)
- * was removed when issue #942 retired the last direct-from-browser
- * indexer call.
- */
+/** Router-routed trade row covering both curve and post-graduation trades. */
 export interface ApiRouterTrade {
   id: string;
   tokenAddress: string;
@@ -693,39 +527,13 @@ export interface ApiRouterTrade {
   blockNumber: string;
   /** Unix seconds (decimal string, NOT 1e18-scaled). */
   timestamp: string;
-  /**
-   * Resolved token display symbol (e.g. `"TST"`), populated by the API
-   * by batching a single indexer `tokens(address_in: …)` query alongside
-   * the trade fetch. Lets the client render the right label on first
-   * paint without a second per-trade `/tokens/:address/meta` round-trip
-   * from `prefetchTokenName` — which was the race the truncated-address
-   * fallback exposed in issue #703.
-   *
-   * Optional because (a) older API builds don't return it, and (b) the
-   * indexer briefly holds a blank-label placeholder row between
-   * `Factory:PairCreated` and `Bonding:TokenLaunched` that we strip
-   * server-side (a blank label would let the client cache an empty
-   * string as "resolved").
-   */
+  /** Resolved display symbol, when the API can enrich the trade row. */
   tokenSymbol?: string;
-  /**
-   * Full token name (e.g. `"Test Token"`). Display fallback when
-   * `tokenSymbol` is missing. Same optional/forward-compat semantics
-   * as `tokenSymbol`.
-   */
+  /** Full token name fallback when `tokenSymbol` is missing. */
   tokenName?: string;
 }
 
-/**
- * Fetch the global feed of router-routed trades. Used by the home-page
- * trade ticker. Crucially graduation-aware (unlike Ponder's `trades`
- * GraphQL which only sees `Bonding.Trade`).
- *
- * `offset` lets the right-panel recent-trades list page backwards
- * through history when the user scrolls past the initial batch
- * (issue #807). Mirrors the per-token endpoint's pagination shape so
- * a single helper covers both.
- */
+/** Fetch global router-routed trades with backward pagination. */
 export function fetchRouterTradesGlobal(
   limit = 20,
   offset = 0,
@@ -737,11 +545,7 @@ export function fetchRouterTradesGlobal(
   return apiFetch(`/api/v1/trades?${params.toString()}`);
 }
 
-/**
- * Fetch per-token router trade history (paginated). The same endpoint
- * powers the token detail page's "trades" tab and the per-token live feed
- * REST fallback.
- */
+/** Fetch per-token router trade history. */
 export function fetchRouterTradesByToken(
   address: string,
   limit = 30,
@@ -767,11 +571,7 @@ export function fetchHolders(
   return apiFetch(`/api/v1/holders/${address}?limit=${limit}`);
 }
 
-// LT directory — sourced from the Alt Fun API's `lt_directory` mirror
-// (kept fresh by the on-chain `LtDirectoryPoller`). The route wraps the
-// directory in `formatSuccess({ data: [...] })`, which `apiFetch` unwraps
-// the outer envelope from; the `.data` access below peels off the inner
-// `{ data: [...] }` shape the route emits.
+// API wraps the LT directory in an inner `{ data: [...] }` envelope.
 
 export async function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
   const res = await apiFetch<{ data: LiveLeveragedToken[] }>(

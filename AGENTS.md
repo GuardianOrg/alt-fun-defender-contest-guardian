@@ -299,6 +299,3 @@ Admin endpoints (`/admin/*`) are authenticated via a shared admin API key passed
 
 v1 tracks referrals only (no on-chain fee split). The `buy()` function accepts a `referrer` address parameter. `Referred` events are emitted and indexed for analytics. Payouts are deferred to v2.
 
-## Open Tasks
-
-See `TODO.md` in the repo root for outstanding work items. This is the single source of truth for open tasks. When completing a task, remove it from `TODO.md`. When discovering new work, add it there.

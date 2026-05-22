@@ -31,9 +31,7 @@ const TIMEFRAMES: { value: ChartTimeframe; label: string }[] = [
   { value: "1m", label: "1M" },
 ];
 
-// Y-axis unit toggle. `MC` is the default — on a 1B-supply launchpad token
-// the per-token price is always sub-cent and isn't the primary signal a
-// trader is looking at. Mirrors the Dexscreener `MC | Price` toggle.
+// Market cap is the default signal; per-token prices are usually sub-cent.
 const UNITS: { value: ChartUnit; label: string }[] = [
   { value: "price", label: "Price" },
   { value: "mcap", label: "Market Cap" },
@@ -42,17 +40,13 @@ const UNITS: { value: ChartUnit; label: string }[] = [
 interface Props {
   /** Route param — always available, lets the chart fetch start immediately. */
   address: string;
-  /** Resolves later via `useToken`; gates the LT price WS sub and breakdown
-   *  toolbar stats but not the initial chart mount/fetch. */
+  /** Resolves later; does not block the initial chart fetch. */
   token: Token | null;
 }
 
 export default function Chart({ address, token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  // Default to a 1m interval — matches what the leader of the space (pump.fun)
-  // opens with and gives intra-candle resolution from the moment a token loads.
-  // Picking a timeframe switches `mode.kind` to "timeframe" (and the period
-  // strip below the chart highlights); picking an interval swings it back.
+  // Start at 1m candles; timeframe buttons switch mode away from raw intervals.
   const [mode, setMode] = useState<ChartMode>({
     kind: "interval",
     seconds: 60,
@@ -94,15 +88,7 @@ export default function Chart({ address, token }: Props) {
     unit,
   );
 
-  // Dev-only mcap override: the `DevSimulator` "pump mcap" / "dump mcap"
-  // buttons write into the override store to drive the rolling-number
-  // animation without waiting on real on-chain activity. `useTokenMarketStats`
-  // already routes the override through its `mcapUsd` field, but we
-  // bypass that source below in favour of `liveMcapUsd` for responsiveness,
-  // so we have to re-read the override here for the override path to
-  // still win. The `import.meta.env.DEV` gate inside the snapshot keeps
-  // this dead-code-eliminated in production builds (the subscribe call
-  // resolves to a no-op listener set so it stays cheap).
+  // DevSimulator overrides must beat live WS mcap so QA buttons animate instantly.
   const overrideMcapUsd = useSyncExternalStore(
     subscribeTokenOverrides,
     () =>
@@ -110,12 +96,7 @@ export default function Chart({ address, token }: Props) {
     () => undefined,
   );
 
-  // Display priority:
-  //   1. Dev override (QA-only; must win when set so pump/dump buttons work)
-  //   2. Live WS-derived mcap from `useChartData` — updates on every trade
-  //      + every 1s LT price tick, matching the chart's price line cadence
-  //   3. Polled `/market-data` value — 30s lag fallback for the gap between
-  //      mount and the first WS tick (and for tokens with no LT yet)
+  // Prefer dev override, then live WS mcap, then polled market-data fallback.
   const mcapUsd = overrideMcapUsd ?? liveMcapUsd ?? polledMcapUsd;
 
   useChart({
@@ -162,9 +143,7 @@ export default function Chart({ address, token }: Props) {
             </span>
           </button>
           {intervalMenuOpen && (
-            // Plain list of buttons — native button semantics are enough for
-            // keyboard + screen-reader users and we don't claim the full
-            // listbox/menu ARIA contract (no roving focus / arrow-key model).
+            // Plain buttons avoid claiming a full listbox/menu keyboard contract.
             <ul className={styles.intervalMenu}>
               {CHART_INTERVAL_SECONDS.map((seconds) => {
                 const active = isIntervalActive && mode.seconds === seconds;
