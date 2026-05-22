@@ -5,8 +5,8 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./TableFilters.module.css";
-import { LEVERAGE_OPTIONS } from "../../config/constants";
 import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
+import { useLeverageOptions } from "../../hooks/useLeveragedTokens";
 import {
   clearTokenFilters,
   selectActiveFilter,
@@ -235,6 +235,7 @@ export default function TableFilters() {
   const activeFilter = useSelector(selectActiveFilter);
   const tokenSort = useSelector(selectTokenSort);
   const availableAssets = useAvailableUnderlyingAssets();
+  const leverageOptions = useLeverageOptions();
   const [open, setOpen] = useState<OpenPopover>(null);
 
   const sortRef = useRef<HTMLDivElement | null>(null);
@@ -390,7 +391,7 @@ export default function TableFilters() {
               >
                 <span>All leverages</span>
               </OptionRow>
-              {LEVERAGE_OPTIONS.map((l) => (
+              {leverageOptions.map((l) => (
                 <OptionRow
                   key={l}
                   selected={filters.leverage === l}

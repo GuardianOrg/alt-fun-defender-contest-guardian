@@ -15,11 +15,11 @@ export {
   MIN_USDC_SELL_AMOUNT,
   SUPPORTED_UNDERLYING_ASSETS,
   HYPERLIQUID_XYZ_DEX,
-  SUPPORTED_LEVERAGES,
   filterSupportedLTs,
   findLT,
   getAssetDisplayName,
   getHyperliquidDex,
+  getLeverageOptions,
   isSupportedUnderlying,
 } from "./bouncetech.js";
 export type {

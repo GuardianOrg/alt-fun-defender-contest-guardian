@@ -4,11 +4,11 @@ import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
-import { LEVERAGE_OPTIONS } from "../../config/constants";
 import {
   useAssetChanges,
   useAvailableUnderlyingAssets,
 } from "../../hooks/useAssets";
+import { useLeverageOptions } from "../../hooks/useLeveragedTokens";
 import { cn, formatPercent, getLtDisplayName } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
@@ -36,6 +36,10 @@ export default function PairSelector({
   const availableAssets = useAvailableUnderlyingAssets();
   const isLong = direction === "long";
   const baseChg = assetChanges[asset];
+  const leverageOptions = useLeverageOptions();
+  const availableLeverages = useLeverageOptions(asset, isLong);
+  const visibleLeverageOptions =
+    asset === "HYPE" ? leverageOptions : leverageOptions.filter((l) => l !== 1);
   const chg =
     baseChg == null
       ? undefined
@@ -194,22 +198,29 @@ export default function PairSelector({
 
       <label className={styles.leverageLabel}>Leverage</label>
       <div className={styles.leverageRow}>
-        {LEVERAGE_OPTIONS.map((l) => (
-          <button
-            key={l}
-            className={cn(
-              styles.leverageButton,
-              leverage === l
-                ? isLong
-                  ? styles.leverageButtonMintSelected
-                  : styles.leverageButtonRedSelected
-                : styles.leverageButtonUnselected,
-            )}
-            onClick={() => onLeverageChange(l)}
-          >
-            {l}×
-          </button>
-        ))}
+        {visibleLeverageOptions.map((l) => {
+          const disabled = !availableLeverages.includes(l);
+          return (
+            <button
+              key={l}
+              className={cn(
+                styles.leverageButton,
+                disabled
+                  ? styles.leverageButtonDisabled
+                  : leverage === l
+                    ? isLong
+                      ? styles.leverageButtonMintSelected
+                      : styles.leverageButtonRedSelected
+                    : styles.leverageButtonUnselected,
+              )}
+              disabled={disabled}
+              onClick={() => onLeverageChange(l)}
+              title={disabled ? "No contract-backed LT for this pair" : undefined}
+            >
+              {l}×
+            </button>
+          );
+        })}
       </div>
 
       <div

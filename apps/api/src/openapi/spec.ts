@@ -86,7 +86,7 @@ const tokenSchema = {
       description: "Address of the BounceTech Leveraged Token used as reserve",
     },
     ltDirection: { type: "string", enum: ["long", "short"] },
-    leverage: { type: "integer", enum: [2, 3, 5] },
+    leverage: { type: "integer", minimum: 1 },
     underlying: { type: "string", enum: UNDERLYING_ENUM },
     status: { type: "string", enum: ["curve", "graduating", "graduated"] },
     graduated: {
@@ -416,8 +416,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
           {
             name: "leverage",
             in: "query",
-            schema: { type: "integer", enum: [2, 3, 5] },
-            description: "Filter by leverage multiplier",
+            schema: { type: "integer", minimum: 1 },
+            description: "Filter by contract-reported leverage multiplier",
           },
           {
             name: "creator",

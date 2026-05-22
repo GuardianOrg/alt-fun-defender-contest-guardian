@@ -12,12 +12,15 @@ import { tokenPath } from "../../app/routes";
 import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
-import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
+import {
+  useLeverageOptions,
+  useLeveragedTokens,
+} from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
 import Button from "../shared/Button";
 
-import type { UnderlyingAsset, Leverage } from "../../config/constants";
+import type { Leverage, UnderlyingAsset } from "../../config/constants";
 import type { Direction } from "../../services/types";
 
 export default function CreateView() {
@@ -37,6 +40,7 @@ export default function CreateView() {
   const [seedAmount, setSeedAmount] = useState(String(MIN_USDC_BUY_AMOUNT));
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | undefined>();
+  const isLong = direction === "long";
 
   const { isConnected, connect } = useWallet();
   // Creation includes a seed buy, so the buy-side geo gate applies here too.
@@ -67,17 +71,23 @@ export default function CreateView() {
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
   const availableAssets = useAvailableUnderlyingAssets();
-  const noDetectedPairs = availableAssets.length === 0;
+  const leverageOptions = useLeverageOptions(asset, isLong);
+  const noDetectedPairs = availableAssets.length === 0 || leverageOptions.length === 0;
   useEffect(() => {
     if (availableAssets.length === 0 || availableAssets.includes(asset)) return;
     setAsset(availableAssets[0]);
   }, [asset, availableAssets]);
+  useEffect(() => {
+    if (leverageOptions.length === 0 || leverageOptions.includes(leverage)) return;
+    setLeverage(leverageOptions.includes(3) ? 3 : leverageOptions[0]);
+  }, [leverage, leverageOptions]);
+  const invalidLeverageForAsset =
+    leverageOptions.length > 0 && !leverageOptions.includes(leverage);
   const seedAmt = parseFloat(seedAmount) || 0;
   // Mirror `Zap.MIN_SEED_USDC` so users do not sign a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
   // Refuse launches against LTs that are known to be mint-paused.
   const { data: liveLTs } = useLeveragedTokens();
-  const isLong = direction === "long";
   const selectedLT = liveLTs?.find(
     (lt) =>
       lt.targetAsset === asset &&
@@ -108,6 +118,7 @@ export default function CreateView() {
     if (!trimmedName || !trimmedTicker) return;
     if (seedBelowMin) return;
     if (noDetectedPairs) return;
+    if (invalidLeverageForAsset) return;
     // Guard stale renders between geo polling and a click.
     if (isGeoBlocked) return;
     // `useCreateToken` repeats this before any wallet popup.
@@ -175,6 +186,7 @@ export default function CreateView() {
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
     if (noDetectedPairs) return "LOADING PAIRS…";
+    if (invalidLeverageForAsset) return "SELECT SUPPORTED LEVERAGE";
     if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "⚡ LAUNCH TOKEN";
@@ -281,6 +293,7 @@ export default function CreateView() {
                 vanity.status === "error" ||
                 isGeoBlocked ||
                 noDetectedPairs ||
+                invalidLeverageForAsset ||
                 pairMintPaused ||
                 (isConnected && seedBelowMin)
               }
