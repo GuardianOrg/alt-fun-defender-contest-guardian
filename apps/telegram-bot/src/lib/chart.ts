@@ -1,3 +1,5 @@
+import type { ApiResponse } from "@launchpad/shared";
+
 import type { ApiResult } from "./api.js";
 import {
   CHART_EMPTY_STATE_TEXT,
@@ -25,11 +27,6 @@ export interface ChartSnapshot {
 }
 
 export type ChartTimeframe = "1d" | "5d" | "1m";
-
-interface ApiEnvelope<T> {
-  data?: T;
-  error?: string;
-}
 
 const buildHeaders = (apiKey: string | undefined): HeadersInit => {
   const headers: Record<string, string> = { accept: "application/json" };
@@ -92,13 +89,13 @@ export const fetchChartSnapshot = async (
   if (res.status === 503 || res.status >= 500)
     return { ok: false, kind: "unavailable" };
   if (!res.ok) return { ok: false, kind: "unknown" };
-  let body: ApiEnvelope<unknown>;
+  let body: ApiResponse<unknown>;
   try {
-    body = (await res.json()) as ApiEnvelope<unknown>;
+    body = (await res.json()) as ApiResponse<unknown>;
   } catch {
     return { ok: false, kind: "unknown" };
   }
-  if (!body || body.data === undefined) return { ok: false, kind: "unknown" };
+  if (body.status !== "success") return { ok: false, kind: "unknown" };
   if (!isChartSnapshot(body.data)) return { ok: false, kind: "unknown" };
   return { ok: true, data: body.data };
 };

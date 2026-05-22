@@ -119,7 +119,11 @@ describe("type exports compile correctly", () => {
   });
 
   it("ApiResponse generic works", () => {
-    const resp: ApiResponse<string> = { data: "ok", success: true };
+    const resp: ApiResponse<string> = {
+      status: "success",
+      data: "ok",
+      error: null,
+    };
     expect(resp.data).toBe("ok");
   });
 

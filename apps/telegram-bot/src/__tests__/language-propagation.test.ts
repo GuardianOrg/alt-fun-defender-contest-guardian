@@ -246,7 +246,11 @@ describe("language preference propagates across flows", () => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }

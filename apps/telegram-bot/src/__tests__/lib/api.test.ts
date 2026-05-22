@@ -13,6 +13,8 @@ const env = {
   API_KEY: "test-api-key",
 };
 
+const apiSuccess = <T>(data: T) => ({ status: "success", data, error: null });
+
 describe("isAddress", () => {
   it("accepts 0x + 40 hex chars (mixed case)", () => {
     expect(isAddress("0xAbCDef0123456789AbcDeF0123456789AbCdEF01")).toBe(true);
@@ -74,7 +76,7 @@ describe("fetchBotPositions", () => {
   it("omits X-API-Key when env.API_KEY is whitespace-only (helper-level backstop; boot guard already rejects this)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { open: [], realised: [] } }),
+        JSON.stringify(apiSuccess({ open: [], realised: [] })),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
@@ -90,9 +92,7 @@ describe("fetchBotPositions", () => {
   it("sends X-API-Key header and targets the bot positions route", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          data: { open: [openRow], realised: [realisedRow] },
-        }),
+        JSON.stringify(apiSuccess({ open: [openRow], realised: [realisedRow] })),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
@@ -177,7 +177,7 @@ describe("fetchBotPositions", () => {
             setTimeout(() => {
               resolve(
                 new Response(
-                  JSON.stringify({ data: { open: [], realised: [] } }),
+                  JSON.stringify(apiSuccess({ open: [], realised: [] })),
                   { status: 200 },
                 ),
               );
@@ -206,7 +206,7 @@ describe("fetchBotPositions", () => {
   it("returns unknown when open is not an array", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { open: "nope", realised: [] } }),
+        JSON.stringify(apiSuccess({ open: "nope", realised: [] })),
         { status: 200 },
       ),
     );
@@ -219,12 +219,12 @@ describe("fetchBotPositions", () => {
   it("returns unknown when an open entry has a non-numeric USDC string", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          data: {
+        JSON.stringify(
+          apiSuccess({
             open: [{ ...openRow, costBasisUsdc: "abc" }],
             realised: [],
-          },
-        }),
+          }),
+        ),
         { status: 200 },
       ),
     );
@@ -237,12 +237,12 @@ describe("fetchBotPositions", () => {
   it("accepts a null PnL percent (cost basis was zero)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          data: {
+        JSON.stringify(
+          apiSuccess({
             open: [{ ...openRow, costBasisUsdc: "0", unrealisedPnlPct: null }],
             realised: [],
-          },
-        }),
+          }),
+        ),
         { status: 200 },
       ),
     );
@@ -254,9 +254,7 @@ describe("fetchBotPositions", () => {
   it("returns unknown when a realised entry is missing required fields", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          data: { open: [], realised: [{ token: TOKEN_B }] },
-        }),
+        JSON.stringify(apiSuccess({ open: [], realised: [{ token: TOKEN_B }] })),
         { status: 200 },
       ),
     );
@@ -269,13 +267,13 @@ describe("fetchBotPositions", () => {
   it("targets the referrals route and parses stats", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({
-          data: {
+        JSON.stringify(
+          apiSuccess({
             referredWallets: 4,
             referredVolume: "2500000000",
             referrals: [],
-          },
-        }),
+          }),
+        ),
         { status: 200 },
       ),
     );
@@ -300,7 +298,7 @@ describe("fetchBotPositions", () => {
   it("returns unknown when referrals payload is malformed (missing referredVolume)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { referredWallets: 1 } }),
+        JSON.stringify(apiSuccess({ referredWallets: 1 })),
         { status: 200 },
       ),
     );
@@ -368,7 +366,7 @@ describe("fetchToken", () => {
 
   it("returns token data for a well-formed response", async () => {
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: VALID_TOKEN }), { status: 200 }),
+      new Response(JSON.stringify(apiSuccess(VALID_TOKEN)), { status: 200 }),
     );
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result.ok).toBe(true);
@@ -391,7 +389,7 @@ describe("fetchToken", () => {
     // priceUsd omitted — isOptionalNumber must reject undefined
     const { priceUsd: _omit, ...withoutPrice } = VALID_TOKEN;
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: withoutPrice }), { status: 200 }),
+      new Response(JSON.stringify(apiSuccess(withoutPrice)), { status: 200 }),
     );
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result).toEqual({ ok: false, kind: "unknown" });
@@ -400,7 +398,7 @@ describe("fetchToken", () => {
   it("accepts a payload where a numeric field is null", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { ...VALID_TOKEN, ltChange24h: null } }),
+        JSON.stringify(apiSuccess({ ...VALID_TOKEN, ltChange24h: null })),
         { status: 200 },
       ),
     );
@@ -411,7 +409,7 @@ describe("fetchToken", () => {
   it("rejects a payload with missing status field", async () => {
     const { status: _omit, ...withoutStatus } = VALID_TOKEN;
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: withoutStatus }), { status: 200 }),
+      new Response(JSON.stringify(apiSuccess(withoutStatus)), { status: 200 }),
     );
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result).toEqual({ ok: false, kind: "unknown" });
@@ -419,7 +417,7 @@ describe("fetchToken", () => {
 
   it("normalises missing volume24hUsd to null", async () => {
     fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: VALID_TOKEN }), { status: 200 }),
+      new Response(JSON.stringify(apiSuccess(VALID_TOKEN)), { status: 200 }),
     );
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result.ok).toBe(true);
@@ -429,7 +427,7 @@ describe("fetchToken", () => {
   it("passes through volume24hUsd when present in the response", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { ...VALID_TOKEN, volume24hUsd: 12345 } }),
+        JSON.stringify(apiSuccess({ ...VALID_TOKEN, volume24hUsd: 12345 })),
         { status: 200 },
       ),
     );

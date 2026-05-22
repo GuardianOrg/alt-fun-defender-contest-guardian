@@ -2,6 +2,7 @@ import {
   type AdminCheckResponse,
   type AdminSessionAuth,
   type AdminTokenActionResponse,
+  type ApiResponse,
   type LiveLeveragedToken,
 } from "@launchpad/shared";
 
@@ -10,13 +11,6 @@ if (!apiUrl) {
   throw new Error("VITE_API_URL is not set");
 }
 export const API_BASE = apiUrl;
-
-interface ApiResponse<T> {
-  status: "success" | "error";
-  data: T | null;
-  error: string | null;
-  dataSource?: "live" | "degraded";
-}
 
 const DEGRADED_EVENT = "launchpad:degraded";
 

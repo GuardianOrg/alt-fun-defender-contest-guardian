@@ -93,7 +93,11 @@ describe("/positions", () => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -138,7 +142,11 @@ describe("/positions", () => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -160,6 +168,7 @@ describe("/positions", () => {
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               open: [
                 {
@@ -174,6 +183,7 @@ describe("/positions", () => {
               ],
               realised: [],
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -236,6 +246,7 @@ describe("/positions", () => {
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               open: [
                 {
@@ -259,6 +270,7 @@ describe("/positions", () => {
                 },
               ],
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -289,7 +301,11 @@ describe("/positions", () => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open, realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open, realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }
@@ -360,7 +376,11 @@ describe("/positions", () => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
-          JSON.stringify({ data: { open: [], realised: [] } }),
+          JSON.stringify({
+            status: "success",
+            data: { open: [], realised: [] },
+            error: null,
+          }),
           { status: 200 },
         );
       }

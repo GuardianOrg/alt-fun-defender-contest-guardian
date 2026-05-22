@@ -137,7 +137,9 @@ const mockApi = (
       ) as { rewardsWallet?: string };
       return new Response(
         JSON.stringify({
+          status: "success",
           data: { rewardsWallet: (parsed.rewardsWallet ?? "").toLowerCase() },
+          error: null,
         }),
         { status: 200 },
       );
@@ -150,7 +152,10 @@ const mockApi = (
       badPaymentCount: 0,
       attributionLossCount: 0,
     };
-    return new Response(JSON.stringify({ data: body }), { status });
+    return new Response(
+      JSON.stringify({ status: "success", data: body, error: null }),
+      { status },
+    );
   });
 };
 
@@ -473,6 +478,7 @@ describe("/referral command", () => {
       const rewards = (perWallet[wallet] ?? wallet).toLowerCase();
       return new Response(
         JSON.stringify({
+          status: "success",
           data: {
             rewardsWallet: rewards,
             referredCount: 0,
@@ -480,6 +486,7 @@ describe("/referral command", () => {
             badPaymentCount: 0,
             attributionLossCount: 0,
           },
+          error: null,
         }),
         { status: 200 },
       );

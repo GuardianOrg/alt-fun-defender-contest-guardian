@@ -1,8 +1,19 @@
-export interface ApiResponse<T> {
+export type ApiDataSource = "live" | "degraded";
+
+export interface ApiSuccessResponse<T> {
+  status: "success";
   data: T;
-  success: boolean;
-  error?: string;
+  error: null;
+  dataSource?: ApiDataSource;
 }
+
+export interface ApiErrorResponse {
+  status: "error";
+  data: null;
+  error: string;
+}
+
+export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
 
 export interface PaginatedResponse<T> {
   data: T[];
