@@ -223,9 +223,8 @@ const liveAssetService: IAssetService = {
       const tokens = await fetchTokens(200);
       const countMap = new Map<string, number>();
       for (const t of tokens) {
-        const dir = t.ltDirection === "short" ? "short" : "long";
-        const existing = countMap.get(dir) ?? 0;
-        countMap.set(dir, existing + 1);
+        const existing = countMap.get(t.ltDirection) ?? 0;
+        countMap.set(t.ltDirection, existing + 1);
       }
 
       return [
