@@ -1,11 +1,30 @@
 .banner {
+  position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 0.8rem;
   padding: 0.8rem 1.2rem;
+  background: transparent;
+}
+
+.banner::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 0;
+  width: 100vw;
+  transform: translateX(-50%);
   background: var(--red-bg);
   border-bottom: 1px solid var(--red);
+  pointer-events: none;
+}
+
+.banner > * {
+  position: relative;
+  z-index: 1;
 }
 
 .icon {
