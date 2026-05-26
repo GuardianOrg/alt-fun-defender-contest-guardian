@@ -30,7 +30,6 @@ const getTradeTimestamp = (t: Trade) => t.timestamp;
 
 const TRADE_SKELETON_COUNT = 12;
 const PAGE_SKELETON_ROW_COUNT = 3;
-const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 // Keep the non-scrolling "graduating soon" section from crowding positions/trades.
 const GRADUATING_SOON_LIMIT = 5;
@@ -141,9 +140,7 @@ export default function RightPanel() {
     getTimestamp: getTradeTimestamp,
   });
 
-  const positions = [...heldTokens]
-    .sort((a, b) => b.valueUsd - a.valueUsd)
-    .slice(0, POSITION_LIMIT);
+  const positions = [...heldTokens].sort((a, b) => b.valueUsd - a.valueUsd);
 
   // Slice after the API's curve-filled sort so the closest tokens stay first.
   const graduating = graduatingTokens?.slice(0, GRADUATING_SOON_LIMIT) ?? [];
@@ -174,7 +171,11 @@ export default function RightPanel() {
 
   return (
     <div className={styles.panel}>
-      <TerminalSection title="MY POSITIONS" className={styles.sectionPositions}>
+      <TerminalSection
+        title="MY POSITIONS"
+        className={styles.sectionPositions}
+        fade="overflow"
+      >
         {!isConnected ? (
           <div className={styles.emptyRow}>Connect wallet to view</div>
         ) : balancesLoading && positions.length === 0 ? (
@@ -199,6 +200,7 @@ export default function RightPanel() {
       <TerminalSection
         title="RECENT TRADES"
         className={styles.sectionTrades}
+        fade="always"
         bodyRef={tradesScrollRef}
         bodyProps={{
           "aria-label": "Recent trades",

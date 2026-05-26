@@ -1,10 +1,40 @@
 .section {
+  --terminal-section-fade-height: 0.8rem;
+
   border: 1px solid var(--border);
   background: var(--bg-1);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.bodyFrame {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.sectionFaded .bodyFrame::before,
+.sectionFaded .bodyFrame::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--terminal-section-fade-height);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sectionFaded .bodyFrame::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+}
+
+.sectionFaded .bodyFrame::after {
+  bottom: 0;
+  background: linear-gradient(to bottom, rgba(9, 14, 11, 0), var(--bg-1) 85%);
 }
 
 .header {
@@ -24,38 +54,12 @@
 }
 
 .body {
-  flex: 1;
+  height: 100%;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  scrollbar-color: var(--border-2) transparent;
-}
-
-.body:hover,
-.body:focus,
-.body:focus-within,
-.body:active {
-  scrollbar-width: thin;
 }
 
 .body::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-.body:hover::-webkit-scrollbar,
-.body:focus::-webkit-scrollbar,
-.body:focus-within::-webkit-scrollbar,
-.body:active::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.body::-webkit-scrollbar-thumb {
-  background: var(--border-2);
-  border-radius: 9999px;
+  display: none;
 }

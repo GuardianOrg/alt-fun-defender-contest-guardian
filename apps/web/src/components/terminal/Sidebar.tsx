@@ -17,7 +17,7 @@ export default function Sidebar() {
 
   return (
     <div className={styles.sidebar}>
-      <TerminalSection title="MARKETS" className={styles.marketsPanel}>
+      <TerminalSection title="MARKETS" className={styles.marketsPanel} fade="always">
         {assets === undefined
           ? Array.from({ length: MARKET_SKELETON_COUNT }, (_, i) => (
               <div

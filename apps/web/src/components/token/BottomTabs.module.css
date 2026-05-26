@@ -353,6 +353,11 @@
    * `visible` value as `auto`. */
   overflow-x: auto;
   overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.tabContent::-webkit-scrollbar {
+  display: none;
 }
 
 .tabError {
