@@ -26,10 +26,23 @@ export function useTokenListLiveFeed(): void {
     if (!ws) return;
 
     const invalidator = createTradeFeedInvalidator(() => {
-      // One cache namespace covers table, search, right panel, and dev simulator.
-      queryClient.invalidateQueries({ queryKey: ["tokens-infinite"] });
-      // Single market-data query covers mcap, 24h change, and 24h volume.
-      queryClient.invalidateQueries({ queryKey: ["market-data"] });
+      // `cancelRefetch: false` so invalidations arriving while a fetch is
+      // still in flight are absorbed by that in-flight fetch rather than
+      // aborting it and starting another. Without this, an API that
+      // responds slower than the 1s throttle window would never settle —
+      // every WS tick would cancel and restart the request before it
+      // could complete. See PR #1157 for the orphaned-request pile-up
+      // this also fixes when threaded with the AbortSignal plumbing.
+      queryClient.invalidateQueries(
+        // One cache namespace covers table, search, right panel, and dev simulator.
+        { queryKey: ["tokens-infinite"] },
+        { cancelRefetch: false },
+      );
+      queryClient.invalidateQueries(
+        // Single market-data query covers mcap, 24h change, and 24h volume.
+        { queryKey: ["market-data"] },
+        { cancelRefetch: false },
+      );
     }, INVALIDATE_THROTTLE_MS);
 
     const unsub = ws.subscribe("trade", (data) => {
