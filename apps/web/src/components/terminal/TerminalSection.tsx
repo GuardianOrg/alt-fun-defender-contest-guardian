@@ -47,7 +47,7 @@ export default function TerminalSection({
   useLayoutEffect(() => {
     if (fade !== "overflow") return;
     measureOverflow();
-  });
+  }, [children, fade, measureOverflow]);
 
   useLayoutEffect(() => {
     if (fade !== "overflow") return undefined;
@@ -56,11 +56,9 @@ export default function TerminalSection({
 
     const resizeObserver = new ResizeObserver(measureOverflow);
     resizeObserver.observe(bodyNode);
-    window.addEventListener("resize", measureOverflow);
 
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener("resize", measureOverflow);
     };
   }, [fade, measureOverflow]);
 
