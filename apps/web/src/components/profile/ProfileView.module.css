@@ -55,12 +55,62 @@
   background: transparent;
   color: var(--txt);
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
 
 .avatar:hover {
   border-color: var(--mint-hover);
+}
+
+.avatar::before,
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.avatar::before {
+  z-index: 1;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.12) 0,
+      rgba(255, 255, 255, 0.12) 1px,
+      rgba(0, 0, 0, 0.2) 2px,
+      rgba(0, 0, 0, 0.2) 4px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 0, 64, 0.08),
+      rgba(77, 232, 180, 0.05),
+      rgba(64, 128, 255, 0.08)
+    );
+  mix-blend-mode: screen;
+  opacity: 0.42;
+}
+
+.avatar::after {
+  z-index: 2;
+  background:
+    radial-gradient(
+      circle at center,
+      transparent 45%,
+      rgba(0, 0, 0, 0.28) 100%
+    ),
+    linear-gradient(
+      rgba(255, 255, 255, 0.16),
+      transparent 22%,
+      transparent 72%,
+      rgba(0, 0, 0, 0.18)
+    );
+  box-shadow:
+    inset 0 0 calc(var(--avatar-size) * 0.18) rgba(77, 232, 180, 0.24),
+    inset 0 0 calc(var(--avatar-size) * 0.08) rgba(255, 255, 255, 0.16);
 }
 
 .avatar:focus-visible {
@@ -77,6 +127,12 @@
   line-height: 1;
   user-select: none;
   white-space: nowrap;
+  position: relative;
+  z-index: 0;
+  text-shadow:
+    -1px 0 rgba(255, 0, 64, 0.45),
+    1px 0 rgba(77, 232, 180, 0.45),
+    0 0 calc(var(--avatar-size) * 0.08) rgba(255, 255, 255, 0.35);
 }
 
 .identity {
@@ -94,13 +150,10 @@
   color: var(--txt-3);
 }
 
-/* Address row hosts the shortened address text + an inline copy
- * `IconButton` + an explorer link out to hyperevmscan. Flex with a
- * 0.4rem gap so the controls sit next to the last character without
- * crowding it; aligning to the baseline keeps the glyph optically
- * lined up with the monospace digits regardless of intrinsic
- * heights. `flex-wrap` allows the explorer link to drop to a second
- * row on narrow viewports rather than overflowing the panel. */
+/* Address row hosts the shortened address text plus inline copy and
+ * explorer icon controls. Flex with a 0.4rem gap keeps the controls
+ * next to the last character without crowding it; `flex-wrap` allows
+ * the explorer link to drop to a second row on narrow viewports. */
 .addressRow {
   display: flex;
   align-items: center;
@@ -109,45 +162,38 @@
   min-width: 0;
 }
 
-/* Inline explorer link — same visual family as `BottomTabs.txnLink`
- * so every "view this on hyperevmscan" affordance across the app
- * reads as a sibling. Plain text + a faint external-link glyph at
- * rest; both go mint on hover. Margin-left adds optical breathing
- * room between the copy button and the link so they don't read as
- * a single compound control. */
 .explorerLink {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-left: 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 12px;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
   color: var(--txt-3);
-  letter-spacing: 0.04em;
-  text-decoration: none;
   cursor: pointer;
+  flex-shrink: 0;
+  text-decoration: none;
   transition:
     color 0.15s ease,
+    background-color 0.15s ease,
     border-color 0.15s ease;
+}
+
+.explorerLink > svg {
+  display: block;
 }
 
 .explorerLink:hover {
   color: var(--mint);
+  border-color: var(--border-2);
+  background: var(--mint-bg);
 }
 
 .explorerLink:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
-}
-
-.explorerLinkIcon {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: opacity 0.15s ease;
-}
-
-.explorerLink:hover .explorerLinkIcon {
-  opacity: 1;
 }
 
 /* Sizing override for the shared `Button` primitive when used as the

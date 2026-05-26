@@ -220,9 +220,7 @@ export default function ProfileView() {
                   className={styles.explorerLink}
                   aria-label={`View ${address} on hyperevm scan`}
                 >
-                  View on hyperevm scan
                   <svg
-                    className={styles.explorerLinkIcon}
                     aria-hidden="true"
                     focusable="false"
                     width="12"

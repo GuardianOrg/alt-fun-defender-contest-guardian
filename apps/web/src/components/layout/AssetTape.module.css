@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  animation: scrolltape 180s linear infinite;
+  animation: scrolltape 350s linear infinite;
   will-change: transform;
 }
 
