@@ -118,6 +118,12 @@ function parseCreatedAfter(value: string | undefined): Date | undefined | null {
   return parsed;
 }
 
+function parseLeverageFilter(value: string | undefined): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const leverage = Number(value);
+  return Number.isSafeInteger(leverage) && leverage > 0 ? leverage : undefined;
+}
+
 function enrich(
   dbToken: DbToken,
   onchain: PonderTokenOnchain | undefined,
@@ -332,12 +338,7 @@ listRoute.get("/", async (c) => {
     directionRaw === "long" || directionRaw === "short"
       ? directionRaw
       : undefined;
-  const leverageRaw = c.req.query("leverage");
-  let leverage: number | undefined;
-  if (leverageRaw) {
-    const lev = parseInt(leverageRaw, 10);
-    if ([2, 3, 5].includes(lev)) leverage = lev;
-  }
+  const leverage = parseLeverageFilter(c.req.query("leverage"));
   const creatorRaw = c.req.query("creator");
   const creator =
     creatorRaw && isAddress(creatorRaw) ? getAddress(creatorRaw) : undefined;

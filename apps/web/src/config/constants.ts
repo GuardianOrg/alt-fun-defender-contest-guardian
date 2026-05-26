@@ -1,3 +1,9 @@
+import {
+  SUPPORTED_UNDERLYING_ASSETS,
+  type SupportedAsset,
+  type SupportedLeverage,
+} from "@launchpad/shared";
+
 export const FEES = {
   /** 0.75% on every buy, split protocol/creator and charged by `Zap`. */
   curveBuy: 0.0075,
@@ -40,11 +46,6 @@ export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
 export const SEED_PCT_OPTIONS = [1, 2, 3, 5] as const;
 
 // Canonical allowlists; visible markets are narrowed by the live LT directory.
-export {
-  SUPPORTED_UNDERLYING_ASSETS as UNDERLYING_ASSETS,
-  SUPPORTED_LEVERAGES as LEVERAGE_OPTIONS,
-} from "@launchpad/shared";
-export type {
-  SupportedAsset as UnderlyingAsset,
-  SupportedLeverage as Leverage,
-} from "@launchpad/shared";
+export const UNDERLYING_ASSETS = SUPPORTED_UNDERLYING_ASSETS;
+export type UnderlyingAsset = SupportedAsset;
+export type Leverage = SupportedLeverage;
