@@ -126,7 +126,9 @@ export default function SearchModal() {
       ) : (
         <SearchResultsList
           results={filtered}
+          query={query.trim()}
           onSelect={goToToken}
+          onCreate={close}
           highlightedIndex={highlightedIndex}
           onHighlight={setHighlightedIndex}
         />

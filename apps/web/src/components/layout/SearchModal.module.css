@@ -287,3 +287,12 @@
   font-size: 13px;
   color: var(--txt-3);
 }
+
+.noResultsLink {
+  color: var(--mint);
+  text-decoration: none;
+}
+
+.noResultsLink:hover {
+  text-decoration: underline;
+}
