@@ -4,6 +4,8 @@ import {
   type AdminTokenActionResponse,
   type ApiResponse,
   type LiveLeveragedToken,
+  type SupportedAsset,
+  type SupportedLeverage,
 } from "@launchpad/shared";
 
 const apiUrl = import.meta.env.VITE_API_URL;
@@ -41,10 +43,10 @@ export interface ApiToken {
   description: string;
   imageUrl: string;
   ltPair: string;
-  ltDirection: string;
-  leverage: number;
-  underlying: string;
-  status: string;
+  ltDirection: "long" | "short";
+  leverage: SupportedLeverage;
+  underlying: SupportedAsset;
+  status: TokenListStatus;
   twitterUrl: string;
   telegramUrl: string;
   websiteUrl: string;
@@ -101,8 +103,8 @@ export interface FetchTokensOptions {
   /** Filter to tokens launched by one creator. */
   creator?: string;
   /** Pair-level facets forwarded to the API so pagination stays honest. */
-  underlying?: string;
-  leverage?: number;
+  underlying?: SupportedAsset;
+  leverage?: SupportedLeverage;
   direction?: "long" | "short";
 }
 
@@ -455,9 +457,9 @@ export interface ApiBalance {
   ticker: string;
   imageUrl: string;
   ltPair: string;
-  leverage: number;
-  underlying: string;
-  ltDirection: string;
+  leverage: SupportedLeverage;
+  underlying: SupportedAsset;
+  ltDirection: "long" | "short";
   /** Admin-hidden tokens still appear to holders so they can sell out. */
   isHidden: boolean;
   balance: string;

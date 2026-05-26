@@ -35,9 +35,9 @@ export function fromApiToken(api: ApiToken): Token {
       ? new URL(api.imageUrl, API_BASE).toString()
       : DEFAULT_TOKEN_IMAGE,
     description: api.description,
-    direction: api.ltDirection as Token["direction"],
-    underlying: api.underlying as Token["underlying"],
-    leverage: api.leverage as Token["leverage"],
+    direction: api.ltDirection,
+    underlying: api.underlying,
+    leverage: api.leverage,
     ltName: ltDisplayName(api),
     ltAddress: api.ltPair,
     buyMomentum: 0,
@@ -77,8 +77,8 @@ function buildSocialLinks(api: ApiToken): Token["socialLinks"] {
 
 /** Optional pair-level facets layered on top of the lifecycle tab. */
 export interface TokenTableFiltersInput {
-  underlying?: string;
-  leverage?: number;
+  underlying?: Token["underlying"];
+  leverage?: Token["leverage"];
   direction?: Direction;
 }
 

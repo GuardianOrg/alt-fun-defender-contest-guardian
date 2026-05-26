@@ -13,17 +13,11 @@ import {
 import type { Token, TokenFilter } from "../services/types";
 
 /** Stable cache key for table filters, with `undefined` fields stripped. */
-function tableFiltersKey(filters: TokenTableFiltersInput | undefined): {
-  underlying?: string;
-  leverage?: number;
-  direction?: "long" | "short";
-} {
+function tableFiltersKey(
+  filters: TokenTableFiltersInput | undefined,
+): TokenTableFiltersInput {
   if (!filters) return {};
-  const out: {
-    underlying?: string;
-    leverage?: number;
-    direction?: "long" | "short";
-  } = {};
+  const out: TokenTableFiltersInput = {};
   if (filters.underlying !== undefined) out.underlying = filters.underlying;
   if (filters.leverage !== undefined) out.leverage = filters.leverage;
   if (filters.direction !== undefined) out.direction = filters.direction;
