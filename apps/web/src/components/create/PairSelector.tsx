@@ -3,7 +3,6 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import labelStyles from "./FieldLabel.module.css";
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
-import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
 import { LEVERAGE_OPTIONS } from "../../config/constants";
 import {
@@ -88,7 +87,9 @@ export default function PairSelector({
             </svg>
           </div>
           <div className={styles.cardDesc}>
-            Token moves up when underlying pumps.
+            Token moves up when
+            <br />
+            underlying pumps.
           </div>
           <div
             className={cn(
@@ -133,7 +134,9 @@ export default function PairSelector({
             </svg>
           </div>
           <div className={styles.cardDesc}>
-            Token moves up when underlying dumps.
+            Token moves up when
+            <br />
+            underlying dumps.
           </div>
           <div
             className={cn(
@@ -169,7 +172,7 @@ export default function PairSelector({
             >
               <AssetIcon
                 asset={a}
-                size={22}
+                size={26}
                 className={styles.assetLogo}
                 monogramRatio={0.46}
               />
@@ -227,24 +230,19 @@ export default function PairSelector({
           className={styles.summaryIcon}
           monogramRatio={0.46}
         />
-        <span className={styles.summaryName}>
-          {getLtDisplayName(asset, leverage, direction)}
+        <span className={styles.summaryMeta}>
+          <span className={styles.summaryName}>
+            {getLtDisplayName(asset, leverage, direction)}
+          </span>
+          <span className={styles.summaryAttribution}>
+            powered by Hyperliquid perps
+          </span>
         </span>
         <span className={styles.summaryChg}>
           {chg != null
             ? `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% today`
             : "— today"}
         </span>
-      </div>
-
-      <div className={styles.hlBadge}>
-        <img
-          src={hyperliquidLogo}
-          alt=""
-          aria-hidden="true"
-          className={styles.hlBadgeLogo}
-        />
-        powered by Hyperliquid perps
       </div>
     </div>
   );

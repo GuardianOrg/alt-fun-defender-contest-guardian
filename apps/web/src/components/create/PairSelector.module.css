@@ -78,7 +78,7 @@
   font-size: 13px;
   color: var(--txt-3);
   line-height: 1.5;
-  margin-bottom: 0.8rem;
+  margin-bottom: 1.2rem;
 }
 
 .cardBadge {
@@ -202,7 +202,7 @@
   cursor: pointer;
   border: 1px solid;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 1.2rem;
   font-weight: 600;
   text-align: center;
   transition: all 0.15s ease;
@@ -257,11 +257,27 @@
   flex-shrink: 0;
 }
 
+.summaryMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
 .summaryName {
-  font-size: 0.875rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
   line-height: 1.25rem;
   font-weight: 600;
   color: var(--txt);
+}
+
+.summaryAttribution {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--txt-3);
+  letter-spacing: 0.04em;
 }
 
 .summaryChg {
@@ -269,23 +285,4 @@
   color: var(--txt-3);
   margin-left: auto;
   font-variant-numeric: tabular-nums;
-}
-
-.hlBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.8rem;
-  font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--txt-3);
-  letter-spacing: 0.04em;
-  margin-top: 0.8rem;
-}
-
-.hlBadgeLogo {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  display: block;
 }

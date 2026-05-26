@@ -304,18 +304,8 @@ export default function CreateView() {
             {launchStep === "idle" && !seedBelowMin && (
               <div className={styles.idleHint}>
                 Sign a permit for ${seedAmt.toFixed(2)} USDC, then your token
-                deploys in one tx
-              </div>
-            )}
-
-            {launchStep === "idle" && !seedBelowMin && (
-              <div className={styles.seedInfo}>
-                Seed buy of{" "}
-                <span className={styles.mintHighlight}>
-                  ${seedAmt.toFixed(2)} USDC
-                </span>{" "}
-                is routed atomically through the TX Router - you receive tokens
-                directly.
+                deploys in one tx. The seed buy is routed atomically through the
+                TX Router, and you receive tokens directly.
               </div>
             )}
           </div>
