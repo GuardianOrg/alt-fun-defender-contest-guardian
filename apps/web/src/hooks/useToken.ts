@@ -59,9 +59,9 @@ export function useToken(address: string | undefined) {
   );
   const query = useQuery({
     queryKey: ["token", address, wallet ?? null],
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!address) throw new Error("Address required");
-      return tokenService.getToken(address, wallet);
+      return tokenService.getToken(address, wallet, signal);
     },
     enabled: !!address,
     refetchInterval: (query) => tokenRefetchInterval(query.state.data),

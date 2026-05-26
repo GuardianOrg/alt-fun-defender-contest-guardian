@@ -26,7 +26,7 @@ export function useMarketData(addresses: readonly string[]) {
 
   const query = useQuery({
     queryKey: ["market-data", normalised],
-    queryFn: () => fetchMarketData(normalised),
+    queryFn: ({ signal }) => fetchMarketData(normalised, signal),
     staleTime: MARKET_DATA_STALE_TIME,
     refetchInterval: MARKET_DATA_REFETCH_INTERVAL,
     // Skip React Query's loading cycle for empty visible pages.

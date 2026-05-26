@@ -112,6 +112,7 @@ export function fetchTokens(
   limit = 50,
   offset = 0,
   options: FetchTokensOptions = {},
+  signal?: AbortSignal,
 ): Promise<ApiToken[]> {
   const params = new URLSearchParams({
     limit: String(limit),
@@ -125,7 +126,7 @@ export function fetchTokens(
     params.set("leverage", String(options.leverage));
   }
   if (options.direction) params.set("direction", options.direction);
-  return apiFetch(`/api/v1/tokens?${params.toString()}`);
+  return apiFetch(`/api/v1/tokens?${params.toString()}`, { signal });
 }
 
 // Server-enforced page cap for `/api/v1/tokens`.
@@ -174,9 +175,10 @@ export async function fetchAllTokens(
 export function fetchToken(
   address: string,
   wallet?: string,
+  signal?: AbortSignal,
 ): Promise<ApiToken> {
   const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
-  return apiFetch(`/api/v1/tokens/${address}${qs}`);
+  return apiFetch(`/api/v1/tokens/${address}${qs}`, { signal });
 }
 
 export function searchTokens(query: string): Promise<ApiToken[]> {
@@ -420,6 +422,7 @@ const MARKET_DATA_CHUNK_SIZE = 200;
 /** Fetch bounded market data for a visible address slice, chunking over server cap. */
 export async function fetchMarketData(
   addresses: string[],
+  signal?: AbortSignal,
 ): Promise<MarketDataMap> {
   if (addresses.length === 0) return {};
   if (addresses.length <= MARKET_DATA_CHUNK_SIZE) {
@@ -427,6 +430,7 @@ export async function fetchMarketData(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ addresses }),
+      signal,
     });
   }
   const chunks: string[][] = [];
@@ -439,6 +443,7 @@ export async function fetchMarketData(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ addresses: chunk }),
+        signal,
       }),
     ),
   );
@@ -475,8 +480,8 @@ interface ApiAssetsResponse {
   underlying: ApiAsset[];
 }
 
-export async function fetchAssets(): Promise<ApiAsset[]> {
-  const res = await apiFetch<ApiAssetsResponse>("/api/v1/assets");
+export async function fetchAssets(signal?: AbortSignal): Promise<ApiAsset[]> {
+  const res = await apiFetch<ApiAssetsResponse>("/api/v1/assets", { signal });
   return res.underlying;
 }
 
@@ -569,9 +574,12 @@ export function fetchHolders(
 
 // API wraps the LT directory in an inner `{ data: [...] }` envelope.
 
-export async function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
+export async function fetchLeveragedTokens(
+  signal?: AbortSignal,
+): Promise<LiveLeveragedToken[]> {
   const res = await apiFetch<{ data: LiveLeveragedToken[] }>(
     "/api/v1/assets/leveraged-tokens",
+    { signal },
   );
   return res.data;
 }

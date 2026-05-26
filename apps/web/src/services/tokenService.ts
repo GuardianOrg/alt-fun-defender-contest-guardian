@@ -94,25 +94,21 @@ function wireSort(
 }
 
 export interface ITokenService {
-  getTokens(
-    filter?: TokenFilter,
-    tableFilters?: TokenTableFiltersInput,
-    sort?: TokenSort,
-  ): Promise<Token[]>;
-  /** Paginated home-page list variant. */
+  /** Paginated home-page list. */
   getTokensPage(
     filter: TokenFilter | undefined,
     offset: number,
     limit: number,
     tableFilters?: TokenTableFiltersInput,
     sort?: TokenSort,
+    signal?: AbortSignal,
   ): Promise<Token[]>;
   /** Look up one token; wallet enables holder-only access to hidden tokens. */
-  getToken(address: string, wallet?: string): Promise<Token | undefined>;
-  getTokensByDirection(
-    direction: Direction,
-    filter?: TokenFilter,
-  ): Promise<Token[]>;
+  getToken(
+    address: string,
+    wallet?: string,
+    signal?: AbortSignal,
+  ): Promise<Token | undefined>;
 }
 
 // Smaller than server cap so first paint and subsequent scroll loads stay cheap.
@@ -154,35 +150,23 @@ function filterToApiOptions(
   return base;
 }
 
-async function liveGetTokens(
-  filter?: TokenFilter,
-  tableFilters?: TokenTableFiltersInput,
-  sort?: TokenSort,
-): Promise<Token[]> {
-  const apiTokens = await fetchTokens(
-    100,
-    0,
-    filterToApiOptions(filter, tableFilters, sort),
-  ).catch((): ApiToken[] => []);
-  if (apiTokens.length === 0) return [];
-  return apiTokens.map(fromApiToken);
-}
-
 async function liveGetTokensPage(
   filter: TokenFilter | undefined,
   offset: number,
   limit: number,
   tableFilters?: TokenTableFiltersInput,
   sort?: TokenSort,
+  signal?: AbortSignal,
 ): Promise<Token[]> {
-  // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
-  // caller relies on a thrown error to mark the page as failed and surface
-  // a retry path through TanStack Query, rather than silently returning an
-  // empty page which would falsely terminate pagination.
+  // Errors propagate (rather than being swallowed into an empty page) so the
+  // infinite-scroll caller can mark the page as failed and surface a retry
+  // path through TanStack Query — a silent empty return would falsely
+  // terminate pagination.
   const apiTokens = await fetchTokens(
     limit,
     offset,
     filterToApiOptions(filter, tableFilters, sort),
+    signal,
   );
   return apiTokens.map(fromApiToken);
 }
@@ -190,9 +174,10 @@ async function liveGetTokensPage(
 async function liveGetToken(
   address: string,
   wallet?: string,
+  signal?: AbortSignal,
 ): Promise<Token | undefined> {
   try {
-    return fromApiToken(await fetchToken(address, wallet));
+    return fromApiToken(await fetchToken(address, wallet, signal));
   } catch (error) {
     if (error instanceof Error && /not found/i.test(error.message)) {
       return undefined;
@@ -201,19 +186,9 @@ async function liveGetToken(
   }
 }
 
-async function liveGetTokensByDirection(
-  direction: Direction,
-  filter?: TokenFilter,
-): Promise<Token[]> {
-  const tokens = await liveGetTokens(filter);
-  return tokens.filter((t) => t.direction === direction);
-}
-
 const liveTokenService: ITokenService = {
-  getTokens: liveGetTokens,
   getTokensPage: liveGetTokensPage,
   getToken: liveGetToken,
-  getTokensByDirection: liveGetTokensByDirection,
 };
 
 export const tokenService: ITokenService = liveTokenService;

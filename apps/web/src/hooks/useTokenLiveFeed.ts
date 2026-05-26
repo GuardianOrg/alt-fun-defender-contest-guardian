@@ -78,7 +78,13 @@ export function useTokenLiveFeed(address: string | undefined): void {
 
     const normalized = address.toLowerCase();
     const invalidator = createTradeFeedInvalidator(() => {
-      queryClient.invalidateQueries({ queryKey: ["token", address] });
+      // `cancelRefetch: false` so a slow token-detail fetch can finish
+      // even when WS ticks keep arriving. See `useTokenListLiveFeed`
+      // for the full rationale.
+      queryClient.invalidateQueries(
+        { queryKey: ["token", address] },
+        { cancelRefetch: false },
+      );
     }, INVALIDATE_THROTTLE_MS);
 
     const unsub = ws.subscribe(
