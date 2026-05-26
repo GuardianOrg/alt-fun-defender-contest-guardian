@@ -1,6 +1,8 @@
-import { formatUnits, parseUnits } from "viem";
-
 import styles from "./TradePanel.module.css";
+import {
+  getSellPresetAmount,
+  isSellPresetActive,
+} from "./tradePanelInputPresets";
 import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
@@ -101,42 +103,24 @@ export default function TradePanelInput({
           ))
         ) : (
           SELL_PERCENT_OPTIONS.map((pct) => {
-            // Bigint percent math keeps 100% sells at or below wallet balance.
-            const computedValue =
-              maxBalanceWei !== null
-                ? (() => {
-                    let resultWei = (maxBalanceWei * BigInt(pct)) / 100n;
-                    // Convert the float LT-buffer cap to wei conservatively.
-                    if (
-                      sellQuote &&
-                      Number.isFinite(sellQuote.maxSellableTokens)
-                    ) {
-                      try {
-                        const capWei = parseUnits(
-                          sellQuote.maxSellableTokens.toFixed(18),
-                          18,
-                        );
-                        if (capWei < resultWei) resultWei = capWei;
-                      } catch {
-                        // Ignored.
-                      }
-                    }
-                    return formatUnits(resultWei, 18);
-                  })()
-                : null;
+            const computedAmount = getSellPresetAmount(
+              maxBalanceWei,
+              pct,
+              sellQuote,
+            );
             return (
               <PresetChip
                 key={pct}
                 fluid
-                active={
-                  computedValue !== null && amount === computedValue
-                }
+                active={isSellPresetActive(amount, computedAmount)}
                 onClick={() => {
-                  if (computedValue !== null) {
-                    setAmount(computedValue);
+                  if (computedAmount !== null && computedAmount.wei > 0n) {
+                    setAmount(computedAmount.value);
                   }
                 }}
-                disabled={isBusy || maxBalanceWei === null}
+                disabled={
+                  isBusy || computedAmount === null || computedAmount.wei === 0n
+                }
               >
                 {pct}%
               </PresetChip>
