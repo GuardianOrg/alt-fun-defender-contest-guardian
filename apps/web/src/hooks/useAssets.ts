@@ -13,7 +13,7 @@ import type { UnderlyingAsset } from "../config/constants";
 export function useAssets() {
   return useQuery({
     queryKey: ["assets"],
-    queryFn: () => assetService.getAssets(),
+    queryFn: ({ signal }) => assetService.getAssets(signal),
     initialData: readCachedAssets,
     initialDataUpdatedAt: 0,
     refetchInterval: 10_000,
