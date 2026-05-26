@@ -104,6 +104,7 @@
 }
 
 .statLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   color: var(--txt-3);
   letter-spacing: 0.06em;

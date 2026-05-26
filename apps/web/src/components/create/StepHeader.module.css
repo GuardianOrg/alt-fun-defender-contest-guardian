@@ -2,7 +2,7 @@
   display: flex;
   align-items: flex-start;
   gap: 0.8rem;
-  margin-bottom: 1.2rem;
+  margin-bottom: 1.4rem;
 }
 
 .indicator {
@@ -44,7 +44,6 @@
 
 .connector {
   width: 1px;
-  flex: 1;
   min-height: 16px;
   background: linear-gradient(to bottom, var(--border-2), transparent);
   margin-top: 0.2rem;

@@ -61,7 +61,7 @@ export default function LivePreview({
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const color = isUp ? COLORS.mint : COLORS.red;
+    const color = isLong ? COLORS.mint : COLORS.red;
     const mn = Math.min(...candles);
     const mx = Math.max(...candles);
     const pad = 4;
@@ -72,7 +72,7 @@ export default function LivePreview({
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(
       0,
-      isUp ? rgba(COLORS.mint, 0.18) : rgba(COLORS.red, 0.14),
+      isLong ? rgba(COLORS.mint, 0.18) : rgba(COLORS.red, 0.14),
     );
     grad.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -96,7 +96,7 @@ export default function LivePreview({
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
     ctx.stroke();
-  }, [candles, isUp]);
+  }, [candles, isLong]);
 
   return (
     <div className={styles.wrapper}>
@@ -136,7 +136,7 @@ export default function LivePreview({
                     isLong ? styles.tokenBadgeLong : styles.tokenBadgeShort,
                   )}
                 >
-                  ⚡ {ltName}
+                  {ltName}
                 </span>
               </div>
             </div>
@@ -165,7 +165,12 @@ export default function LivePreview({
           </div>
         </div>
 
-        <div className={styles.chartCard}>
+        <div
+          className={cn(
+            styles.chartCard,
+            isLong ? styles.chartCardLong : styles.chartCardShort,
+          )}
+        >
           <div className={styles.chartHeader}>
             <div>
               <div className={styles.chartTitle}>{assetDisplay} / USD</div>
@@ -176,11 +181,7 @@ export default function LivePreview({
             <div
               className={cn(
                 styles.chartChgBadge,
-                hasChgData
-                  ? isUp
-                    ? styles.chartChgBadgeUp
-                    : styles.chartChgBadgeDown
-                  : styles.chartChgBadgeUp,
+                isLong ? styles.chartChgBadgeUp : styles.chartChgBadgeDown,
               )}
             >
               {hasChgData ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%` : "-"}
@@ -226,7 +227,7 @@ export default function LivePreview({
           ].map((step) => (
             <div key={step.icon} className={styles.howStep}>
               <div className={styles.howStepIcon}>{step.icon}</div>
-              {step.text}
+              <span className={styles.howStepText}>{step.text}</span>
             </div>
           ))}
         </div>

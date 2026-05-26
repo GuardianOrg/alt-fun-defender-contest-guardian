@@ -3,8 +3,8 @@
   grid-template-columns: 1fr 380px;
   flex: 1;
   overflow: hidden;
-  margin: 1.6rem 1.2rem 1.2rem 1.2rem;
-  gap: 1.6rem;
+  margin: 1.6rem 1.2rem 1.2rem;
+  gap: 0.8rem;
 }
 
 .formColumn {
@@ -19,11 +19,10 @@
 }
 
 .pageHeader {
-  padding-left: 2.4rem;
-  padding-right: 2.4rem;
-  padding-top: 2.4rem;
+  padding-left: 1.6rem;
+  padding-right: 1.6rem;
+  padding-top: 1.6rem;
   padding-bottom: 1.6rem;
-  border-bottom: 1px solid var(--border);
   background: var(--bg-1);
 }
 
@@ -54,19 +53,14 @@
 }
 
 .steps {
-  padding-left: 2.4rem;
-  padding-right: 2.4rem;
-  padding-top: 2.4rem;
-  padding-bottom: 2.4rem;
+  padding-left: 1.6rem;
+  padding-right: 1.6rem;
+  padding-top: 1.6rem;
+  padding-bottom: 1.6rem;
 }
 
 .steps > * + * {
   margin-top: 2.4rem;
-}
-
-.divider {
-  height: 1px;
-  background: linear-gradient(to right, var(--border), transparent);
 }
 
 .ctaArea {
@@ -121,6 +115,13 @@
   gap: 0.6rem;
 }
 
+.launchButton {
+  height: 3rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  gap: 0.4rem;
+}
+
 button.launchButtonConfirmed:disabled {
   background: rgba(77, 232, 180, 0.15);
   color: var(--mint);
@@ -153,23 +154,6 @@ button.launchButtonConfirmed:disabled {
   color: var(--txt-3);
   text-align: center;
   margin-top: 0.8rem;
-}
-
-.seedInfo {
-  font-size: 11px;
-  color: var(--txt-3);
-  background: rgba(16, 37, 32, 0.4);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 0.6rem 0.8rem;
-  margin-top: 0.8rem;
-  line-height: 1.625;
-  text-align: center;
-}
-
-.mintHighlight {
-  color: var(--mint);
-  font-weight: 600;
 }
 
 @media (max-width: 768px) {

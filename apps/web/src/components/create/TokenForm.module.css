@@ -5,19 +5,6 @@
   margin-bottom: 1.2rem;
 }
 
-.label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--txt-3);
-  margin-bottom: 0.4rem;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.6rem;
-  font-weight: 500;
-}
-
 .charCount {
   color: var(--txt-4);
   letter-spacing: normal;
@@ -182,7 +169,7 @@
   color: var(--txt-2);
   cursor: pointer;
   padding: 0.6rem 0.8rem;
-  margin-top: 0.8rem;
+  margin-top: 1.2rem;
   border: 1px solid var(--border);
   border-radius: 0;
   background: rgba(16, 37, 32, 0.4);
@@ -219,11 +206,11 @@
   border-left: 2px solid rgba(77, 232, 180, 0.2);
   padding-left: 1.2rem;
   margin-left: 0.8rem;
-  margin-top: 0.8rem;
+  margin-top: 1.2rem;
 }
 
 .socialPanel > * + * {
-  margin-top: 0.8rem;
+  margin-top: 1.2rem;
 }
 
 .socialFieldGrid {

@@ -18,6 +18,7 @@ import {
 } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { Leverage, UnderlyingAsset } from "../../config/constants";
@@ -183,13 +184,13 @@ export default function CreateView() {
     if (launchStep === "approving") return "APPROVING USDC…";
     if (launchStep === "deploying") return "DEPLOYING…";
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
-    if (launchStep === "error") return "⚡ RETRY LAUNCH";
+    if (launchStep === "error") return "RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
     if (noDetectedPairs) return "LOADING PAIRS…";
     if (invalidLeverageForAsset) return "SELECT SUPPORTED LEVERAGE";
     if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
-    return "⚡ LAUNCH TOKEN";
+    return "LAUNCH TOKEN";
   };
 
   return (
@@ -213,9 +214,6 @@ export default function CreateView() {
             onAssetChange={setAsset}
             onLeverageChange={setLeverage}
           />
-
-          <div className={styles.divider} />
-
           <TokenForm
             name={name}
             ticker={ticker}
@@ -231,9 +229,6 @@ export default function CreateView() {
               setImagePreview(preview);
             }}
           />
-
-          <div className={styles.divider} />
-
           <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
           <div className={styles.ctaArea}>
@@ -285,7 +280,7 @@ export default function CreateView() {
 
             <Button
               variant="primary"
-              size="lg"
+              size="sm"
               fullWidth
               busy={isBusy || waitingForVanity}
               disabled={
@@ -297,11 +292,10 @@ export default function CreateView() {
                 pairMintPaused ||
                 (isConnected && seedBelowMin)
               }
-              className={
-                launchStep === "confirmed"
-                  ? styles.launchButtonConfirmed
-                  : undefined
-              }
+              className={cn(
+                styles.launchButton,
+                launchStep === "confirmed" && styles.launchButtonConfirmed,
+              )}
               onClick={handleSubmit}
             >
               {buttonLabel()}
@@ -323,18 +317,8 @@ export default function CreateView() {
             {launchStep === "idle" && !seedBelowMin && (
               <div className={styles.idleHint}>
                 Sign a permit for ${seedAmt.toFixed(2)} USDC, then your token
-                deploys in one tx
-              </div>
-            )}
-
-            {launchStep === "idle" && !seedBelowMin && (
-              <div className={styles.seedInfo}>
-                Seed buy of{" "}
-                <span className={styles.mintHighlight}>
-                  ${seedAmt.toFixed(2)} USDC
-                </span>{" "}
-                is routed atomically through the TX Router - you receive tokens
-                directly.
+                deploys in one tx. The seed buy is routed atomically through the
+                TX Router, and you receive tokens directly.
               </div>
             )}
           </div>
