@@ -10,30 +10,9 @@
   overflow: hidden;
 }
 
-.panel {
-  min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  background: var(--bg-1);
-}
-
 .marketsPanel {
   flex: 1;
-}
-
-.sectionHeader {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mint);
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-  background: var(--mint-bg);
-  border-bottom: 1px solid var(--border);
-  font-weight: 500;
+  min-height: 0;
 }
 
 .assetRow {
