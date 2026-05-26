@@ -38,7 +38,6 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   kPEPE: kPepe,
   FARTCOIN: fartcoin,
   NEAR: near,
-  SPCX: spcx,
   "xyz:CBRS": cbrs,
   "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,
@@ -47,6 +46,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:NVDA": nvidia,
   "xyz:TSLA": tesla,
   "xyz:SP500": SP500,
+  "xyz:SPCX": spcx,
   "xyz:XYZ100": xyz_XYZ100,
 };
 
