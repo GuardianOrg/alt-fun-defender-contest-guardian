@@ -44,6 +44,9 @@
   --font-mono: "JetBrains Mono", "Courier New", Courier, monospace;
   --font-display: "Geist", "Inter", system-ui, sans-serif;
 
+  /* Layout */
+  --app-max-width: 2000px;
+
   /* Shadows */
   --shadow-mint-glow: 0 0 16px rgba(77, 232, 180, 0.25);
   --shadow-mint-glow-lg: 0 0 24px rgba(77, 232, 180, 0.3);
