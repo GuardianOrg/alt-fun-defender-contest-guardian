@@ -184,7 +184,6 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "kPEPE",
       "FARTCOIN",
       "NEAR",
-      "SPCX",
       "xyz:CBRS",
       "xyz:CL",
       "xyz:BRENTOIL",
@@ -193,6 +192,7 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:NVDA",
       "xyz:TSLA",
       "xyz:SP500",
+      "xyz:SPCX",
       "xyz:XYZ100",
     ]);
   });
@@ -215,9 +215,9 @@ describe("getLeverageOptions", () => {
     makeLTInfo({ targetAsset: "HYPE", targetLeverage: 5, isLong: true }),
     makeLTInfo({ targetAsset: "HYPE", targetLeverage: 2, isLong: true }),
     makeLTInfo({ targetAsset: "HYPE", targetLeverage: 2, isLong: false }),
-    makeLTInfo({ targetAsset: "SPCX", targetLeverage: 3, isLong: true }),
-    makeLTInfo({ targetAsset: "SPCX", targetLeverage: 2, isLong: true }),
-    makeLTInfo({ targetAsset: "SPCX", targetLeverage: 0, isLong: true }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 3, isLong: true }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 2, isLong: true }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 0, isLong: true }),
   ];
 
   it("derives sorted unique leverage options from LT records", () => {
@@ -225,7 +225,7 @@ describe("getLeverageOptions", () => {
   });
 
   it("can derive options for one asset", () => {
-    expect(getLeverageOptions(lts, "SPCX")).toEqual([2, 3]);
+    expect(getLeverageOptions(lts, "xyz:SPCX")).toEqual([2, 3]);
   });
 
   it("can derive options for one asset and direction", () => {
@@ -238,12 +238,13 @@ describe("getAssetDisplayName", () => {
     expect(getAssetDisplayName("xyz:SP500")).toBe("SP500");
     expect(getAssetDisplayName("xyz:NVDA")).toBe("NVDA");
     expect(getAssetDisplayName("xyz:BRENTOIL")).toBe("BRENTOIL");
+    expect(getAssetDisplayName("xyz:SPCX")).toBe("SPCX");
   });
 
   it("leaves crypto assets untouched", () => {
     expect(getAssetDisplayName("HYPE")).toBe("HYPE");
     expect(getAssetDisplayName("kPEPE")).toBe("kPEPE");
-    expect(getAssetDisplayName("SPCX")).toBe("SPCX");
+    expect(getAssetDisplayName("NEAR")).toBe("NEAR");
   });
 });
 
@@ -251,12 +252,13 @@ describe("getHyperliquidDex", () => {
   it("returns the xyz dex marker for equity / commodity assets", () => {
     expect(getHyperliquidDex("xyz:SP500")).toBe(HYPERLIQUID_XYZ_DEX);
     expect(getHyperliquidDex("xyz:GOLD")).toBe(HYPERLIQUID_XYZ_DEX);
+    expect(getHyperliquidDex("xyz:SPCX")).toBe(HYPERLIQUID_XYZ_DEX);
   });
 
   it("returns null (default feed) for crypto assets", () => {
     expect(getHyperliquidDex("HYPE")).toBeNull();
     expect(getHyperliquidDex("BTC")).toBeNull();
     expect(getHyperliquidDex("kPEPE")).toBeNull();
-    expect(getHyperliquidDex("SPCX")).toBeNull();
+    expect(getHyperliquidDex("NEAR")).toBeNull();
   });
 });

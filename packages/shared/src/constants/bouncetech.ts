@@ -63,7 +63,6 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "kPEPE",
   "FARTCOIN",
   "NEAR",
-  "SPCX",
   "xyz:CBRS",
   "xyz:CL",
   "xyz:BRENTOIL",
@@ -72,6 +71,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "xyz:NVDA",
   "xyz:TSLA",
   "xyz:SP500",
+  "xyz:SPCX",
   "xyz:XYZ100",
 ] as const;
 
