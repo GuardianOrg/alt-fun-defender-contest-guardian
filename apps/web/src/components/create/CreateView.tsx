@@ -15,6 +15,7 @@ import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
@@ -172,12 +173,12 @@ export default function CreateView() {
     if (launchStep === "approving") return "APPROVING USDC…";
     if (launchStep === "deploying") return "DEPLOYING…";
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
-    if (launchStep === "error") return "⚡ RETRY LAUNCH";
+    if (launchStep === "error") return "RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
     if (noDetectedPairs) return "LOADING PAIRS…";
     if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
-    return "⚡ LAUNCH TOKEN";
+    return "LAUNCH TOKEN";
   };
 
   return (
@@ -201,9 +202,6 @@ export default function CreateView() {
             onAssetChange={setAsset}
             onLeverageChange={setLeverage}
           />
-
-          <div className={styles.divider} />
-
           <TokenForm
             name={name}
             ticker={ticker}
@@ -219,9 +217,6 @@ export default function CreateView() {
               setImagePreview(preview);
             }}
           />
-
-          <div className={styles.divider} />
-
           <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
           <div className={styles.ctaArea}>
@@ -273,7 +268,7 @@ export default function CreateView() {
 
             <Button
               variant="primary"
-              size="lg"
+              size="sm"
               fullWidth
               busy={isBusy || waitingForVanity}
               disabled={
@@ -284,11 +279,10 @@ export default function CreateView() {
                 pairMintPaused ||
                 (isConnected && seedBelowMin)
               }
-              className={
-                launchStep === "confirmed"
-                  ? styles.launchButtonConfirmed
-                  : undefined
-              }
+              className={cn(
+                styles.launchButton,
+                launchStep === "confirmed" && styles.launchButtonConfirmed,
+              )}
               onClick={handleSubmit}
             >
               {buttonLabel()}

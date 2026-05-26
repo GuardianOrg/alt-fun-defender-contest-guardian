@@ -136,7 +136,7 @@ export default function LivePreview({
                     isLong ? styles.tokenBadgeLong : styles.tokenBadgeShort,
                   )}
                 >
-                  ⚡ {ltName}
+                  {ltName}
                 </span>
               </div>
             </div>

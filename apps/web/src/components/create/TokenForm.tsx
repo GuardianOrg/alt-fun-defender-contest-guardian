@@ -9,6 +9,7 @@ import {
   utf8ByteLength,
 } from "@launchpad/shared";
 
+import labelStyles from "./FieldLabel.module.css";
 import StepHeader from "./StepHeader";
 import styles from "./TokenForm.module.css";
 import { cn } from "../../utils/format";
@@ -157,7 +158,7 @@ export default function TokenForm({
 
       <div className={styles.fieldGrid}>
         <div>
-          <label className={styles.label}>
+          <label className={labelStyles.label}>
             Token name
             <span className={styles.charCount}>
               {utf8ByteLength(name)}/{MAX_TOKEN_NAME_LENGTH}
@@ -172,7 +173,7 @@ export default function TokenForm({
           />
         </div>
         <div>
-          <label className={styles.label}>
+          <label className={labelStyles.label}>
             Ticker
             <span className={styles.charCount}>
               {utf8ByteLength(ticker)}/{MAX_TOKEN_SYMBOL_LENGTH}
@@ -189,7 +190,7 @@ export default function TokenForm({
       </div>
 
       <div className={styles.fieldBlock}>
-        <label className={styles.label}>
+        <label className={labelStyles.label}>
           Description <span className={styles.optionalTag}>(optional)</span>
         </label>
         <textarea
@@ -201,7 +202,7 @@ export default function TokenForm({
         />
       </div>
 
-      <label className={styles.label}>Token image</label>
+      <label className={labelStyles.label}>Token image</label>
       {imagePreview ? (
         <div className={styles.previewZone}>
           <img
@@ -286,7 +287,7 @@ export default function TokenForm({
         <div className={styles.socialPanel}>
           <div className={styles.socialFieldGrid}>
             <div>
-              <label className={styles.label}>Twitter / X</label>
+              <label className={labelStyles.label}>Twitter / X</label>
               <input
                 type="text"
                 className={styles.input}
@@ -296,7 +297,7 @@ export default function TokenForm({
               />
             </div>
             <div>
-              <label className={styles.label}>Telegram</label>
+              <label className={labelStyles.label}>Telegram</label>
               <input
                 type="text"
                 className={styles.input}
@@ -307,7 +308,7 @@ export default function TokenForm({
             </div>
           </div>
           <div>
-            <label className={styles.label}>Website</label>
+            <label className={labelStyles.label}>Website</label>
             <input
               type="text"
               className={styles.input}

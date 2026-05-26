@@ -1,5 +1,6 @@
 import { getAssetDisplayName } from "@launchpad/shared";
 
+import labelStyles from "./FieldLabel.module.css";
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
@@ -145,7 +146,7 @@ export default function PairSelector({
         </button>
       </div>
 
-      <label className={styles.label}>Underlying asset</label>
+      <label className={labelStyles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
         {availableAssets.map((a) => {
           const change = assetChanges[a];
@@ -192,7 +193,9 @@ export default function PairSelector({
         })}
       </div>
 
-      <label className={styles.leverageLabel}>Leverage</label>
+      <label className={cn(labelStyles.label, styles.leverageLabel)}>
+        Leverage
+      </label>
       <div className={styles.leverageRow}>
         {LEVERAGE_OPTIONS.map((l) => (
           <button

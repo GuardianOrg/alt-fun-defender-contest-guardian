@@ -21,7 +21,13 @@
 }
 
 .content {
-  padding: 1.6rem 1.6rem;
+  padding: 2.4rem;
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 1.2rem;
+  }
 }
 
 .previewLabel {
@@ -193,6 +199,7 @@
 }
 
 .chartSubtitle {
+  font-family: var(--font-display);
   font-size: 11px;
   color: var(--txt-3);
   margin-top: 0.2rem;
@@ -228,6 +235,7 @@
 }
 
 .infoBox {
+  font-family: var(--font-display);
   border: 1px solid;
   border-radius: 0;
   padding: 0.8rem 1.2rem;
