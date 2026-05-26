@@ -27,4 +27,35 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: none;
+  scrollbar-color: var(--border-2) transparent;
+}
+
+.body:hover,
+.body:focus,
+.body:focus-within,
+.body:active {
+  scrollbar-width: thin;
+}
+
+.body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.body:hover::-webkit-scrollbar,
+.body:focus::-webkit-scrollbar,
+.body:focus-within::-webkit-scrollbar,
+.body:active::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.body::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 9999px;
 }
