@@ -107,9 +107,15 @@ function writeCachedAssets(assets: readonly Asset[]): void {
   }
 }
 
+/** `true` for AbortSignal-driven cancellations; cancellation must propagate. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 async function fetch24hChanges(
   currentMids: Record<string, string>,
   trackedAssets: readonly string[],
+  signal?: AbortSignal,
 ): Promise<Record<string, AssetChange>> {
   if (cached24hPrices && Date.now() - cached24hPrices.ts < CHANGE_CACHE_TTL) {
     return cached24hPrices.data;
@@ -134,6 +140,7 @@ async function fetch24hChanges(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "candleSnapshot", req }),
+        signal,
       });
       const candles = (await res.json()) as CandleObject[];
       if (candles.length > 0) {
@@ -147,7 +154,11 @@ async function fetch24hChanges(
           };
         }
       }
-    } catch {
+    } catch (err) {
+      // Cancellations must bubble so the outer `Promise.all` rejects and
+      // React Query sees the queryFn as aborted rather than as a successful
+      // refresh that happens to return zeroed-out 24h deltas.
+      if (isAbortError(err)) throw err;
       changes[coin] = { percent: 0, dollar: 0 };
     }
   });
@@ -197,7 +208,7 @@ const liveAssetService: IAssetService = {
       const mids = Object.fromEntries(
         apiAssets.map((asset) => [asset.symbol, asset.price ?? ""]),
       );
-      const changes = await fetch24hChanges(mids, trackedAssets);
+      const changes = await fetch24hChanges(mids, trackedAssets, signal);
       const assets = [...trackedAssets].sort(compareAssetTickers).map((name) => {
         const mid = parseFloat(mids[name] ?? "");
         const ch = changes[name];
@@ -213,7 +224,11 @@ const liveAssetService: IAssetService = {
       });
       writeCachedAssets(assets);
       return assets;
-    } catch {
+    } catch (err) {
+      // Cancellation isn't a "degraded backend" — propagate it so React
+      // Query treats the queryFn as aborted and doesn't poison `dataUpdatedAt`
+      // / `staleTime` with a cache-shaped fallback.
+      if (isAbortError(err)) throw err;
       return readCachedAssets() ?? [];
     }
   },

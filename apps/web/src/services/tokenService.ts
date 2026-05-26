@@ -94,13 +94,7 @@ function wireSort(
 }
 
 export interface ITokenService {
-  getTokens(
-    filter?: TokenFilter,
-    tableFilters?: TokenTableFiltersInput,
-    sort?: TokenSort,
-    signal?: AbortSignal,
-  ): Promise<Token[]>;
-  /** Paginated home-page list variant. */
+  /** Paginated home-page list. */
   getTokensPage(
     filter: TokenFilter | undefined,
     offset: number,
@@ -115,10 +109,6 @@ export interface ITokenService {
     wallet?: string,
     signal?: AbortSignal,
   ): Promise<Token | undefined>;
-  getTokensByDirection(
-    direction: Direction,
-    filter?: TokenFilter,
-  ): Promise<Token[]>;
 }
 
 // Smaller than server cap so first paint and subsequent scroll loads stay cheap.
@@ -160,22 +150,6 @@ function filterToApiOptions(
   return base;
 }
 
-async function liveGetTokens(
-  filter?: TokenFilter,
-  tableFilters?: TokenTableFiltersInput,
-  sort?: TokenSort,
-  signal?: AbortSignal,
-): Promise<Token[]> {
-  const apiTokens = await fetchTokens(
-    100,
-    0,
-    filterToApiOptions(filter, tableFilters, sort),
-    signal,
-  ).catch((): ApiToken[] => []);
-  if (apiTokens.length === 0) return [];
-  return apiTokens.map(fromApiToken);
-}
-
 async function liveGetTokensPage(
   filter: TokenFilter | undefined,
   offset: number,
@@ -184,10 +158,10 @@ async function liveGetTokensPage(
   sort?: TokenSort,
   signal?: AbortSignal,
 ): Promise<Token[]> {
-  // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
-  // caller relies on a thrown error to mark the page as failed and surface
-  // a retry path through TanStack Query, rather than silently returning an
-  // empty page which would falsely terminate pagination.
+  // Errors propagate (rather than being swallowed into an empty page) so the
+  // infinite-scroll caller can mark the page as failed and surface a retry
+  // path through TanStack Query — a silent empty return would falsely
+  // terminate pagination.
   const apiTokens = await fetchTokens(
     limit,
     offset,
@@ -212,19 +186,9 @@ async function liveGetToken(
   }
 }
 
-async function liveGetTokensByDirection(
-  direction: Direction,
-  filter?: TokenFilter,
-): Promise<Token[]> {
-  const tokens = await liveGetTokens(filter);
-  return tokens.filter((t) => t.direction === direction);
-}
-
 const liveTokenService: ITokenService = {
-  getTokens: liveGetTokens,
   getTokensPage: liveGetTokensPage,
   getToken: liveGetToken,
-  getTokensByDirection: liveGetTokensByDirection,
 };
 
 export const tokenService: ITokenService = liveTokenService;
