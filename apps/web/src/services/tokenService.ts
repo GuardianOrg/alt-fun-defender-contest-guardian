@@ -98,6 +98,7 @@ export interface ITokenService {
     filter?: TokenFilter,
     tableFilters?: TokenTableFiltersInput,
     sort?: TokenSort,
+    signal?: AbortSignal,
   ): Promise<Token[]>;
   /** Paginated home-page list variant. */
   getTokensPage(
@@ -106,9 +107,14 @@ export interface ITokenService {
     limit: number,
     tableFilters?: TokenTableFiltersInput,
     sort?: TokenSort,
+    signal?: AbortSignal,
   ): Promise<Token[]>;
   /** Look up one token; wallet enables holder-only access to hidden tokens. */
-  getToken(address: string, wallet?: string): Promise<Token | undefined>;
+  getToken(
+    address: string,
+    wallet?: string,
+    signal?: AbortSignal,
+  ): Promise<Token | undefined>;
   getTokensByDirection(
     direction: Direction,
     filter?: TokenFilter,
@@ -158,11 +164,13 @@ async function liveGetTokens(
   filter?: TokenFilter,
   tableFilters?: TokenTableFiltersInput,
   sort?: TokenSort,
+  signal?: AbortSignal,
 ): Promise<Token[]> {
   const apiTokens = await fetchTokens(
     100,
     0,
     filterToApiOptions(filter, tableFilters, sort),
+    signal,
   ).catch((): ApiToken[] => []);
   if (apiTokens.length === 0) return [];
   return apiTokens.map(fromApiToken);
@@ -174,6 +182,7 @@ async function liveGetTokensPage(
   limit: number,
   tableFilters?: TokenTableFiltersInput,
   sort?: TokenSort,
+  signal?: AbortSignal,
 ): Promise<Token[]> {
   // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
   // caller relies on a thrown error to mark the page as failed and surface
@@ -183,6 +192,7 @@ async function liveGetTokensPage(
     limit,
     offset,
     filterToApiOptions(filter, tableFilters, sort),
+    signal,
   );
   return apiTokens.map(fromApiToken);
 }
@@ -190,9 +200,10 @@ async function liveGetTokensPage(
 async function liveGetToken(
   address: string,
   wallet?: string,
+  signal?: AbortSignal,
 ): Promise<Token | undefined> {
   try {
-    return fromApiToken(await fetchToken(address, wallet));
+    return fromApiToken(await fetchToken(address, wallet, signal));
   } catch (error) {
     if (error instanceof Error && /not found/i.test(error.message)) {
       return undefined;

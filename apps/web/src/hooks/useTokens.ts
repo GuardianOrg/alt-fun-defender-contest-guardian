@@ -77,13 +77,14 @@ export function useInfiniteTokens(
   const filtersKey = tableFiltersKey(tableFilters);
   const query = useInfiniteQuery({
     queryKey: ["tokens-infinite", normalizedFilter, filtersKey, sort],
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam, signal }) =>
       tokenService.getTokensPage(
         normalizedFilter,
         pageParam,
         TOKENS_PAGE_SIZE,
         tableFilters,
         sort,
+        signal,
       ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {

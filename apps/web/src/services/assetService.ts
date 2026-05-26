@@ -183,14 +183,14 @@ export async function fetchAssetCandles(
 }
 
 export interface IAssetService {
-  getAssets(): Promise<Asset[]>;
+  getAssets(signal?: AbortSignal): Promise<Asset[]>;
   getPairFilters(): Promise<PairFilter[]>;
 }
 
 const liveAssetService: IAssetService = {
-  async getAssets() {
+  async getAssets(signal?: AbortSignal) {
     try {
-      const apiAssets = await fetchAssets();
+      const apiAssets = await fetchAssets(signal);
       const trackedAssets = apiAssets
         .map((asset) => asset.symbol)
         .filter(isSupportedUnderlying);
