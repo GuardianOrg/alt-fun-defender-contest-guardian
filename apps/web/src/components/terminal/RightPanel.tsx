@@ -324,7 +324,7 @@ export default function RightPanel() {
           {graduating.map((t) => (
             <div
               key={t.address}
-              className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
+              className={styles.infoRow}
               role="button"
               tabIndex={0}
               onClick={() => handleNavigate(t.address)}

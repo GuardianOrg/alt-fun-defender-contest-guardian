@@ -36,16 +36,11 @@
   padding-right: 0.8rem;
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
     border-color 0.15s ease;
-}
-
-.tradeRow:last-child {
-  border-bottom: 0;
 }
 
 .tradeRow:hover {
@@ -177,7 +172,6 @@
   padding-right: 0.8rem;
   padding-top: 0.4rem;
   padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--border);
   font-size: 13px;
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -185,10 +179,6 @@
 
 .infoRow:hover {
   background: rgba(255, 255, 255, 0.02);
-}
-
-.infoRowNoBorderLast:last-child {
-  border-bottom: 0;
 }
 
 .infoName {
@@ -226,13 +216,8 @@
   padding-right: 0.8rem;
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.15s ease;
-}
-
-.positionRow:last-child {
-  border-bottom: 0;
 }
 
 .positionRow:hover {

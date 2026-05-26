@@ -39,10 +39,6 @@
   min-width: 0;
 }
 
-.assetRowBorder {
-  border-bottom: 1px solid var(--border);
-}
-
 .assetName {
   font-size: 14px;
   line-height: 1rem;

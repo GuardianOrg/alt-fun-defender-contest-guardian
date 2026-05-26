@@ -155,6 +155,8 @@ export default function TokenTable() {
             )}
           </div>
         </div>
+        <div className={styles.sideFadeLeft} aria-hidden />
+        <div className={styles.sideFadeRight} aria-hidden />
       </div>
     </div>
   );

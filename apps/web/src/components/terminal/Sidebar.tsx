@@ -22,10 +22,7 @@ export default function Sidebar() {
           ? Array.from({ length: MARKET_SKELETON_COUNT }, (_, i) => (
               <div
                 key={`market-skeleton-${i}`}
-                className={cn(
-                  styles.assetRow,
-                  i < MARKET_SKELETON_COUNT - 1 && styles.assetRowBorder,
-                )}
+                className={styles.assetRow}
                 aria-busy="true"
               >
                 <div
@@ -48,14 +45,11 @@ export default function Sidebar() {
                 />
               </div>
             ))
-          : assets.map((a, i) => {
+          : assets.map((a) => {
               return (
                 <div
                   key={a.name}
-                  className={cn(
-                    styles.assetRow,
-                    i < assets.length - 1 && styles.assetRowBorder,
-                  )}
+                  className={styles.assetRow}
                 >
                   <AssetIcon
                     asset={a.name}

@@ -1,9 +1,6 @@
 .tradesTable {
   width: 100%;
   font-size: 13px;
-  /* Required for `border-bottom` on `<tr>` elements (`.tradeRow`) to
-   * render — browsers ignore row borders under the default
-   * `border-collapse: separate`. */
   border-collapse: collapse;
 }
 
@@ -29,7 +26,6 @@
   text-transform: uppercase;
   color: var(--txt-4);
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border);
 }
 
 .thLeft {
@@ -54,7 +50,6 @@
 }
 
 .tradeRow {
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition:
     color 0.15s ease,
@@ -217,15 +212,6 @@
   text-transform: uppercase;
   color: var(--txt-4);
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border);
-}
-
-/* Holder rows aren't clickable (unlike trade rows which have a vestigial
- * `cursor: pointer`) so this is a distinct, lighter sibling of
- * `.tradeRow` — same border-bottom rhythm, no pointer affordance, no
- * hover wash. */
-.holderTableRow {
-  border-bottom: 1px solid var(--border);
 }
 
 /* Holders cells are uniformly left-aligned. Padding values are paired
