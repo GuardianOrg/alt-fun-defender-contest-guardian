@@ -2,6 +2,7 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
+import TerminalSection from "./TerminalSection";
 import { CREATE_PATH } from "../../app/routes";
 import { useAssets } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
@@ -16,16 +17,12 @@ export default function Sidebar() {
 
   return (
     <div className={styles.sidebar}>
-      <div className={cn(styles.panel, styles.marketsPanel)}>
-        <div className={styles.sectionHeader}>MARKETS</div>
+      <TerminalSection title="MARKETS" className={styles.marketsPanel} fade="always">
         {assets === undefined
           ? Array.from({ length: MARKET_SKELETON_COUNT }, (_, i) => (
               <div
                 key={`market-skeleton-${i}`}
-                className={cn(
-                  styles.assetRow,
-                  i < MARKET_SKELETON_COUNT - 1 && styles.assetRowBorder,
-                )}
+                className={styles.assetRow}
                 aria-busy="true"
               >
                 <div
@@ -48,14 +45,11 @@ export default function Sidebar() {
                 />
               </div>
             ))
-          : assets.map((a, i) => {
+          : assets.map((a) => {
               return (
                 <div
                   key={a.name}
-                  className={cn(
-                    styles.assetRow,
-                    i < assets.length - 1 && styles.assetRowBorder,
-                  )}
+                  className={styles.assetRow}
                 >
                   <AssetIcon
                     asset={a.name}
@@ -82,7 +76,7 @@ export default function Sidebar() {
                 </div>
               );
             })}
-      </div>
+      </TerminalSection>
 
       <div className={styles.ctaSection}>
         <Button

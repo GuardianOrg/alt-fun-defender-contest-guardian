@@ -1,7 +1,12 @@
 .wrapper {
   background: var(--bg-1);
   overflow-y: auto;
+  scrollbar-width: none;
   border: 1px solid var(--border);
+}
+
+.wrapper::-webkit-scrollbar {
+  display: none;
 }
 
 /* Mobile: the parent `.layout` (CreateView.module.css) becomes the

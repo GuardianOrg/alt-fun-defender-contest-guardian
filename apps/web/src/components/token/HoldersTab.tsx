@@ -57,7 +57,6 @@ export default function HoldersTab({
           ? Array.from({ length: HOLDER_SKELETON_COUNT }, (_, i) => (
               <tr
                 key={`skeleton-${i}`}
-                className={styles.holderTableRow}
                 aria-hidden="true"
               >
                 <td className={styles.tdRank}>
@@ -93,7 +92,7 @@ export default function HoldersTab({
                 ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
                 : h.address;
               return (
-                <tr key={h.rank} className={styles.holderTableRow}>
+                <tr key={h.rank}>
                   <td className={styles.tdRank}>{h.rank}</td>
                   <td className={styles.tdWalletCell}>
                     <a

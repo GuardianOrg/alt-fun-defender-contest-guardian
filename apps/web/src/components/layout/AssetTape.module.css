@@ -67,9 +67,7 @@
 
 .separator {
   display: inline-block;
-  width: 1px;
-  height: 0.75rem;
-  background: var(--border);
+  width: 0;
   margin-left: 1.2rem;
   margin-right: 1.2rem;
   vertical-align: middle;

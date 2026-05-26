@@ -4,6 +4,7 @@ import type { KeyboardEvent } from "react";
 import { useNavigate } from "react-router";
 
 import styles from "./RightPanel.module.css";
+import TerminalSection from "./TerminalSection";
 import { tokenPath } from "../../app/routes";
 import { useBalances } from "../../hooks/useBalances";
 import { useFlashOnNew } from "../../hooks/useFlashOnNew";
@@ -29,7 +30,6 @@ const getTradeTimestamp = (t: Trade) => t.timestamp;
 
 const TRADE_SKELETON_COUNT = 12;
 const PAGE_SKELETON_ROW_COUNT = 3;
-const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 // Keep the non-scrolling "graduating soon" section from crowding positions/trades.
 const GRADUATING_SOON_LIMIT = 5;
@@ -140,9 +140,7 @@ export default function RightPanel() {
     getTimestamp: getTradeTimestamp,
   });
 
-  const positions = [...heldTokens]
-    .sort((a, b) => b.valueUsd - a.valueUsd)
-    .slice(0, POSITION_LIMIT);
+  const positions = [...heldTokens].sort((a, b) => b.valueUsd - a.valueUsd);
 
   // Slice after the API's curve-filled sort so the closest tokens stay first.
   const graduating = graduatingTokens?.slice(0, GRADUATING_SOON_LIMIT) ?? [];
@@ -173,50 +171,126 @@ export default function RightPanel() {
 
   return (
     <div className={styles.panel}>
-      <div className={cn(styles.section, styles.sectionPositions)}>
-        <div className={styles.sectionHeader}>MY POSITIONS</div>
-        <div className={styles.sectionBody}>
-          {!isConnected ? (
-            <div className={styles.emptyRow}>Connect wallet to view</div>
-          ) : balancesLoading && positions.length === 0 ? (
-            <div aria-busy="true" aria-label="Loading positions">
-              {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
-                <PositionSkeleton key={i} />
-              ))}
-            </div>
-          ) : positions.length === 0 ? (
-            <div className={styles.emptyRow}>No positions yet</div>
-          ) : (
-            positions.map((p) => (
-              <PositionRow
-                key={p.address}
-                position={p}
-                onNavigate={handleNavigate}
-              />
-            ))
-          )}
-        </div>
-      </div>
+      <TerminalSection
+        title="MY POSITIONS"
+        className={styles.sectionPositions}
+        fade="overflow"
+      >
+        {!isConnected ? (
+          <div className={styles.emptyRow}>Connect wallet to view</div>
+        ) : balancesLoading && positions.length === 0 ? (
+          <div aria-busy="true" aria-label="Loading positions">
+            {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
+              <PositionSkeleton key={i} />
+            ))}
+          </div>
+        ) : positions.length === 0 ? (
+          <div className={styles.emptyRow}>No positions yet</div>
+        ) : (
+          positions.map((p) => (
+            <PositionRow
+              key={p.address}
+              position={p}
+              onNavigate={handleNavigate}
+            />
+          ))
+        )}
+      </TerminalSection>
 
-      <div className={cn(styles.section, styles.sectionTrades)}>
-        <div className={cn(styles.sectionHeader, styles.sectionHeaderLive)}>
-          RECENT TRADES
-          <span className={styles.liveIndicator}>
-            <span className={styles.liveDot} />
-            LIVE
-          </span>
-        </div>
+      <TerminalSection
+        title="RECENT TRADES"
+        className={styles.sectionTrades}
+        fade="always"
+        bodyRef={tradesScrollRef}
+        bodyProps={{
+          "aria-label": "Recent trades",
+          "aria-busy": showTradeSkeletons ? true : undefined,
+        }}
+      >
         {/* No aria-live: this high-frequency feed would flood screen readers. */}
-        <div
-          ref={tradesScrollRef}
-          className={styles.sectionBody}
-          aria-label="Recent trades"
-          aria-busy={showTradeSkeletons ? true : undefined}
-        >
-          {showTradeSkeletons ? (
-            Array.from({ length: TRADE_SKELETON_COUNT }, (_, i) => (
+        {showTradeSkeletons ? (
+          Array.from({ length: TRADE_SKELETON_COUNT }, (_, i) => (
+            <div
+              key={i}
+              className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
+              aria-hidden="true"
+            >
+              <div className={styles.tradeInfo}>
+                <div className={styles.tradeNameRow}>
+                  <Skeleton width="6rem" height="11px" />
+                  <Skeleton
+                    width="2.5rem"
+                    height="10px"
+                    className={styles.tradeSkeletonTime}
+                  />
+                </div>
+                <Skeleton
+                  width="5rem"
+                  height="10px"
+                  className={styles.tradeSkeletonWallet}
+                />
+              </div>
+              <Skeleton width="3rem" height="12px" />
+            </div>
+          ))
+        ) : trades.length === 0 ? (
+          <div className={styles.emptyRow}>No recent trades yet</div>
+        ) : (
+          trades.map((t) => {
+            const isBuy = t.side === "BUY";
+            const flashing = flashingTradeIds.has(t.id);
+            return (
               <div
-                key={i}
+                key={t.id}
+                className={cn(styles.tradeRow, flashing && styles.flash)}
+                tabIndex={0}
+                role="button"
+                aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
+                onClick={() => navigate(tokenPath(t.tokenAddress))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate(tokenPath(t.tokenAddress));
+                  }
+                }}
+              >
+                <div className={styles.tradeInfo}>
+                  <div className={styles.tradeNameRow}>
+                    <span className={styles.tradeName}>{t.tokenName}</span>
+                    <span className={styles.tradeTime}>
+                      {formatTimeAgo(t.timestamp)}
+                    </span>
+                  </div>
+                  <div className={styles.tradeWalletRow}>
+                    <span className={styles.tradeWallet}>{t.walletAddress}</span>
+                    <CopyAddressButton
+                      address={t.walletAddressFull}
+                      className={styles.tradeCopyBtn}
+                    />
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    styles.tradeAmount,
+                    isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
+                  )}
+                >
+                  {isBuy ? "+" : "-"}$
+                  {Math.round(t.amountUsd).toLocaleString()}
+                </span>
+              </div>
+            );
+          })
+        )}
+        {/* Keep the sentinel mounted during skeleton state so pagination attaches on first render. */}
+        {hasMore && (
+          <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
+        )}
+        {isFetchingMore && (
+          <div role="status" aria-live="polite" aria-label="Loading more trades">
+            {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
+              <div
+                key={`page-skel-${i}`}
                 className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
                 aria-hidden="true"
               >
@@ -237,108 +311,20 @@ export default function RightPanel() {
                 </div>
                 <Skeleton width="3rem" height="12px" />
               </div>
-            ))
-          ) : trades.length === 0 ? (
-            <div className={styles.emptyRow}>No recent trades yet</div>
-          ) : (
-            trades.map((t) => {
-              const isBuy = t.side === "BUY";
-              const flashing = flashingTradeIds.has(t.id);
-              return (
-                <div
-                  key={t.id}
-                  className={cn(styles.tradeRow, flashing && styles.flash)}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
-                  onClick={() => navigate(tokenPath(t.tokenAddress))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      navigate(tokenPath(t.tokenAddress));
-                    }
-                  }}
-                >
-                  <div className={styles.tradeInfo}>
-                    <div className={styles.tradeNameRow}>
-                      <span className={styles.tradeName}>{t.tokenName}</span>
-                      <span className={styles.tradeTime}>
-                        {formatTimeAgo(t.timestamp)}
-                      </span>
-                    </div>
-                    <div className={styles.tradeWalletRow}>
-                      <span className={styles.tradeWallet}>
-                        {t.walletAddress}
-                      </span>
-                      <CopyAddressButton
-                        address={t.walletAddressFull}
-                        className={styles.tradeCopyBtn}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className={cn(
-                      styles.tradeAmount,
-                      isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
-                    )}
-                  >
-                    {isBuy ? "+" : "-"}$
-                    {Math.round(t.amountUsd).toLocaleString()}
-                  </span>
-                </div>
-              );
-            })
-          )}
-          {/* Keep the sentinel mounted during skeleton state so pagination attaches on first render. */}
-          {hasMore && (
-            <div
-              ref={sentinelRef}
-              className={styles.sentinel}
-              aria-hidden="true"
-            />
-          )}
-          {isFetchingMore && (
-            <div
-              role="status"
-              aria-live="polite"
-              aria-label="Loading more trades"
-            >
-              {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
-                <div
-                  key={`page-skel-${i}`}
-                  className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
-                  aria-hidden="true"
-                >
-                  <div className={styles.tradeInfo}>
-                    <div className={styles.tradeNameRow}>
-                      <Skeleton width="6rem" height="11px" />
-                      <Skeleton
-                        width="2.5rem"
-                        height="10px"
-                        className={styles.tradeSkeletonTime}
-                      />
-                    </div>
-                    <Skeleton
-                      width="5rem"
-                      height="10px"
-                      className={styles.tradeSkeletonWallet}
-                    />
-                  </div>
-                  <Skeleton width="3rem" height="12px" />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+            ))}
+          </div>
+        )}
+      </TerminalSection>
 
       {graduating.length > 0 && (
-        <div className={cn(styles.section, styles.sectionGraduating)}>
-          <div className={styles.sectionHeader}>GRADUATING SOON</div>
+        <TerminalSection
+          title="GRADUATING SOON"
+          className={styles.sectionGraduating}
+        >
           {graduating.map((t) => (
             <div
               key={t.address}
-              className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
+              className={styles.infoRow}
               role="button"
               tabIndex={0}
               onClick={() => handleNavigate(t.address)}
@@ -356,7 +342,7 @@ export default function RightPanel() {
               </span>
             </div>
           ))}
-        </div>
+        </TerminalSection>
       )}
     </div>
   );
