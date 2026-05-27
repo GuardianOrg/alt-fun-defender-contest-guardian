@@ -10,13 +10,19 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   gap: 1.2rem;
   min-width: 0;
+  scrollbar-width: none;
+}
+
+.mainContent::-webkit-scrollbar {
+  display: none;
 }
 
 .tableSection {
-  flex: 1;
+  flex: 0 0 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;

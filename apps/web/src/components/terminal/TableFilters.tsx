@@ -12,13 +12,16 @@ import {
   selectActiveFilter,
   selectTokenFilters,
   selectTokenSort,
+  selectTokenViewMode,
   setTokenDirectionFilter,
   setTokenLeverageFilter,
   setTokenSort,
   setTokenUnderlyingFilter,
+  setTokenViewMode,
 } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
+import SegmentedButton from "../shared/SegmentedButton";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { TokenSort } from "../../services/tokenService";
@@ -62,6 +65,48 @@ const CheckIcon = () => (
     strokeLinejoin="round"
   >
     <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const GridIcon = () => (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="2" y="2" width="4.5" height="4.5" />
+    <rect x="9.5" y="2" width="4.5" height="4.5" />
+    <rect x="2" y="9.5" width="4.5" height="4.5" />
+    <rect x="9.5" y="9.5" width="4.5" height="4.5" />
+  </svg>
+);
+
+const ListIcon = () => (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <line x1="5.5" y1="4" x2="14" y2="4" />
+    <line x1="5.5" y1="8" x2="14" y2="8" />
+    <line x1="5.5" y1="12" x2="14" y2="12" />
+    <circle cx="2.5" cy="4" r="0.7" fill="currentColor" stroke="none" />
+    <circle cx="2.5" cy="8" r="0.7" fill="currentColor" stroke="none" />
+    <circle cx="2.5" cy="12" r="0.7" fill="currentColor" stroke="none" />
   </svg>
 );
 
@@ -234,6 +279,7 @@ export default function TableFilters() {
   const filters = useSelector(selectTokenFilters);
   const activeFilter = useSelector(selectActiveFilter);
   const tokenSort = useSelector(selectTokenSort);
+  const tokenViewMode = useSelector(selectTokenViewMode);
   const availableAssets = useAvailableUnderlyingAssets();
   const leverageOptions = useLeverageOptions();
   const [open, setOpen] = useState<OpenPopover>(null);
@@ -286,200 +332,231 @@ export default function TableFilters() {
 
   return (
     <div className={styles.rail} role="group" aria-label="Filter tokens">
-      {showSortTrigger && (
-        <div className={styles.triggerWrap} ref={sortRef}>
+      <div className={styles.filterGroup}>
+        {showSortTrigger && (
+          <div className={styles.triggerWrap} ref={sortRef}>
+            <FilterTrigger
+              label="Sort"
+              value={sortTriggerLabel}
+              // Default sort is the tab's natural ordering, so keep the trigger neutral.
+              active={tokenSort !== "default"}
+              open={open === "sort"}
+              onClick={() => toggle("sort")}
+            />
+            {open === "sort" && (
+              <FilterPopover anchorRef={sortRef} onClose={closeAll}>
+                <div className={styles.popoverHeader}>Sort by</div>
+                <div className={styles.optionList}>
+                  <OptionRow
+                    selected={tokenSort === "default"}
+                    onClick={() => handleSelectSort("default")}
+                  >
+                    <span>{defaultSortLabel(activeFilter)}</span>
+                  </OptionRow>
+                  {/* TRENDING already defaults to 24H VOLUME; show the explicit row only on GRADUATED. */}
+                  {activeFilter === "graduated" && (
+                    <OptionRow
+                      selected={tokenSort === "volume24h"}
+                      onClick={() => handleSelectSort("volume24h")}
+                    >
+                      <span>{explicitSortLabel("volume24h")}</span>
+                    </OptionRow>
+                  )}
+                  <OptionRow
+                    selected={tokenSort === "mcap"}
+                    onClick={() => handleSelectSort("mcap")}
+                  >
+                    <span>{explicitSortLabel("mcap")}</span>
+                  </OptionRow>
+                  <OptionRow
+                    selected={tokenSort === "change24h"}
+                    onClick={() => handleSelectSort("change24h")}
+                  >
+                    <span>{explicitSortLabel("change24h")}</span>
+                  </OptionRow>
+                </div>
+              </FilterPopover>
+            )}
+          </div>
+        )}
+
+        <div className={styles.triggerWrap} ref={marketRef}>
           <FilterTrigger
-            label="Sort"
-            value={sortTriggerLabel}
-            // Default sort is the tab's natural ordering, so keep the trigger neutral.
-            active={tokenSort !== "default"}
-            open={open === "sort"}
-            onClick={() => toggle("sort")}
+            label="Market"
+            value={
+              filters.underlying ? getAssetDisplayName(filters.underlying) : null
+            }
+            active={filters.underlying !== undefined}
+            open={open === "market"}
+            onClick={() => toggle("market")}
           />
-          {open === "sort" && (
-            <FilterPopover anchorRef={sortRef} onClose={closeAll}>
-              <div className={styles.popoverHeader}>Sort by</div>
+          {open === "market" && (
+            <FilterPopover anchorRef={marketRef} onClose={closeAll}>
+              <div className={styles.popoverHeader}>Market</div>
               <div className={styles.optionList}>
                 <OptionRow
-                  selected={tokenSort === "default"}
-                  onClick={() => handleSelectSort("default")}
+                  selected={filters.underlying === undefined}
+                  onClick={() => handleSelectUnderlying(undefined)}
                 >
-                  <span>{defaultSortLabel(activeFilter)}</span>
+                  <span>All markets</span>
                 </OptionRow>
-                {/* TRENDING already defaults to 24H VOLUME; show the explicit row only on GRADUATED. */}
-                {activeFilter === "graduated" && (
+                {availableAssets.map((a) => (
                   <OptionRow
-                    selected={tokenSort === "volume24h"}
-                    onClick={() => handleSelectSort("volume24h")}
+                    key={a}
+                    selected={filters.underlying === a}
+                    onClick={() => handleSelectUnderlying(a)}
                   >
-                    <span>{explicitSortLabel("volume24h")}</span>
+                    <AssetIcon
+                      asset={a}
+                      size={18}
+                      className={styles.optionIcon}
+                      monogramRatio={0.48}
+                    />
+                    <span>{getAssetDisplayName(a)}</span>
                   </OptionRow>
-                )}
+                ))}
+              </div>
+            </FilterPopover>
+          )}
+        </div>
+
+        <div className={styles.triggerWrap} ref={leverageRef}>
+          <FilterTrigger
+            label="Leverage"
+            value={filters.leverage !== undefined ? `${filters.leverage}×` : null}
+            active={filters.leverage !== undefined}
+            open={open === "leverage"}
+            onClick={() => toggle("leverage")}
+          />
+          {open === "leverage" && (
+            <FilterPopover anchorRef={leverageRef} onClose={closeAll}>
+              <div className={styles.popoverHeader}>Leverage</div>
+              <div className={styles.optionList}>
                 <OptionRow
-                  selected={tokenSort === "mcap"}
-                  onClick={() => handleSelectSort("mcap")}
+                  selected={filters.leverage === undefined}
+                  onClick={() => handleSelectLeverage(undefined)}
                 >
-                  <span>{explicitSortLabel("mcap")}</span>
+                  <span>All leverages</span>
+                </OptionRow>
+                {leverageOptions.map((l) => (
+                  <OptionRow
+                    key={l}
+                    selected={filters.leverage === l}
+                    onClick={() => handleSelectLeverage(l)}
+                  >
+                    <span className={styles.leverageBadge}>{l}×</span>
+                  </OptionRow>
+                ))}
+              </div>
+            </FilterPopover>
+          )}
+        </div>
+
+        <div className={styles.triggerWrap} ref={directionRef}>
+          <FilterTrigger
+            label="Direction"
+            value={
+              filters.direction === "long"
+                ? "Long"
+                : filters.direction === "short"
+                  ? "Short"
+                  : null
+            }
+            active={filters.direction !== undefined}
+            open={open === "direction"}
+            onClick={() => toggle("direction")}
+          />
+          {open === "direction" && (
+            <FilterPopover
+              anchorRef={directionRef}
+              onClose={closeAll}
+              align="right"
+            >
+              <div className={styles.popoverHeader}>Direction</div>
+              <div className={styles.optionList}>
+                <OptionRow
+                  selected={filters.direction === undefined}
+                  onClick={() => handleSelectDirection(undefined)}
+                >
+                  <span>Both directions</span>
                 </OptionRow>
                 <OptionRow
-                  selected={tokenSort === "change24h"}
-                  onClick={() => handleSelectSort("change24h")}
+                  selected={filters.direction === "long"}
+                  onClick={() => handleSelectDirection("long")}
                 >
-                  <span>{explicitSortLabel("change24h")}</span>
+                  <span className={cn(styles.directionDot, styles.dotMint)} />
+                  <span>Long</span>
+                </OptionRow>
+                <OptionRow
+                  selected={filters.direction === "short"}
+                  onClick={() => handleSelectDirection("short")}
+                >
+                  <span className={cn(styles.directionDot, styles.dotRed)} />
+                  <span>Short</span>
                 </OptionRow>
               </div>
             </FilterPopover>
           )}
         </div>
-      )}
 
-      <div className={styles.triggerWrap} ref={marketRef}>
-        <FilterTrigger
-          label="Market"
-          value={
-            filters.underlying ? getAssetDisplayName(filters.underlying) : null
-          }
-          active={filters.underlying !== undefined}
-          open={open === "market"}
-          onClick={() => toggle("market")}
-        />
-        {open === "market" && (
-          <FilterPopover anchorRef={marketRef} onClose={closeAll}>
-            <div className={styles.popoverHeader}>Market</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.underlying === undefined}
-                onClick={() => handleSelectUnderlying(undefined)}
-              >
-                <span>All markets</span>
-              </OptionRow>
-              {availableAssets.map((a) => (
-                <OptionRow
-                  key={a}
-                  selected={filters.underlying === a}
-                  onClick={() => handleSelectUnderlying(a)}
-                >
-                  <AssetIcon
-                    asset={a}
-                    size={18}
-                    className={styles.optionIcon}
-                    monogramRatio={0.48}
-                  />
-                  <span>{getAssetDisplayName(a)}</span>
-                </OptionRow>
-              ))}
-            </div>
-          </FilterPopover>
-        )}
-      </div>
-
-      <div className={styles.triggerWrap} ref={leverageRef}>
-        <FilterTrigger
-          label="Leverage"
-          value={filters.leverage !== undefined ? `${filters.leverage}×` : null}
-          active={filters.leverage !== undefined}
-          open={open === "leverage"}
-          onClick={() => toggle("leverage")}
-        />
-        {open === "leverage" && (
-          <FilterPopover anchorRef={leverageRef} onClose={closeAll}>
-            <div className={styles.popoverHeader}>Leverage</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.leverage === undefined}
-                onClick={() => handleSelectLeverage(undefined)}
-              >
-                <span>All leverages</span>
-              </OptionRow>
-              {leverageOptions.map((l) => (
-                <OptionRow
-                  key={l}
-                  selected={filters.leverage === l}
-                  onClick={() => handleSelectLeverage(l)}
-                >
-                  <span className={styles.leverageBadge}>{l}×</span>
-                </OptionRow>
-              ))}
-            </div>
-          </FilterPopover>
-        )}
-      </div>
-
-      <div className={styles.triggerWrap} ref={directionRef}>
-        <FilterTrigger
-          label="Direction"
-          value={
-            filters.direction === "long"
-              ? "Long"
-              : filters.direction === "short"
-                ? "Short"
-                : null
-          }
-          active={filters.direction !== undefined}
-          open={open === "direction"}
-          onClick={() => toggle("direction")}
-        />
-        {open === "direction" && (
-          <FilterPopover
-            anchorRef={directionRef}
-            onClose={closeAll}
-            align="right"
+        {hasActiveFilters && (
+          <button
+            type="button"
+            className={styles.clearButton}
+            onClick={() => {
+              dispatch(clearTokenFilters());
+              closeAll();
+            }}
+            aria-label={`Clear ${activeCount} active filter${activeCount === 1 ? "" : "s"}`}
           >
-            <div className={styles.popoverHeader}>Direction</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.direction === undefined}
-                onClick={() => handleSelectDirection(undefined)}
-              >
-                <span>Both directions</span>
-              </OptionRow>
-              <OptionRow
-                selected={filters.direction === "long"}
-                onClick={() => handleSelectDirection("long")}
-              >
-                <span className={cn(styles.directionDot, styles.dotMint)} />
-                <span>Long</span>
-              </OptionRow>
-              <OptionRow
-                selected={filters.direction === "short"}
-                onClick={() => handleSelectDirection("short")}
-              >
-                <span className={cn(styles.directionDot, styles.dotRed)} />
-                <span>Short</span>
-              </OptionRow>
-            </div>
-          </FilterPopover>
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            <span>Clear</span>
+          </button>
         )}
-      </div>
 
-      {hasActiveFilters && (
-        <button
-          type="button"
-          className={styles.clearButton}
-          onClick={() => {
-            dispatch(clearTokenFilters());
-            closeAll();
-          }}
-          aria-label={`Clear ${activeCount} active filter${activeCount === 1 ? "" : "s"}`}
+        <div
+          className={styles.viewToggle}
+          role="group"
+          aria-label="Token view mode"
         >
-          <svg
-            aria-hidden="true"
-            focusable="false"
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <SegmentedButton
+            size="slim"
+            tone="neutral"
+            indicator={false}
+            active={tokenViewMode === "grid"}
+            aria-pressed={tokenViewMode === "grid"}
+            onClick={() => dispatch(setTokenViewMode("grid"))}
           >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-          <span>Clear</span>
-        </button>
-      )}
+            <GridIcon />
+            Grid
+          </SegmentedButton>
+          <SegmentedButton
+            size="slim"
+            tone="neutral"
+            indicator={false}
+            active={tokenViewMode === "list"}
+            aria-pressed={tokenViewMode === "list"}
+            onClick={() => dispatch(setTokenViewMode("list"))}
+          >
+            <ListIcon />
+            List
+          </SegmentedButton>
+        </div>
+      </div>
     </div>
   );
 }

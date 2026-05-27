@@ -2,15 +2,26 @@ import rowStyles from "./TokenRow.module.css";
 import { cn } from "../../utils/format";
 import Skeleton from "../shared/Skeleton";
 
+import type { TokenViewMode } from "../../state/uiSlice";
+
 /**
  * Layout-matched placeholder for `<TokenRow>`. Keeps every cell width in
  * sync with the live row so the grid doesn't reflow when `useTokens`
  * resolves and the skeletons swap for real rows.
  */
-export default function TokenRowSkeleton() {
+interface Props {
+  viewMode: TokenViewMode;
+}
+
+export default function TokenRowSkeleton({ viewMode }: Props) {
   return (
     <div
-      className={cn(rowStyles.row, rowStyles.normalRow, rowStyles.borderMint)}
+      className={cn(
+        rowStyles.row,
+        viewMode === "grid" && rowStyles.cardRow,
+        rowStyles.normalRow,
+        rowStyles.borderMint,
+      )}
       aria-hidden="true"
     >
       <div className={rowStyles.tokenCell}>
