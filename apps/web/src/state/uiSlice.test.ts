@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import uiReducer, {
+  persistTokenViewMode,
+  readStoredTokenViewMode,
   clearTokenFilters,
   selectTokenFilters,
   selectTokenViewMode,
@@ -8,6 +10,7 @@ import uiReducer, {
   setTokenLeverageFilter,
   setTokenUnderlyingFilter,
   setTokenViewMode,
+  TOKEN_VIEW_MODE_STORAGE_KEY,
 } from "./uiSlice";
 
 import type { RootState } from "./types";
@@ -82,5 +85,35 @@ describe("uiSlice token view mode", () => {
     const root = { ui: state } as unknown as RootState;
 
     expect(selectTokenViewMode(root)).toBe("list");
+  });
+
+  it("reads a persisted token view mode", () => {
+    const storage = {
+      getItem: (key: string) =>
+        key === TOKEN_VIEW_MODE_STORAGE_KEY ? "list" : null,
+    };
+
+    expect(readStoredTokenViewMode(storage)).toBe("list");
+  });
+
+  it("falls back to grid for invalid persisted token view modes", () => {
+    const storage = {
+      getItem: () => "cards",
+    };
+
+    expect(readStoredTokenViewMode(storage)).toBe("grid");
+  });
+
+  it("persists token view mode changes", () => {
+    const stored = new Map<string, string>();
+    const storage = {
+      setItem: (key: string, value: string) => {
+        stored.set(key, value);
+      },
+    };
+
+    persistTokenViewMode("list", storage);
+
+    expect(stored.get(TOKEN_VIEW_MODE_STORAGE_KEY)).toBe("list");
   });
 });
