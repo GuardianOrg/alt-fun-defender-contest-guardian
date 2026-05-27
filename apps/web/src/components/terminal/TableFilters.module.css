@@ -5,12 +5,36 @@
   margin-left: 0;
   padding: 0.8rem;
   flex-shrink: 0;
+  min-width: 0;
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1 1 auto;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.rail::-webkit-scrollbar {
+.filterGroup::-webkit-scrollbar {
   display: none;
+}
+
+.viewToggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 2.4rem;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.viewToggle > button {
+  height: 100%;
 }
 
 .triggerWrap {
@@ -245,4 +269,15 @@
 .clearButton:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
+}
+
+@media (max-width: 1240px) {
+  .rail {
+    align-items: center;
+  }
+
+  .viewToggle {
+    order: -1;
+    margin-left: 0;
+  }
 }

@@ -14,7 +14,9 @@ import {
   selectActiveFilter,
   selectTokenFilters,
   selectTokenSort,
+  selectTokenViewMode,
 } from "../../state/uiSlice";
+import { cn } from "../../utils/format";
 
 import type { Token, TokenFilter } from "../../services/types";
 
@@ -52,6 +54,8 @@ export default function TokenTable() {
   const activeFilter = useSelector(selectActiveFilter);
   const tableFilters = useSelector(selectTokenFilters);
   const tokenSort = useSelector(selectTokenSort);
+  const tokenViewMode = useSelector(selectTokenViewMode);
+  const isGridView = tokenViewMode === "grid";
   const hasActiveTableFilters =
     tableFilters.underlying !== undefined ||
     tableFilters.leverage !== undefined ||
@@ -101,16 +105,19 @@ export default function TokenTable() {
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.column}>
+      <div className={cn(styles.column, isGridView && styles.columnGrid)}>
         <div className={styles.scrollArea}>
           <div
-            className={styles.tableInner}
+            className={cn(
+              styles.tableInner,
+              isGridView && styles.gridInner,
+            )}
             aria-busy={showInitialSkeletons || undefined}
           >
-            <TableHead />
+            {!isGridView && <TableHead />}
             {showInitialSkeletons ? (
               Array.from({ length: INITIAL_SKELETON_ROW_COUNT }, (_, i) => (
-                <TokenRowSkeleton key={i} />
+                <TokenRowSkeleton key={i} viewMode={tokenViewMode} />
               ))
             ) : showFilteredEmpty ? (
               <div className={styles.emptyState} role="status">
@@ -140,6 +147,7 @@ export default function TokenTable() {
                   stats={getStats(t.address)}
                   isNew={flashingIds.has(getTokenId(t))}
                   eager={index < EAGER_ROW_COUNT}
+                  viewMode={tokenViewMode}
                 />
               ))
             )}
@@ -149,7 +157,10 @@ export default function TokenTable() {
             {isFetchingNextPage && (
               <div role="status" aria-live="polite" aria-label="Loading more">
                 {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
-                  <TokenRowSkeleton key={`page-skel-${i}`} />
+                  <TokenRowSkeleton
+                    key={`page-skel-${i}`}
+                    viewMode={tokenViewMode}
+                  />
                 ))}
               </div>
             )}

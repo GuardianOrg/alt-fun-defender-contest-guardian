@@ -38,6 +38,10 @@
   display: none;
 }
 
+.columnGrid .scrollArea {
+  overflow-x: hidden;
+}
+
 .sideFadeLeft,
 .sideFadeRight {
   position: absolute;
@@ -63,13 +67,48 @@
  * widths. `gap: 1.6rem` is the minimum spacing between columns, and
  * `justify-content: space-between` distributes any extra horizontal space
  * evenly between them — so on wide viewports the columns "breathe" out to
- * the edges, and on narrow viewports they stay packed at the 1.6rem gap and
- * the surrounding `.scrollArea` provides a horizontal scrollbar.
+ * the edges, and on tablet-width viewports they stay packed at the 1.6rem gap
+ * with the surrounding `.scrollArea` providing a horizontal scrollbar. Phone
+ * widths switch rows to cards below.
  */
 .tableInner {
   display: flex;
   flex-direction: column;
   min-width: max-content;
+}
+
+.gridInner {
+  --token-card-min-width: 350px;
+  --token-card-gap: 0.8rem;
+
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--token-card-min-width)), 1fr)
+  );
+  gap: var(--token-card-gap);
+  padding: 0.8rem;
+}
+
+.gridInner > [role="status"] {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--token-card-min-width)), 1fr)
+  );
+  grid-column: 1 / -1;
+  gap: var(--token-card-gap);
+}
+
+.gridInner .sentinel {
+  grid-column: 1 / -1;
+}
+
+.columnGrid .sideFadeLeft,
+.columnGrid .sideFadeRight {
+  display: none;
 }
 
 .tableHead {
@@ -214,4 +253,9 @@
 .emptyStateClear:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
+}
+
+.gridInner .emptyState {
+  position: static;
+  grid-column: 1 / -1;
 }

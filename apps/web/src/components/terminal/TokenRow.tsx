@@ -22,6 +22,7 @@ import RollingNumber from "../shared/RollingNumber";
 
 import type { TokenMarketStats } from "../../hooks/useTokenMarketStats";
 import type { Token } from "../../services/types";
+import type { TokenViewMode } from "../../state/uiSlice";
 
 interface Props {
   token: Token;
@@ -31,6 +32,7 @@ interface Props {
   isNew?: boolean;
   /** Eager-load above-the-fold token logos for LCP. */
   eager?: boolean;
+  viewMode: TokenViewMode;
 }
 
 export default function TokenRow({
@@ -38,6 +40,7 @@ export default function TokenRow({
   stats,
   isNew = false,
   eager = false,
+  viewMode,
 }: Props) {
   const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
@@ -68,6 +71,7 @@ export default function TokenRow({
     <div
       className={cn(
         styles.row,
+        viewMode === "grid" && styles.cardRow,
         isGraduating
           ? isShort
             ? styles.graduatingShort

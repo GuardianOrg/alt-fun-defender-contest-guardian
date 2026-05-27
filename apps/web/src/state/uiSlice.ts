@@ -7,6 +7,8 @@ import type { Direction, TokenFilter } from "../services/types";
 
 export type { TokenSort } from "../services/tokenService";
 
+export type TokenViewMode = "grid" | "list";
+
 /** Optional pair-level facets layered on top of the lifecycle tab. */
 export interface TokenTableFilters {
   underlying?: UnderlyingAsset;
@@ -21,6 +23,7 @@ interface UiState {
   tokenFilters: TokenTableFilters;
   /** Sort axis, kept separate so clearing facets does not reset sort. */
   tokenSort: TokenSort;
+  tokenViewMode: TokenViewMode;
 }
 
 const initialState: UiState = {
@@ -29,6 +32,7 @@ const initialState: UiState = {
   activeFilter: "trending",
   tokenFilters: {},
   tokenSort: "default",
+  tokenViewMode: "grid",
 };
 
 const uiSlice = createSlice({
@@ -80,6 +84,9 @@ const uiSlice = createSlice({
     setTokenSort(state, action: PayloadAction<TokenSort>) {
       state.tokenSort = action.payload;
     },
+    setTokenViewMode(state, action: PayloadAction<TokenViewMode>) {
+      state.tokenViewMode = action.payload;
+    },
   },
 });
 
@@ -92,6 +99,7 @@ export const {
   setTokenDirectionFilter,
   clearTokenFilters,
   setTokenSort,
+  setTokenViewMode,
 } = uiSlice.actions;
 
 export const selectSearchOpen = (state: RootState) => state.ui.searchOpen;
@@ -99,5 +107,6 @@ export const selectEarningsOpen = (state: RootState) => state.ui.earningsOpen;
 export const selectActiveFilter = (state: RootState) => state.ui.activeFilter;
 export const selectTokenFilters = (state: RootState) => state.ui.tokenFilters;
 export const selectTokenSort = (state: RootState) => state.ui.tokenSort;
+export const selectTokenViewMode = (state: RootState) => state.ui.tokenViewMode;
 
 export default uiSlice.reducer;

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import uiReducer, {
   clearTokenFilters,
+  selectTokenFilters,
+  selectTokenViewMode,
   setTokenDirectionFilter,
   setTokenLeverageFilter,
   setTokenUnderlyingFilter,
-  selectTokenFilters,
+  setTokenViewMode,
 } from "./uiSlice";
 
 import type { RootState } from "./types";
@@ -67,5 +69,18 @@ describe("uiSlice token filters", () => {
       underlying: "ETH",
       leverage: 2,
     });
+  });
+});
+
+describe("uiSlice token view mode", () => {
+  it("defaults token rows to grid view", () => {
+    expect(initialState.tokenViewMode).toBe("grid");
+  });
+
+  it("sets and selects the token view mode", () => {
+    const state = uiReducer(initialState, setTokenViewMode("list"));
+    const root = { ui: state } as unknown as RootState;
+
+    expect(selectTokenViewMode(root)).toBe("list");
   });
 });
