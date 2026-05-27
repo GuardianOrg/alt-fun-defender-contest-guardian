@@ -236,6 +236,40 @@ Per-tick cap `MAX_TRIGGERS_PER_TICK = 5` bounds wall-clock per tick. A flood of 
 
 Manual nonce management mirrors `graduation-keeper.ts` (viem's pending-nonce auto-fetch double-counts on rapid back-to-back submits). The trigger phase has no allowance / approval surface; per-token approvals for the legacy sell phase are still done once at `MAX_UINT256`.
 
+## Test HYPE buyback-and-burn keeper
+
+`src/lib/buyback-burn-keeper.ts` runs every cron tick. When the deployer's `creatorBalance` on `FeeVault` clears a randomised threshold, the keeper claims the fees, spends the claimed USDC on `Zap.buy(testHype)`, and transfers the bought tokens to `0x000…dEaD`. Hard-wired to the canary launch:
+
+| Constant | Value |
+|---|---|
+| `TEST_HYPE_TOKEN` | `0xE1A38D620298290d2d925bDEC280B15a12000000` |
+| `CREATOR_WALLET` | `0x2C8496Bce4aee5Ce4Af571E02543937fb38b244E` |
+| `BURN_ADDRESS` | `0x000000000000000000000000000000000000dEaD` |
+| Threshold range | `[$20, $30)` (USDC, 6dp) |
+
+### Front-run resistance via threshold randomisation
+
+A "fire every `$20`" trigger is trivially front-runnable — anyone watching `creatorBalance` could pre-position just before the round number. The keeper instead computes its trigger threshold per cycle as `$20 + (HMAC_SHA256(secret, lifetimeClaimed) mod $10)`, where `secret` is a Worker secret unknown to attackers. The threshold therefore lands somewhere in `[$20, $30)` on each cycle, and only the operator can reproduce the schedule.
+
+`lifetimeClaimed` is derived stateless from the chain as `lifetimeCreatorEarned − creatorBalance` — both fields rise in lockstep on every `accrue`, and only `claim()` decreases `creatorBalance`, so the difference only changes at claim time. That makes it a stable per-cycle counter the HMAC can key off without any KV / alarm / local persistence: across Worker restarts, the same on-chain state plus the same secret reproduces the same threshold.
+
+### Wallet bound to the creator (intentional)
+
+`FeeVault.claim()` only ever pays out to `msg.sender`, so the bot wallet has to BE the creator wallet — there is no authorise-a-third-party path on the vault. The keeper aborts with `buyback_burn_wallet_mismatch` (and does not attempt any tx) if `BUYBACK_BURN_PRIVATE_KEY` derives to anything other than `CREATOR_WALLET`.
+
+### Cycle (sequential with receipt awaits)
+
+Unlike the other keepers, this one has hard step-to-step data dependencies (claim → know exact USDC delta → buy → know exact token delta → burn), so each tx is awaited via `waitForTransactionReceipt` before the next is submitted. Total wall-clock per cycle is ~3-5s on small blocks. Balance-delta scoping means the bot only spends freshly-claimed USDC and only burns freshly-bought Test HYPE — pre-existing balances on the wallet are untouched.
+
+### Setup
+
+1. `wrangler secret put BUYBACK_BURN_PRIVATE_KEY` (prod / preview), value = the deployer's private key. Set in `.dev.vars` for local dev.
+2. (Recommended) `wrangler secret put BUYBACK_BURN_ENTROPY_SECRET`, value = `openssl rand -hex 32`. If unset, the keeper falls back to deriving the HMAC key from the private key itself — fine functionally, but rotating an explicit secret is cheaper than rotating the wallet.
+3. Fund the wallet with HYPE for gas (≤4 ~120k-gas txs per cycle).
+4. Leave the wallet on small blocks. On big blocks each tx waits ~60s and the cycle pushes past the 1-minute cron tick.
+
+Disabling the keeper: leave `BUYBACK_BURN_PRIVATE_KEY` unset. Each cron tick logs `buyback_burn_disabled_no_key` and exits without touching the chain.
+
 ## Durable Objects
 
 - `WebSocketDO` — **subject-sharded** WebSocket fan-out. One DO instance per `(channel, tokenAddress)` shard, named via ``idFromName(`${channel}:${tokenAddress ?? "__all__"}`)``. Every connection on a given instance has already opted into exactly that subject, so `broadcast()` is a flat fan-out with no per-connection filter loop. Per-token events (`trade`, `price`, `graduation`) fan out to *both* the token's shard and the wildcard `__all__` shard so global subscribers (e.g. the home-page trade feed) still see them; cost is at most two stub fetches per event regardless of total connection count. The previous design was a single global DO that iterated every connection on every event — see issue #395 for the scaling rationale and `websocket/durable-object.ts` for the routing helpers.

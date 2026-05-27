@@ -107,6 +107,40 @@ export interface AppBindings {
    */
   AUTO_GRADUATION_BUYER_PRIVATE_KEY?: string;
   /**
+   * Hot-wallet private key (`0x…`-prefixed) for the Test HYPE buyback-
+   * and-burn keeper. The wallet MUST be the deployer / Test HYPE
+   * creator (`0x2C8496Bce4aee5Ce4Af571E02543937fb38b244E`) — `FeeVault.claim()`
+   * only ever pays out to `msg.sender`, so the bot can only claim if
+   * it IS the creator. The keeper aborts with
+   * `buyback_burn_wallet_mismatch` if the configured key derives to
+   * any other address. Setup:
+   *   1. Source the deployer's private key from your existing key-
+   *      management process.
+   *   2. Fund with HYPE for gas (each cycle is ≤4 ~120k-gas txs).
+   *      No standalone USDC funding required — the bot spends what
+   *      it just claimed from the FeeVault.
+   *   3. Leave block size alone (small blocks). The keeper awaits
+   *      receipts sequentially; on big blocks each tx waits ~60s
+   *      and the cycle pushes past the 1-minute cron tick.
+   *   4. `wrangler secret put BUYBACK_BURN_PRIVATE_KEY` (prod / preview).
+   *      Set in `.dev.vars` for local development.
+   * Optional in dev: leaving this blank disables the keeper and logs
+   * a warn on every cron tick. See `lib/buyback-burn-keeper.ts`.
+   */
+  BUYBACK_BURN_PRIVATE_KEY?: string;
+  /**
+   * Threshold-randomisation HMAC seed for the buyback-burn keeper.
+   * Each cycle's trigger threshold is drawn from `[$20, $30)` via
+   * `HMAC_SHA256(secret, lifetimeClaimed)`, so an attacker watching
+   * `creatorBalance` can't predict the exact buy point without this
+   * secret. Any reasonably high-entropy string works (`openssl rand
+   * -hex 32` is fine). Optional — when unset, the keeper falls back
+   * to deriving the HMAC key from `BUYBACK_BURN_PRIVATE_KEY` itself
+   * (still unknown to attackers, but rotating an explicit secret is
+   * cheaper than rotating the wallet).
+   */
+  BUYBACK_BURN_ENTROPY_SECRET?: string;
+  /**
    * Shared KV namespace with `apps/telegram-bot` (binding `WALLET_KV`,
    * namespace `launchpad-telegram`). The api only touches the
    * `rewards-wallet:<addr>` keyspace owned by the bot's `/referral`
