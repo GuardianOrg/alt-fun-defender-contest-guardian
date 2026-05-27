@@ -13,6 +13,7 @@ import ETH from "../../assets/Logos/ETH.svg";
 import fartcoin from "../../assets/Logos/fartcoin.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
 import kPepe from "../../assets/Logos/kPEPE.svg";
+import lit from "../../assets/Logos/lit.svg";
 import near from "../../assets/Logos/near.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
 import SOL from "../../assets/Logos/SOL.svg";
@@ -38,6 +39,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   kPEPE: kPepe,
   FARTCOIN: fartcoin,
   NEAR: near,
+  LIT: lit,
   "xyz:CBRS": cbrs,
   "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,

@@ -63,6 +63,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "kPEPE",
   "FARTCOIN",
   "NEAR",
+  "LIT",
   "xyz:CBRS",
   "xyz:CL",
   "xyz:BRENTOIL",
