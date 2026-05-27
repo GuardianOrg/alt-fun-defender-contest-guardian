@@ -22,6 +22,7 @@
 }
 
 .settingsTitle {
+  font-family: var(--font-display);
   font-size: 0.875rem;
   line-height: 1.25rem;
   font-weight: 600;
@@ -31,6 +32,7 @@
 /* Settings popup close — uses `IconButton flush` from shared/. */
 
 .slippageLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -78,8 +80,9 @@
 }
 
 .slippageHint {
+  font-family: var(--font-display);
   font-size: 11px;
-  color: var(--txt-4);
+  color: var(--txt-3);
   line-height: 1.625;
   margin-bottom: 0.8rem;
 }
@@ -114,7 +117,6 @@
   border: 0;
   box-shadow: none;
 }
-
 
 .impactWarning {
   color: #ffc832;
@@ -300,7 +302,7 @@
   color: var(--txt-3);
   background: transparent;
   border: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
 }
 
 .amountWrap {
@@ -422,10 +424,11 @@
 }
 
 .balanceLabel {
+  font-family: var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 10px;
-  color: var(--txt-4);
+  color: var(--txt-3);
 }
 
 .balanceValue {

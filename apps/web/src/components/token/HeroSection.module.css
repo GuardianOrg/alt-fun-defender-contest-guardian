@@ -168,7 +168,6 @@
   align-items: center;
   gap: 0.35rem;
   margin-top: 0.3rem;
-  font-family: var(--font-mono);
   color: var(--txt-3);
 }
 
@@ -186,6 +185,7 @@
 }
 
 .byLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.02em;
 }

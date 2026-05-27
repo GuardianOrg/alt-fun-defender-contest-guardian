@@ -42,10 +42,11 @@
 }
 
 .curveLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--txt-4);
+  color: var(--txt-3);
   flex-shrink: 0;
 }
 
@@ -118,7 +119,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--txt-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
 }
 
 .description {

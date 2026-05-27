@@ -27,7 +27,7 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--txt-3);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
 }
 
 .value {
