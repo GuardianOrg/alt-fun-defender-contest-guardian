@@ -231,7 +231,7 @@
   margin-top: 0.4rem;
   padding: 0.4rem 1.2rem;
   border: 1px solid var(--border-2);
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--mint-bg);
   color: var(--mint);
   font-family: var(--font-mono);
