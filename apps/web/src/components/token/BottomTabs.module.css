@@ -1,54 +1,3 @@
-.tradesTable {
-  width: 100%;
-  font-size: 13px;
-  border-collapse: collapse;
-}
-
-/* Sticky inside the scroll container `.tabContent`. The `z-index: 1` is
- * the minimum needed to keep the header painted above scrolling body
- * rows — Safari has documented stacking bugs where a sticky `<thead>`
- * gets visually overlapped by `<tbody>` rows without an explicit
- * z-index, even though the header row's `--bg-1` background is fully
- * opaque. Nothing else inside `.tabContent` is positioned, so `1` is
- * sufficient (the original `10` was defensive padding, not a real
- * conflict). The sibling `.holdersHeader` doesn't need this trick
- * because it's a `<div>`, not a `<thead>`. */
-.tradesHead {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 0.8rem 0;
-}
-
-.tradesHeaderRow {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--txt-4);
-  background: var(--bg-1);
-}
-
-.thLeft {
-  text-align: left;
-  font-weight: 400;
-  padding: 0.8rem 1.2rem;
-  white-space: nowrap;
-}
-
-.thLeftSmall {
-  text-align: left;
-  font-weight: 400;
-  padding: 0.4rem 0.6rem;
-  white-space: nowrap;
-}
-
-.thLeftWide {
-  text-align: left;
-  font-weight: 400;
-  padding: 0.4rem 1.2rem;
-  white-space: nowrap;
-}
-
 .tradeRow {
   cursor: pointer;
   transition:
@@ -102,7 +51,7 @@
 }
 
 .walletAddress {
-  color: var(--txt);
+  color: #fff;
   font-weight: 500;
 }
 
@@ -123,7 +72,7 @@
 .tdUsdc {
   padding: 0.6rem;
   font-variant-numeric: tabular-nums;
-  color: var(--txt-2);
+  color: #fff;
   white-space: nowrap;
 }
 
@@ -145,7 +94,7 @@
 .tdTime {
   padding: 0.6rem;
   font-variant-numeric: tabular-nums;
-  color: var(--txt-3);
+  color: #fff;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -156,7 +105,7 @@
 }
 
 .txnLink {
-  color: var(--txt-4);
+  color: #fff;
   font-size: 11px;
   font-family: var(--font-mono);
   cursor: pointer;
@@ -171,68 +120,29 @@
 }
 
 .txnLink:hover {
-  color: var(--mint);
+  color: #fff;
 }
 
 .externalIcon {
   flex-shrink: 0;
-  opacity: 0.6;
+  color: var(--txt-3);
 }
 
 .txnLink:hover .externalIcon {
   opacity: 1;
 }
 
-/* Holders tab — same `<table>` structure / cell rhythm as
- * `.tradesTable` above so the two tabs read as one component. Mirrors
- * `.tradesTable` rather than reusing the class name so future tab-
- * specific tweaks (e.g. percentage-bar column min-width) don't leak
- * into Trades. Column widths size to content (`table-layout: auto`),
- * cells are `white-space: nowrap`, and the parent `.tabContent` scrolls
- * horizontally when the table runs wider than the panel — which was
- * the whole reason for migrating away from the CSS-grid layout: a
- * fixed 5-column grid with `1fr` on the wallet column crushed the
- * shortened address + `creator` pill into an unreadable smear on
- * narrow viewports. */
-.holdersTable {
-  width: 100%;
-  font-size: 13px;
-  border-collapse: collapse;
-}
-
-.holdersHead {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-
-.holdersHeaderRow {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--txt-4);
-  background: var(--bg-1);
-}
-
-/* Holders cells are uniformly left-aligned. Padding values are paired
- * with the header class on each column so the header label and the
- * data underneath share an x-origin:
- *   `#`        → .thLeftSmall (0.6rem H) ↔ .tdRank        (0.6rem H)
- *   Wallet     → .thLeft      (1.2rem H) ↔ .tdWalletCell  (1.2rem H)
- *   Tokens     → .thLeftSmall (0.6rem H) ↔ .tdTokensCell  (0.6rem H)
- *   % Supply   → .thLeftSmall (0.6rem H) ↔ .tdPercentCell (0.6rem H)
- *   Bar        → .thLeft      (1.2rem H) ↔ .tdBarCell     (1.2rem H)
- */
 .tdRank {
   padding: 0.6rem;
-  color: var(--txt-3);
+  padding-left: 1.2rem;
+  color: #fff;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .tdWalletCell {
   padding: 0.6rem 1.2rem;
-  color: var(--mint);
+  color: #fff;
   white-space: nowrap;
 }
 
@@ -252,12 +162,14 @@
 
 .tdTokensCell {
   padding: 0.6rem;
+  color: #fff;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .tdPercentCell {
   padding: 0.6rem;
+  color: #fff;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -309,8 +221,11 @@
 .tabBar {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+
   background: var(--bg-1);
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
 }
 
 /* Bottom-tab segments use `SegmentedButton` from shared/. The override

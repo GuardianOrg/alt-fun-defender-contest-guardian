@@ -23,6 +23,8 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
    * already conveyed by the tinted bg alone (chart intervals).
    */
   indicator?: boolean;
+  /** Expand the active indicator across the full button width. */
+  fullWidthIndicator?: boolean;
   size?: Size;
   /** Stretch to 100% width (for split-toggle grid cells). */
   fluid?: boolean;
@@ -42,6 +44,7 @@ export default function SegmentedButton({
   active = false,
   tone = "mint",
   indicator = true,
+  fullWidthIndicator = false,
   size = "md",
   fluid = false,
   className,
@@ -76,7 +79,13 @@ export default function SegmentedButton({
     >
       {children}
       {active && indicator && (
-        <span className={cn(styles.indicator, indicatorClass)} />
+        <span
+          className={cn(
+            styles.indicator,
+            fullWidthIndicator && styles.indicatorFull,
+            indicatorClass,
+          )}
+        />
       )}
     </button>
   );

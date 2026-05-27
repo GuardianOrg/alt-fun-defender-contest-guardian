@@ -8,7 +8,6 @@ import {
 import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
-import { useWebSocketReconnecting } from "../../hooks/useWebSocketStatus";
 import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
@@ -78,7 +77,6 @@ export default function Chart({ address, token }: Props) {
   const {
     mcapUsd: polledMcapUsd,
     change24h,
-    isError: marketDataError,
   } = useTokenMarketStats(address);
 
   const { candles, loading, liveMcapUsd } = useChartData(
@@ -108,7 +106,6 @@ export default function Chart({ address, token }: Props) {
   });
 
   const isEmpty = !loading && candles.length === 0;
-  const reconnecting = useWebSocketReconnecting() || marketDataError || isEmpty;
 
   const isTimeframeActive = (tf: ChartTimeframe) =>
     mode.kind === "timeframe" && mode.value === tf;
@@ -180,6 +177,7 @@ export default function Chart({ address, token }: Props) {
                 size="slim"
                 indicator={false}
                 active={active}
+                className={styles.unitButton}
                 aria-pressed={active}
                 onClick={() => setUnit(u.value)}
               >
@@ -189,17 +187,6 @@ export default function Chart({ address, token }: Props) {
           })}
         </div>
 
-        <div
-          className={cn(
-            styles.liveIndicator,
-            reconnecting && styles.liveIndicatorReconnecting,
-          )}
-        >
-          <div className={styles.liveDot} />
-          <span className={styles.liveText}>
-            {reconnecting ? "connecting" : "live"}
-          </span>
-        </div>
       </div>
       <div className={styles.chartArea}>
         {loading && (
@@ -213,9 +200,6 @@ export default function Chart({ address, token }: Props) {
           </div>
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
-        <span className={styles.axisLabel} aria-hidden>
-          {unit === "mcap" ? "Market cap" : "Price"}
-        </span>
         <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
           <RollingNumber

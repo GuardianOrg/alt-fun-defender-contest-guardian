@@ -37,7 +37,7 @@ export default function HeroSection({ token }: Props) {
     : token.ltName;
 
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.heroSectionWrapper}>
       {/* Left: image + ticker / name / by-dev */}
       <div className={styles.rightGroup}>
         <button

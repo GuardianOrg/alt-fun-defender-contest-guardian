@@ -52,7 +52,7 @@ export default function AdminPanel({ token }: Props) {
   };
 
   return (
-    <div className={styles.wrapper} data-testid="admin-panel">
+    <div className={styles.adminPanelWrapper} data-testid="admin-panel">
       <div className={styles.label}>
         <span className={styles.tag}>admin</span>
         <span className={styles.hint}>

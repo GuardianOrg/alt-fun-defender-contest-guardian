@@ -1,0 +1,38 @@
+.table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.headerRow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--txt-2);
+  background: var(--bg-1);
+}
+
+.headerCell {
+  text-align: left;
+  font-weight: 400;
+  padding: 0.8rem 1.2rem;
+  white-space: nowrap;
+}
+
+.headerCellSmall {
+  padding: 0.4rem 0.6rem;
+}
+
+.headerCellWide {
+  padding: 0.4rem 1.2rem;
+}
+
+.headerCellFirst {
+  padding-left: 1.2rem;
+}

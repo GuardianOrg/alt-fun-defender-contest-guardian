@@ -68,7 +68,10 @@ export default function TokenDetailView() {
 
   // Keep Chart mounted while metadata resolves so its fetch runs in parallel.
   return (
-    <div className={styles.wrapper} aria-busy={token ? undefined : true}>
+    <div
+      className={styles.tokenDetailViewWrapper}
+      aria-busy={token ? undefined : true}
+    >
       <div className={styles.leftPanel}>
         {/* Hidden tokens are visible here only to holders, so frame this as a sell-out notice. */}
         {token?.isHidden && (
@@ -107,82 +110,88 @@ export default function TokenDetailView() {
           <Chart address={address} token={token ?? null} />
         </ErrorBoundary>
 
-        {token && !isUsingCachedFallback && (
-          <div className={styles.curveStrip}>
-            <span className={styles.curveLabel}>curve</span>
-            {/* Hide raised USD after graduation; the curve reserve no longer exists. */}
-            {!isGraduated && (
-              <span className={styles.curveRaised}>
-                {formatUsdOrDash(token.curveRaisedUsd)}
-              </span>
-            )}
-            <div className={styles.progressWrapper}>
-              <ProgressBar
-                buyPercent={buyW}
-                leveragePercent={levW}
-                isShort={token.direction === "short"}
-                isGraduating={token.status === "graduating"}
-                isGraduated={isGraduated}
-                size="sm"
-              />
-            </div>
-            {isGraduated ? (
-              <span className={styles.graduatedBadge}>graduated</span>
-            ) : (
-              <>
-                <span className={styles.curveThreshold}>
-                  {formatUsd(DEFAULT_GRADUATION_THRESHOLD_USD)}
-                </span>
-                {token.status === "graduating" && (
-                  <span className={styles.graduatingBadge}>graduating</span>
+        <div className={styles.metadataStack}>
+          {token && !isUsingCachedFallback && (
+            <div className={styles.curveStrip}>
+              <span className={styles.curveLabel}>Curve</span>
+              <div className={styles.curveBody}>
+                {/* Hide raised USD after graduation; the curve reserve no longer exists. */}
+                {!isGraduated && (
+                  <span className={styles.curveRaised}>
+                    {formatUsdOrDash(token.curveRaisedUsd)}
+                  </span>
                 )}
-              </>
-            )}
-          </div>
-        )}
-        {token && isUsingCachedFallback && (
-          <div className={styles.curveStrip}>
-            <span className={styles.curveLabel}>curve</span>
-            {isGraduated ? (
-              <>
                 <div className={styles.progressWrapper}>
                   <ProgressBar
-                    buyPercent={100}
-                    leveragePercent={0}
+                    buyPercent={buyW}
+                    leveragePercent={levW}
                     isShort={token.direction === "short"}
-                    isGraduated
+                    isGraduating={token.status === "graduating"}
+                    isGraduated={isGraduated}
                     size="sm"
                   />
                 </div>
-                <span className={styles.graduatedBadge}>graduated</span>
-              </>
-            ) : (
-              <>
-                <Skeleton width="4.5rem" height="1rem" />
-                <div className={styles.progressWrapper}>
-                  <Skeleton shape="block" width="100%" height="0.5rem" />
-                </div>
-                <Skeleton width="4rem" height="1rem" />
-              </>
-            )}
-          </div>
-        )}
+                {isGraduated ? (
+                  <span className={styles.graduatedBadge}>graduated</span>
+                ) : (
+                  <>
+                    <span className={styles.curveThreshold}>
+                      {formatUsd(DEFAULT_GRADUATION_THRESHOLD_USD)}
+                    </span>
+                    {token.status === "graduating" && (
+                      <span className={styles.graduatingBadge}>graduating</span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {token && isUsingCachedFallback && (
+            <div className={styles.curveStrip}>
+              <span className={styles.curveLabel}>Curve</span>
+              <div className={styles.curveBody}>
+                {isGraduated ? (
+                  <>
+                    <div className={styles.progressWrapper}>
+                      <ProgressBar
+                        buyPercent={100}
+                        leveragePercent={0}
+                        isShort={token.direction === "short"}
+                        isGraduated
+                        size="sm"
+                      />
+                    </div>
+                    <span className={styles.graduatedBadge}>graduated</span>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton width="4.5rem" height="1rem" />
+                    <div className={styles.progressWrapper}>
+                      <Skeleton shape="block" width="100%" height="0.5rem" />
+                    </div>
+                    <Skeleton width="4rem" height="1rem" />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
-        {token?.description && (
-          <section className={styles.descriptionSection}>
-            <span className={styles.descriptionLabel}>Description</span>
-            <p className={styles.description}>{token.description}</p>
-          </section>
-        )}
+          {token?.description && (
+            <section className={styles.descriptionSection}>
+              <span className={styles.descriptionLabel}>Description</span>
+              <p className={styles.description}>{token.description}</p>
+            </section>
+          )}
 
-        {token ? (
-          <TokenInfoStrip
-            token={token}
-            liveDataPending={isUsingCachedFallback}
-          />
-        ) : (
-          <TokenInfoStripSkeleton />
-        )}
+          {token ? (
+            <TokenInfoStrip
+              token={token}
+              liveDataPending={isUsingCachedFallback}
+            />
+          ) : (
+            <TokenInfoStripSkeleton />
+          )}
+        </div>
 
         {token && (
           <ErrorBoundary
