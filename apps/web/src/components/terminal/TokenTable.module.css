@@ -92,7 +92,7 @@
   padding: 0.8rem;
 }
 
-.gridInner > [role="status"] {
+.gridInner > [role="status"]:not(.emptyState) {
   display: grid;
   grid-template-columns: repeat(
     auto-fit,
@@ -137,13 +137,10 @@
 }
 
 .headCell {
-  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--txt-2);
   display: flex;
   align-items: center;
-  font-family: var(--font-mono);
   white-space: nowrap;
   flex-shrink: 0;
 }

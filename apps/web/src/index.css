@@ -274,6 +274,12 @@ p {
     0 0 4px rgba(77, 232, 180, 0.15);
 }
 
+.terminal-table-head {
+  font-family: var(--font-display);
+  font-size: 11px;
+  color: var(--txt-2);
+}
+
 .leverage-fire {
   background-image: linear-gradient(
     90deg,

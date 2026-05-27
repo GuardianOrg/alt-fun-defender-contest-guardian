@@ -107,7 +107,7 @@
 
 .tradeTime {
   font-size: 11px;
-  color: var(--txt-4);
+  color: var(--txt-3);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -126,7 +126,7 @@
 }
 
 .tradeWallet {
-  color: var(--txt-4);
+  color: var(--txt-3);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -145,7 +145,7 @@
   width: 1.4rem;
   height: 1.4rem;
   flex-shrink: 0;
-  color: var(--txt-4);
+  color: var(--txt-3);
 }
 
 .tradeAmount {

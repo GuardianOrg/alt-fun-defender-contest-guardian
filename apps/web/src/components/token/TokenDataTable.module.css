@@ -11,10 +11,8 @@
 }
 
 .headerRow {
-  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--txt-2);
   background: var(--bg-1);
 }
 

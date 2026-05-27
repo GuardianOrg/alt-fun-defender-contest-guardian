@@ -278,8 +278,7 @@
 .gearWrap {
   position: relative;
   flex-shrink: 0;
-  padding: 0 0.6rem;
-  height: 2.4rem;
+  height: 2rem;
   display: flex;
   align-items: center;
 }
@@ -296,8 +295,14 @@
   gap: 0.8rem;
 }
 
+.amountHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
 .denomToggle {
-  align-self: flex-start;
   background: transparent;
   border: 0;
   font-family: var(--font-display);
