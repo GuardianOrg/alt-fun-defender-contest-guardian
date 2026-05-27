@@ -71,7 +71,10 @@ export default function TokenDetailView() {
 
   // Keep Chart mounted while metadata resolves so its fetch runs in parallel.
   return (
-    <div className={styles.wrapper} aria-busy={token ? undefined : true}>
+    <div
+      className={styles.tokenDetailViewWrapper}
+      aria-busy={token ? undefined : true}
+    >
       <div className={styles.leftPanel}>
         {/* Hidden tokens are visible here only to holders, so frame this as a sell-out notice. */}
         {token?.isHidden && (
