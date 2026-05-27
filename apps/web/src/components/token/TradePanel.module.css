@@ -288,7 +288,7 @@
  * overrides needed at this callsite. */
 
 .formBody {
-  padding: 1.2rem 0.8rem;
+  padding: 1.2rem 1.2rem;
   flex: 1;
   overflow-y: auto;
   display: flex;
