@@ -1,10 +1,12 @@
 import { getAssetDisplayName } from "@launchpad/shared";
+import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import TerminalSection from "./TerminalSection";
 import { CREATE_PATH } from "../../app/routes";
 import { useAssets } from "../../hooks/useAssets";
+import { setTokenUnderlyingFilter } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 import Button from "../shared/Button";
@@ -13,6 +15,7 @@ const MARKET_SKELETON_COUNT = 18;
 
 export default function Sidebar() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { data: assets } = useAssets();
 
   return (
@@ -47,9 +50,12 @@ export default function Sidebar() {
             ))
           : assets.map((a) => {
               return (
-                <div
+                <button
+                  type="button"
                   key={a.name}
                   className={styles.assetRow}
+                  onClick={() => dispatch(setTokenUnderlyingFilter(a.name))}
+                  aria-label={`Filter tokens by ${getAssetDisplayName(a.name)}`}
                 >
                   <AssetIcon
                     asset={a.name}
@@ -73,7 +79,7 @@ export default function Sidebar() {
                     </div>
                   </div>
                   <div className={styles.assetPrice}>{a.priceUsd}</div>
-                </div>
+                </button>
               );
             })}
       </TerminalSection>

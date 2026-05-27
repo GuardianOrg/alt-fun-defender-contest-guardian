@@ -34,7 +34,7 @@ const EMPTY_STATE_MESSAGES: Record<TokenFilter, string> = {
 
 function TableHead() {
   return (
-    <div className={styles.tableHead}>
+    <div className={cn(styles.tableHead, "terminal-table-head")}>
       {["ALTCOIN", "UNDERLYING", "24H CHANGE", "PROGRESS", "MCAP"].map((h) => (
         <div key={h} className={styles.headCell}>
           {h}

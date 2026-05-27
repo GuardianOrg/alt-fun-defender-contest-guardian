@@ -345,11 +345,11 @@
 .cardRow .mcapCell::before {
   content: "";
   width: 100%;
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-family: var(--font-display);
+  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--txt-3);
+  color: var(--txt-2);
 }
 
 .cardRow .underlyingCell::before {

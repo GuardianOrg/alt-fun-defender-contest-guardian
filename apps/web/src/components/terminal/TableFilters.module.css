@@ -1,11 +1,33 @@
 .rail {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.4rem;
   margin-left: 0;
-  padding: 0.8rem;
+  padding: 0.8rem 0rem;
   flex-shrink: 0;
   min-width: 0;
+}
+
+.rail::before,
+.rail::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0.8rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rail::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+}
+
+.rail::after {
+  right: 0;
+  background: linear-gradient(to right, rgba(9, 14, 11, 0), var(--bg-1) 85%);
 }
 
 .filterGroup {
@@ -15,7 +37,9 @@
   min-width: 0;
   flex: 1 1 auto;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  padding: 0 0.8rem;
 }
 
 .filterGroup::-webkit-scrollbar {
@@ -35,6 +59,7 @@
 
 .viewToggle > button {
   height: 100%;
+  font-family: var(--font-display);
 }
 
 .triggerWrap {
@@ -86,6 +111,7 @@
 }
 
 .triggerLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -271,7 +297,7 @@
   outline-offset: 2px;
 }
 
-@media (max-width: 1240px) {
+@media (max-width: 1400px) {
   .rail {
     align-items: center;
   }

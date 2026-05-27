@@ -24,7 +24,7 @@ export default function TokenDataTable({
 }: Props) {
   return (
     <table className={styles.table} aria-busy={ariaBusy || undefined}>
-      <thead className={styles.head}>
+      <thead className={cn(styles.head, "terminal-table-head")}>
         <tr className={styles.headerRow}>
           {columns.map((column, idx) => (
             <th

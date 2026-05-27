@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import styles from "./TradePanel.module.css";
 import {
   getSellPresetAmount,
@@ -22,6 +24,7 @@ interface Props {
   maxBalanceWei: bigint | null;
   sellQuote: SellQuote | null;
   token: Token;
+  headerAction?: ReactNode;
 }
 
 export default function TradePanelInput({
@@ -33,6 +36,7 @@ export default function TradePanelInput({
   maxBalanceWei,
   sellQuote,
   token,
+  headerAction,
 }: Props) {
   const ticker = token.ticker;
   const coinIcon = (
@@ -62,8 +66,11 @@ export default function TradePanelInput({
 
   return (
     <>
-      <div className={styles.denomToggle}>
-        {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+      <div className={styles.amountHeader}>
+        <div className={styles.denomToggle}>
+          {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+        </div>
+        {headerAction}
       </div>
 
       <div className={styles.amountWrap}>
