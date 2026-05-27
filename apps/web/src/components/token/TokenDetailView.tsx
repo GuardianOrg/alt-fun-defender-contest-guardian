@@ -19,6 +19,7 @@ import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { useTokenLiveFeed } from "../../hooks/useTokenLiveFeed";
 import { formatUsd, formatUsdOrDash } from "../../utils/format";
+import NotFound from "../layout/NotFound";
 import Button from "../shared/Button";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Modal from "../shared/Modal";
@@ -53,12 +54,8 @@ export default function TokenDetailView() {
     );
   }
 
-  if (!token && isFetched && !isError) {
-    return (
-      <div className={styles.wrapper}>
-        <div className={styles.loading}>Token not found</div>
-      </div>
-    );
+  if (!token && isFetched) {
+    return <NotFound title="Token not found" />;
   }
 
   // API pre-clamps organic/boost buckets; degraded or graduated states collapse to a simple fill.
