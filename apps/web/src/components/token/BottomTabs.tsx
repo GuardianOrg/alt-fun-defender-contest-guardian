@@ -33,10 +33,12 @@ export default function BottomTabs({ token }: Props) {
         {(["trades", "holders"] as Tab[]).map((tab) => (
           <SegmentedButton
             key={tab}
+            fluid
             tone="mint"
             active={activeTab === tab}
             onClick={() => setActiveTab(tab)}
             className={styles.tabBtn}
+            fullWidthIndicator
           >
             {tab}
           </SegmentedButton>

@@ -2,8 +2,8 @@
   flex: 1;
   display: flex;
   overflow: hidden;
-  margin: 1.6rem 1.2rem 1.2rem 1.2rem;
-  gap: 1.6rem;
+  margin: 1.2rem 1.2rem 1.2rem 1.2rem;
+  gap: 1.2rem;
 }
 
 .loading {
@@ -30,14 +30,22 @@
   display: none;
 }
 
+.metadataStack {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 0;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+}
+
 .curveStrip {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
-  gap: 0.8rem;
+  flex-direction: column;
+  gap: 0.4rem;
   padding: 0 1.2rem;
-  height: 2.25rem;
-  border-top: 1px solid var(--border);
   background: var(--bg-1);
 }
 
@@ -48,6 +56,13 @@
   text-transform: uppercase;
   color: var(--txt-3);
   flex-shrink: 0;
+}
+
+.curveBody {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
 }
 
 .curveRaised {
@@ -109,22 +124,21 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.8rem 1.2rem;
-  border-top: 1px solid var(--border);
+  padding: 0 1.2rem;
   background: var(--bg-1);
 }
 
 .descriptionLabel {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--txt-3);
   font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--txt-3);
 }
 
 .description {
   margin: 0;
-  color: var(--txt-2);
+  color: #fff;
   font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.5;
@@ -158,7 +172,6 @@
   gap: 0.4rem;
   padding: 0.8rem 1.2rem;
   background: var(--red-bg);
-  border-bottom: 1px solid var(--red);
   line-height: 1.5;
   flex-shrink: 0;
 }
@@ -204,7 +217,7 @@
   /* "Whole-screen" left panel: drop the page gutters so the chart /
    * hero / tabs run edge-to-edge. The wrapper still flows in the
    * document (the sticky CTA below is positioned independently). */
-  .wrapper {
+  .tokenDetailViewWrapper {
     flex-direction: column;
     overflow: auto;
     margin: 0;
@@ -215,6 +228,7 @@
     border-right: 0;
     border-bottom: 1px solid var(--border);
     border-left: 0;
+    border-top: 0;
     min-height: 320px;
     /* Reserve space at the bottom equal to the CTA height + its bottom
      * margin so the page can scroll past the last tab content without
@@ -224,18 +238,24 @@
   }
 
   .curveStrip {
+    padding: 0 0.8rem;
+  }
+
+  .curveBody {
     flex-wrap: wrap;
-    height: auto;
-    padding: 0.8rem;
     gap: 0.8rem;
+  }
+
+  .descriptionSection {
+    padding: 0 0.8rem;
   }
 
   .mobileTradeBar {
     display: block;
     position: fixed;
-    left: 1.2rem;
-    right: 1.2rem;
-    bottom: 3.6rem;
+    left: 0rem;
+    right: 0rem;
+    bottom: 33.6px;
     z-index: 100;
   }
 }

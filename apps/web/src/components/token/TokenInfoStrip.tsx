@@ -142,7 +142,9 @@ export default function TokenInfoStrip({
               target="_blank"
               rel="noopener noreferrer"
               aria-label={s.label}
-              className={styles.socialLink}
+              className={`${styles.socialLink} ${
+                s.key === "twitter" ? styles.socialLinkX : ""
+              }`}
             >
               {s.icon}
             </a>

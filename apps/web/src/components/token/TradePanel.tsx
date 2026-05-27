@@ -361,6 +361,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             fluid
             tone="mint"
             active={mode === "buy"}
+            fullWidthIndicator
             disabled={isMintPaused || isPolicyHidden}
             onClick={() => {
               setMode("buy");
@@ -381,6 +382,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             fluid
             tone="red"
             active={mode === "sell"}
+            fullWidthIndicator
             onClick={() => {
               setMode("sell");
               setAmount("");

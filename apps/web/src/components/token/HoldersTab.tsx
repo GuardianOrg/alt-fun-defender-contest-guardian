@@ -1,7 +1,9 @@
 import styles from "./BottomTabs.module.css";
+import TokenDataTable from "./TokenDataTable";
 import { cn } from "../../utils/format";
 import Skeleton from "../shared/Skeleton";
 
+import type { TokenDataTableColumn } from "./TokenDataTable";
 import type { Holder } from "../../services/types";
 
 const HOLDER_SKELETON_COUNT = 8;
@@ -36,23 +38,17 @@ export default function HoldersTab({
   const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
   const showSkeletons = isLoading && holders.length === 0;
   const ownerAddress = creatorAddress?.toLowerCase();
+  const columns: TokenDataTableColumn[] = [
+    { key: "rank", label: "#", variant: "small" },
+    { key: "wallet", label: "Wallet" },
+    { key: "tokens", label: "Tokens", variant: "small" },
+    { key: "percent", label: "% Supply", variant: "small" },
+    { key: "bar", label: "Bar" },
+  ];
 
   // Real table layout keeps wallet columns readable on narrow horizontal scroll.
   return (
-    <table
-      className={styles.holdersTable}
-      aria-busy={showSkeletons ? true : undefined}
-    >
-      <thead className={styles.holdersHead}>
-        <tr className={styles.holdersHeaderRow}>
-          <th className={styles.thLeftSmall}>#</th>
-          <th className={styles.thLeft}>Wallet</th>
-          <th className={styles.thLeftSmall}>Tokens</th>
-          <th className={styles.thLeftSmall}>% Supply</th>
-          <th className={styles.thLeft}>Bar</th>
-        </tr>
-      </thead>
-      <tbody>
+    <TokenDataTable columns={columns} ariaBusy={showSkeletons}>
         {showSkeletons
           ? Array.from({ length: HOLDER_SKELETON_COUNT }, (_, i) => (
               <tr
@@ -154,7 +150,6 @@ export default function HoldersTab({
                 </tr>
               );
             })}
-      </tbody>
-    </table>
+    </TokenDataTable>
   );
 }

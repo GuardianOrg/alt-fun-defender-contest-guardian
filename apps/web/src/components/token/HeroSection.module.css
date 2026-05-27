@@ -247,7 +247,13 @@
  * the second row; both rows keep their natural inline alignment (left
  * for identity, left for actions) for a tidy stacked layout. */
 @media (max-width: 1023px) {
-  .wrapper {
+  .heroSectionWrapper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
+  .adminPanelWrapper {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.8rem;

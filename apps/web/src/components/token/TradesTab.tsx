@@ -1,10 +1,12 @@
 import styles from "./BottomTabs.module.css";
+import TokenDataTable from "./TokenDataTable";
 import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
 import { cn, formatTimeAgo, shortenAddress } from "../../utils/format";
 import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
+import type { TokenDataTableColumn } from "./TokenDataTable";
 import type { Token, Trade } from "../../services/types";
 
 const getTradeId = (t: Trade) => t.id;
@@ -24,6 +26,14 @@ export default function TradesTab({ token }: { token: Token }) {
   const { trades, isLoading } = useTokenTrades(token.address);
   const ticker = token.ticker;
   const showSkeletons = isLoading && trades.length === 0;
+  const columns: TokenDataTableColumn[] = [
+    { key: "account", label: "Account" },
+    { key: "type", label: "Type", variant: "small" },
+    { key: "usdc", label: "USDC", variant: "small" },
+    { key: "tokens", label: ticker, variant: "small" },
+    { key: "time", label: "Time", variant: "small" },
+    { key: "txn", label: "Txn", variant: "wide" },
+  ];
   // Highlight newly arrived trade rows; covers both real WS events
   // and dev-injected mock trades whose `tokenAddress` matches. The
   // hook's timestamp gate filters out the historical REST batch
@@ -34,21 +44,7 @@ export default function TradesTab({ token }: { token: Token }) {
   });
 
   return (
-    <table
-      className={styles.tradesTable}
-      aria-busy={showSkeletons ? true : undefined}
-    >
-      <thead className={styles.tradesHead}>
-        <tr className={styles.tradesHeaderRow}>
-          <th className={styles.thLeft}>Account</th>
-          <th className={styles.thLeftSmall}>Type</th>
-          <th className={styles.thLeftSmall}>USDC</th>
-          <th className={styles.thLeftSmall}>{ticker}</th>
-          <th className={styles.thLeftSmall}>Time</th>
-          <th className={styles.thLeftWide}>Txn</th>
-        </tr>
-      </thead>
-      <tbody>
+    <TokenDataTable columns={columns} ariaBusy={showSkeletons}>
         {showSkeletons &&
           Array.from({ length: TRADE_SKELETON_COUNT }, (_, i) => (
             <tr key={`skeleton-${i}`} className={styles.tradeRow} aria-hidden="true">
@@ -135,7 +131,6 @@ export default function TradesTab({ token }: { token: Token }) {
             </tr>
           );
         })}
-      </tbody>
-    </table>
+    </TokenDataTable>
   );
 }

@@ -298,11 +298,13 @@
 
 .denomToggle {
   align-self: flex-start;
-  font-size: 11px;
-  color: var(--txt-3);
   background: transparent;
   border: 0;
   font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  color: var(--txt-3);
 }
 
 .amountWrap {
@@ -427,7 +429,7 @@
   font-family: var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--txt-3);
 }
 

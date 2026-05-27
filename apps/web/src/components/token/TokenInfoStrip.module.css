@@ -4,8 +4,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1.6rem;
-  padding: 0.8rem 1.6rem;
-  border-top: 1px solid var(--border);
+  padding: 0 1.2rem;
   background: var(--bg-1);
 }
 
@@ -23,11 +22,11 @@
 }
 
 .label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--txt-3);
   font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--txt-3);
 }
 
 .value {
@@ -62,6 +61,11 @@
   color: var(--mint);
 }
 
+.socialLinkX,
+.socialLinkX:hover {
+  color: #fff;
+}
+
 .holders {
   text-align: right;
 }
@@ -70,6 +74,6 @@
   .strip {
     flex-wrap: wrap;
     gap: 1rem;
-    padding: 0.6rem 0.8rem;
+    padding: 0 0.8rem;
   }
 }
