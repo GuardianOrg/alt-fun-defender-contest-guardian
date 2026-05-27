@@ -115,7 +115,7 @@
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--txt-4);
+  color: var(--txt-3);
 }
 
 .triggerActive .triggerLabel {
@@ -125,6 +125,12 @@
 .triggerValue {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--txt-2);
+}
+
+.trigger:hover .triggerValue,
+.triggerOpen .triggerValue {
+  color: var(--txt-1);
 }
 
 /* `position` + `top` / `left` / `right` are all set by inline `style`
