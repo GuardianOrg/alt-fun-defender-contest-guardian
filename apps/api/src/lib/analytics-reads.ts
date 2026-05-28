@@ -50,6 +50,20 @@ import type { Database } from "../db/client.js";
  * same PR after a perf review against the live read replica
  * (`apps/indexer/ponder.schema.ts → feeAccrual.timestampIdx`).
  *
+ * **Three perf follow-ups tracked as issues, not blocking:**
+ *
+ *   - #1171 — lowercase `public.tokens.address` at write time so the
+ *     `LOWER(t.address)` hash join in `fetchBreakdown` / `fetchTopTokens`
+ *     can use the equality index. ~1.5 ms today at 6.4K rows; becomes
+ *     dominant past ~50K.
+ *   - #1172 — `SET LOCAL work_mem = '64MB'` for the 30d bucket queries
+ *     to avoid disk-spill sorts (~200 ms cold vs ~80 ms in-memory).
+ *     Absorbed by the edge cache today; only matters if polling cadence
+ *     exceeds the cache TTL.
+ *   - #1173 — daily pre-aggregate tables mirroring `hourly_volume` for
+ *     the daily/weekly chart queries. Long-term shape; makes the
+ *     `work_mem` and `LOWER(...)` items moot.
+ *
  * Amounts are USDC 6dp throughout. Helpers return raw decimal strings
  * (never JS numbers) so callers can decide whether to format as USD
  * float (`usdcRawToUsd`) or pass through verbatim.
