@@ -809,3 +809,75 @@ describe("GET /analytics/top-tokens", () => {
     expect(body.data.limit).toBe(100);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Edge-cache headers — every endpoint sets `Cache-Control: public, s-maxage=…`.
+// Tuned per endpoint (overview 30s / chart 60s / breakdown 300s / forecast 300s
+// / top-tokens 60s) so a misbehaving dashboard client can't hammer Neon. Each
+// case mocks just enough for a 200 response and pins the header.
+// ---------------------------------------------------------------------------
+
+describe("Analytics routes set Cache-Control headers", () => {
+  beforeEach(() => {
+    clearAllMocks();
+    // Default mocks so each route reaches the success path with minimal setup.
+    mockFetchPlatformAggregates.mockResolvedValue({
+      lifetimeProtocolFeesUsdcRaw: "0",
+      lifetimeCreatorFeesUsdcRaw: "0",
+      totalValueLockedUsdcRaw: "0",
+      lifetimeGrossVolumeUsdcRaw: "0",
+      cumulativeNetInflowUsdcRaw: "0",
+      uniqueTradersAllTime: 0,
+      uniqueCreatorsAllTime: 0,
+    });
+    mockFetchWindowedVolume.mockResolvedValue({
+      grossVolumeUsdcRaw: "0",
+      netInflowUsdcRaw: "0",
+      tradeCount: 0,
+    });
+    mockFetchWindowedFees.mockResolvedValue({
+      protocolFeesUsdcRaw: "0",
+      creatorFeesUsdcRaw: "0",
+      feeEvents: 0,
+    });
+    mockFetchUniqueTraderCount.mockResolvedValue({
+      uniqueTraders: 0,
+      qualifiedTraders: 0,
+    });
+    mockFetchGraduationFunnelStats.mockResolvedValue({
+      totalLaunched: 0,
+      totalGraduated: 0,
+      totalPendingGraduation: 0,
+      graduationRatePct: 0,
+      medianTimeToGraduateSec: null,
+      meanTimeToGraduateSec: null,
+    });
+    mockFetchVolumeBuckets.mockResolvedValue([]);
+    mockFetchRevenueBuckets.mockResolvedValue([]);
+    mockFetchNetInflowBuckets.mockResolvedValue([]);
+    mockFetchNetInflowBaseline.mockResolvedValue("0");
+    mockFetchActiveUserBuckets.mockResolvedValue([]);
+    mockFetchBreakdown.mockResolvedValue([]);
+    mockFetchGraduationBuckets.mockResolvedValue([]);
+    mockFetchTopTokens.mockResolvedValue([]);
+  });
+
+  it.each([
+    ["/analytics/overview", 30],
+    ["/analytics/volume", 60],
+    ["/analytics/revenue", 60],
+    ["/analytics/value-locked", 60],
+    ["/analytics/active-users", 60],
+    ["/analytics/breakdown?by=leverage", 300],
+    ["/analytics/revenue-forecast", 300],
+    ["/analytics/graduations", 60],
+    ["/analytics/top-tokens", 60],
+  ])("%s sets s-maxage=%i", async (path, ttl) => {
+    const app = createApp();
+    const res = await app.request(path, {}, makeEnv());
+    expect(res.status).toBe(200);
+    const cc = res.headers.get("Cache-Control") ?? "";
+    expect(cc).toContain(`s-maxage=${ttl}`);
+    expect(cc).toContain(`stale-while-revalidate=${ttl * 2}`);
+  });
+});

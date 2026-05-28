@@ -41,9 +41,21 @@ const analytics = new Hono<{ Bindings: AppBindings }>();
  * token leaderboards) is the same business-state the protocol already
  * exposes implicitly via `/stats`, `/tokens`, `/creators/:address/earnings`
  * etc. — pulling it into one analytics surface for an internal dashboard
- * doesn't change the sensitivity. The endpoints serve the internal
- * dashboard, not public pages — no edge caching is set on the responses
- * so operators always see current data.
+ * doesn't change the sensitivity.
+ *
+ * Caching: every endpoint sets `Cache-Control: public, s-maxage=…,
+ * stale-while-revalidate=…` (see `setAnalyticsCacheHeader`) so the
+ * Cloudflare edge absorbs concurrent dashboard polls and Neon never
+ * sees more than ~1 request per region per cache window. TTLs are
+ * tuned per endpoint — chart series at 60s (numbers move per trade
+ * but daily/hourly buckets render the same for ~minutes), breakdowns
+ * + revenue-forecast at 5 minutes (slower-moving aggregates over the
+ * full token catalogue), `/overview` at 30s (most-polled). The
+ * trade-off is acceptable for an internal dashboard: 60s of staleness
+ * on a 7-day chart is imperceptible, and the cache cost saves the
+ * heavier CTE / EWMA queries from hammering Neon under a misbehaving
+ * polling client (issue raised by CodeRabbit on the move-out-of-admin
+ * commit — see PR #1168 discussion).
  *
  * Common query params:
  *   - `interval` — `hour` / `day` / `week`. Default `day`.
@@ -105,6 +117,46 @@ const MAX_DAU_THRESHOLD_USD = 1_000_000;
 
 const DEFAULT_TOP_TOKENS_LIMIT = 20;
 const MAX_TOP_TOKENS_LIMIT = 100;
+
+/**
+ * Per-endpoint edge-cache TTLs. Tuned for the dashboard polling shape:
+ *
+ *   - `/overview` is the landing page header — polled most aggressively.
+ *     Lower TTL keeps the 24h-rolling numbers fresh.
+ *   - Chart series (`/volume`, `/revenue`, `/value-locked`, `/active-users`,
+ *     `/graduations`) render the same bucket totals for ~minutes between
+ *     trades; 60s is invisible to a chart consumer.
+ *   - `/breakdown` aggregates the entire token catalogue grouped by an
+ *     off-chain facet — changes only on token-create / token-hide /
+ *     trade events that shift the group totals. 5 min is generous.
+ *   - `/revenue-forecast` is the most expensive query in the file (120
+ *     days of fee history + three EWMA passes). 5 min cuts the worst
+ *     case from ~12 reqs/min/dashboard to ~12 reqs/hr.
+ *   - `/top-tokens` reorders only when a token crosses another on the
+ *     selected metric — 60s is plenty.
+ *
+ * Every TTL pairs with a 2× `stale-while-revalidate` window so the
+ * Cloudflare edge serves stale-but-cached responses while it refreshes
+ * in the background. Same `Cache-Control` shape as `/stats` /
+ * `/creators/:address/earnings`.
+ */
+const CACHE_TTL_SEC = {
+  overview: 30,
+  chart: 60,
+  topTokens: 60,
+  breakdown: 300,
+  forecast: 300,
+} as const;
+
+function setAnalyticsCacheHeader(
+  c: { header: (k: string, v: string) => void },
+  ttlSec: number,
+): void {
+  c.header(
+    "Cache-Control",
+    `public, s-maxage=${ttlSec}, stale-while-revalidate=${ttlSec * 2}`,
+  );
+}
 
 /**
  * Resolve `interval` / `lookback` query params and bucket cutoff. The
@@ -221,6 +273,7 @@ analytics.get("/overview", async (c) => {
     ? "degraded"
     : "live";
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.overview);
   return c.json(
     formatSuccess(
       {
@@ -327,6 +380,7 @@ analytics.get("/volume", async (c) => {
     }),
     (t) => ({ t, volumeUsdcRaw: "0", volumeUsd: 0 }),
   );
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
     formatSuccess({
       interval: window.interval,
@@ -395,6 +449,7 @@ analytics.get("/revenue", async (c) => {
     }),
   );
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
     formatSuccess({
       interval: window.interval,
@@ -481,6 +536,7 @@ analytics.get("/value-locked", async (c) => {
     };
   });
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
     formatSuccess({
       interval: window.interval,
@@ -562,6 +618,7 @@ analytics.get("/active-users", async (c) => {
     }),
   );
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
     formatSuccess({
       interval: window.interval,
@@ -612,6 +669,7 @@ analytics.get("/breakdown", async (c) => {
     totalRaisedUsd: fmtUsd(r.totalRaisedUsdcRaw),
   }));
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.breakdown);
   return c.json(formatSuccess({ dimension: by, rows: decorated }));
 });
 
@@ -728,6 +786,7 @@ analytics.get("/revenue-forecast", async (c) => {
           stdDevUsd: 0,
         };
 
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.forecast);
   return c.json(
     formatSuccess({
       nowSec,
@@ -828,6 +887,7 @@ analytics.get("/graduations", async (c) => {
     (r) => ({ t: r.bucket, graduations: r.graduations }),
     (t) => ({ t, graduations: 0 }),
   );
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
     formatSuccess({
       interval: window.interval,
@@ -879,6 +939,7 @@ analytics.get("/top-tokens", async (c) => {
     creatorFeesUsd: fmtUsd(r.creatorFeesUsdcRaw),
     organicUsdcRaisedUsd: fmtUsd(r.organicUsdcRaisedUsdcRaw),
   }));
+  setAnalyticsCacheHeader(c, CACHE_TTL_SEC.topTokens);
   return c.json(formatSuccess({ sort, limit, rows: decorated }));
 });
 
