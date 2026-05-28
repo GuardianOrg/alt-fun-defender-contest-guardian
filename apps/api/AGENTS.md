@@ -47,6 +47,32 @@ All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidat
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
 
+## Admin analytics (`/api/v1/admin/analytics/*`)
+
+Operator-facing business-insight endpoints. All read off existing indexer-side tables (`router_trade`, `fee_accrual`, `hourly_volume`, `token`, `graduation`) plus the API-owned `public.tokens` — **no indexer schema changes** ship with these routes. Mounted in `src/routes/admin/analytics.ts` and gated by `adminAuth` (`X-Admin-Key` header) inherited from the parent `/admin` router. Helpers live in `src/lib/analytics-reads.ts`.
+
+| Endpoint | Purpose | Source tables |
+|---|---|---|
+| `GET /admin/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
+| `GET /admin/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
+| `GET /admin/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
+| `GET /admin/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
+| `GET /admin/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
+| `GET /admin/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
+| `GET /admin/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
+| `GET /admin/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
+| `GET /admin/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
+
+Common query params: `?interval={hour,day,week}` (default `day`) and `?lookback=<N>` (count of intervals, capped per route — 168h / 365d / 156w). Chart routes return a **dense** series (missing buckets zero-filled) so chart libraries don't have to handle gaps.
+
+USDC amounts ride out as both raw 6dp strings (`*UsdcRaw`) and USD floats (`*Usd`) — same dual shape `/creators/:address/earnings` already uses.
+
+**Why this layer doesn't add new indexer columns:** the dashboard is an operator-only surface, queried at most a few times a minute, and every aggregate falls out of an existing index (`router_trade_timestamp_index`, `fee_accrual_timestamp_index`, `token_hourly_metrics_hour_start_index`, …). Persisting per-day pre-aggregates would save query cost only marginally and would lock the schema before we know what views matter most — accept the small live-query cost while the surface is still evolving.
+
+**Forecast philosophy** (`revenue-forecast`): protocol fees are highly volatile (10× day-to-day, marketing-campaign spikes, quiet stretches). One window is never right — surface multiple horizons (1d/3d/7d/30d/90d flat means, plus EWMA with 7d/14d/30d half-lives) and let the operator pick. Each estimate carries `stdDevUsd` so the dashboard can render a confidence band. The full 120-day daily series is returned alongside the projections so the operator can sanity-check visually.
+
+**Integration testing.** `src/__tests__/analytics.integration.test.ts` hits the real Neon DB and verifies every SQL string parses + every route returns the documented shape. Gated on `process.env.DATABASE_URL`: skips quietly when the secret isn't set, runs against prod Neon when it is. Locally: `DATABASE_URL=$(grep '^DATABASE_URL=' apps/api/.dev.vars | cut -d= -f2-) npm test --workspace=@launchpad/api -- analytics.integration`. In CI: the `api-analytics-integration` job in `.github/workflows/ci.yml` wires `secrets.DATABASE_URL` through. The companion unit suite (`analytics.test.ts`) mocks the helpers so the standard `npm test` stays hermetic.
+
 ## Listing tabs (`GET /api/v1/tokens?status=…`)
 
 The `?status=` filter on `GET /api/v1/tokens` powers the home-page tabs. Three values are accepted; each takes a different code path inside `src/routes/tokens/list.ts`:
