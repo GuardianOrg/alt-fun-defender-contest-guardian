@@ -11,7 +11,7 @@ export default function TokenInfoStripSkeleton() {
     <div className={styles.strip} aria-hidden="true">
       <div className={styles.statsGroup}>
         <div className={styles.stat}>
-          <span className={`${styles.label} ui-subheading`}>Vol 24h</span>
+          <span className={`${styles.label} ui-subheading`}>Vol 24hr</span>
           <Skeleton width="4rem" height="13px" />
         </div>
 
