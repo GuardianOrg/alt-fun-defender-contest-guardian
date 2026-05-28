@@ -375,21 +375,24 @@ describeWithDb("analytics-reads helpers (live DB)", () => {
 
 // ---------------------------------------------------------------------------
 // End-to-end route tests (real DB through full Hono pipeline).
-// Mounts the analytics router under `/admin/analytics` directly so the
-// `adminAuth` middleware is bypassed — auth is covered in `admin-auth.test.ts`.
+// Mounts the analytics router under `/analytics` directly. No admin
+// auth involved — these endpoints sit on the public `/api/v1/*` path
+// behind `apiKeyAuth` in prod, and the test mounts the bare router
+// without that middleware (same pattern as every other route's
+// integration test).
 // ---------------------------------------------------------------------------
 
-describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
+describeWithDb("analytics routes (live DB, mounted directly)", () => {
   it("/overview returns a well-formed payload", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
 
     const res = await app.request(
-      "/admin/analytics/overview",
+      "/analytics/overview",
       {},
       makeEnv(),
     );
@@ -411,12 +414,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/volume returns a dense lookback series", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/volume?interval=day&lookback=7",
+      "/analytics/volume?interval=day&lookback=7",
       {},
       makeEnv(),
     );
@@ -435,12 +438,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/value-locked returns cumulative + snapshot", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/value-locked?interval=day&lookback=7",
+      "/analytics/value-locked?interval=day&lookback=7",
       {},
       makeEnv(),
     );
@@ -460,12 +463,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/revenue-forecast returns flat + EWMA windows", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/revenue-forecast",
+      "/analytics/revenue-forecast",
       {},
       makeEnv(),
     );
@@ -496,12 +499,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/active-users honours custom threshold", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/active-users?lookback=7&threshold=250",
+      "/analytics/active-users?lookback=7&threshold=250",
       {},
       makeEnv(),
     );
@@ -524,12 +527,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/breakdown?by=leverage joins both tables", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/breakdown?by=leverage",
+      "/analytics/breakdown?by=leverage",
       {},
       makeEnv(),
     );
@@ -549,12 +552,12 @@ describeWithDb("admin analytics routes (live DB, mounted directly)", () => {
   it("/top-tokens returns rows in descending sort order", async () => {
     if (!HAS_DB) return;
     const { default: analyticsRoute } = await import(
-      "../routes/admin/analytics.js"
+      "../routes/analytics.js"
     );
     const app = new Hono<{ Bindings: AppBindings }>();
-    app.route("/admin/analytics", analyticsRoute);
+    app.route("/analytics", analyticsRoute);
     const res = await app.request(
-      "/admin/analytics/top-tokens?sort=volume_lifetime&limit=5",
+      "/analytics/top-tokens?sort=volume_lifetime&limit=5",
       {},
       makeEnv(),
     );

@@ -47,21 +47,21 @@ All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidat
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
 
-## Admin analytics (`/api/v1/admin/analytics/*`)
+## Analytics (`/api/v1/analytics/*`)
 
-Operator-facing business-insight endpoints. All read off existing indexer-side tables (`router_trade`, `fee_accrual`, `hourly_volume`, `token`, `graduation`) plus the API-owned `public.tokens` — **no indexer schema changes** ship with these routes. Mounted in `src/routes/admin/analytics.ts` and gated by `adminAuth` (`X-Admin-Key` header) inherited from the parent `/admin` router. Helpers live in `src/lib/analytics-reads.ts`.
+Internal-dashboard business-insight endpoints. All read off existing indexer-side tables (`router_trade`, `fee_accrual`, `hourly_volume`, `token`, `graduation`) plus the API-owned `public.tokens` — **no indexer schema changes** ship with these routes. Mounted in `src/routes/analytics.ts` and protected by the standard `apiKeyAuth` middleware that gates the rest of `/api/v1/*` (no extra admin gate — the data here is the same business-state the protocol already exposes implicitly via `/stats`, `/tokens`, `/creators/:address/earnings` etc.). Helpers live in `src/lib/analytics-reads.ts`.
 
 | Endpoint | Purpose | Source tables |
 |---|---|---|
-| `GET /api/v1/admin/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
-| `GET /api/v1/admin/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
-| `GET /api/v1/admin/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
-| `GET /api/v1/admin/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
-| `GET /api/v1/admin/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
-| `GET /api/v1/admin/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
-| `GET /api/v1/admin/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
-| `GET /api/v1/admin/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
-| `GET /api/v1/admin/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
+| `GET /api/v1/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
+| `GET /api/v1/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
+| `GET /api/v1/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
+| `GET /api/v1/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
+| `GET /api/v1/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
+| `GET /api/v1/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
+| `GET /api/v1/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
+| `GET /api/v1/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
+| `GET /api/v1/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
 
 Common query params: `?interval={hour,day,week}` (default `day`) and `?lookback=<N>` (count of intervals, capped per route — 168h / 365d / 156w). Chart routes return a **dense** series (missing buckets zero-filled) so chart libraries don't have to handle gaps.
 

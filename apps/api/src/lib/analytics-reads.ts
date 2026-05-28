@@ -5,8 +5,8 @@ import { describeError } from "./log-error.js";
 import type { Database } from "../db/client.js";
 
 /**
- * Read helpers backing the admin analytics dashboards mounted at
- * `/api/v1/admin/analytics/*`. Mirrors the convention of `indexer-reads.ts`
+ * Read helpers backing the analytics dashboards mounted at
+ * `/api/v1/analytics/*`. Mirrors the convention of `indexer-reads.ts`
  * — every helper returns `null` on caught error so the route handler can
  * fan a single null check into a 503, never partially succeeds, and logs
  * a structured event so Cloudflare tail / Logpush can pivot on it.

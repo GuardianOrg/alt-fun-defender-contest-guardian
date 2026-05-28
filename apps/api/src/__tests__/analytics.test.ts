@@ -4,10 +4,10 @@ import { Hono } from "hono";
 import type { AppBindings } from "../lib/types.js";
 
 /**
- * Unit tests for the `/admin/analytics/*` routes. Every analytics helper is
+ * Unit tests for the `/analytics/*` routes. Every analytics helper is
  * stubbed via `vi.mock` so the suite stays hermetic — no Neon, no Drizzle,
  * no fixture DB. Companion integration tests in `analytics.integration.test.ts`
- * exercise the real SQL against prod Neon when `DATABASE_URL` is set.
+ * exercise the real SQL against a Neon branch when `DATABASE_URL` is set.
  */
 
 const mockFetchPlatformAggregates = vi.fn();
@@ -57,11 +57,11 @@ vi.mock("../db/client.js", () => ({
   createDb: () => ({}),
 }));
 
-const { default: analyticsRoute } = await import("../routes/admin/analytics.js");
+const { default: analyticsRoute } = await import("../routes/analytics.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
-  app.route("/admin/analytics", analyticsRoute);
+  app.route("/analytics", analyticsRoute);
   return app;
 }
 
@@ -83,10 +83,10 @@ function clearAllMocks() {
 }
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/overview
+// /analytics/overview
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/overview", () => {
+describe("GET /analytics/overview", () => {
   beforeEach(clearAllMocks);
 
   it("composes lifetime + windowed aggregates + graduation funnel", async () => {
@@ -123,7 +123,7 @@ describe("GET /admin/analytics/overview", () => {
     });
 
     const app = createApp();
-    const res = await app.request("/admin/analytics/overview", {}, makeEnv());
+    const res = await app.request("/analytics/overview", {}, makeEnv());
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       dataSource: string;
@@ -178,7 +178,7 @@ describe("GET /admin/analytics/overview", () => {
       meanTimeToGraduateSec: null,
     });
     const app = createApp();
-    const res = await app.request("/admin/analytics/overview", {}, makeEnv());
+    const res = await app.request("/analytics/overview", {}, makeEnv());
     expect(res.status).toBe(200);
     const body = (await res.json()) as { dataSource: string };
     expect(body.dataSource).toBe("degraded");
@@ -186,16 +186,16 @@ describe("GET /admin/analytics/overview", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/volume
+// /analytics/volume
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/volume", () => {
+describe("GET /analytics/volume", () => {
   beforeEach(clearAllMocks);
 
   it("rejects an unsupported interval", async () => {
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/volume?interval=second",
+      "/analytics/volume?interval=second",
       {},
       makeEnv(),
     );
@@ -220,7 +220,7 @@ describe("GET /admin/analytics/volume", () => {
 
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/volume?interval=day&lookback=3",
+      "/analytics/volume?interval=day&lookback=3",
       {},
       makeEnv(),
     );
@@ -264,7 +264,7 @@ describe("GET /admin/analytics/volume", () => {
     });
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/volume?interval=day&lookback=10000",
+      "/analytics/volume?interval=day&lookback=10000",
       {},
       makeEnv(),
     );
@@ -281,16 +281,16 @@ describe("GET /admin/analytics/volume", () => {
       tradeCount: 0,
     });
     const app = createApp();
-    const res = await app.request("/admin/analytics/volume", {}, makeEnv());
+    const res = await app.request("/analytics/volume", {}, makeEnv());
     expect(res.status).toBe(503);
   });
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/revenue
+// /analytics/revenue
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/revenue", () => {
+describe("GET /analytics/revenue", () => {
   beforeEach(clearAllMocks);
 
   it("emits protocol + creator fees per bucket and snapshot windows", async () => {
@@ -314,7 +314,7 @@ describe("GET /admin/analytics/revenue", () => {
 
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/revenue?interval=day&lookback=2",
+      "/analytics/revenue?interval=day&lookback=2",
       {},
       makeEnv(),
     );
@@ -346,10 +346,10 @@ describe("GET /admin/analytics/revenue", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/value-locked
+// /analytics/value-locked
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/value-locked", () => {
+describe("GET /analytics/value-locked", () => {
   beforeEach(clearAllMocks);
 
   it("composes baseline + running cumulative across the window", async () => {
@@ -382,7 +382,7 @@ describe("GET /admin/analytics/value-locked", () => {
 
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/value-locked?interval=day&lookback=2",
+      "/analytics/value-locked?interval=day&lookback=2",
       {},
       makeEnv(),
     );
@@ -413,7 +413,7 @@ describe("GET /admin/analytics/value-locked", () => {
     mockFetchPlatformAggregates.mockResolvedValue(null);
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/value-locked",
+      "/analytics/value-locked",
       {},
       makeEnv(),
     );
@@ -422,10 +422,10 @@ describe("GET /admin/analytics/value-locked", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/active-users
+// /analytics/active-users
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/active-users", () => {
+describe("GET /analytics/active-users", () => {
   beforeEach(clearAllMocks);
 
   it("threads `$500` default threshold into the helper as 6dp USDC", async () => {
@@ -435,7 +435,7 @@ describe("GET /admin/analytics/active-users", () => {
       qualifiedTraders: 0,
     });
     const app = createApp();
-    await app.request("/admin/analytics/active-users", {}, makeEnv());
+    await app.request("/analytics/active-users", {}, makeEnv());
     const call = mockFetchActiveUserBuckets.mock.calls[0] as [
       unknown,
       { thresholdUsdcRaw: string },
@@ -451,7 +451,7 @@ describe("GET /admin/analytics/active-users", () => {
     });
     const app = createApp();
     await app.request(
-      "/admin/analytics/active-users?threshold=100",
+      "/analytics/active-users?threshold=100",
       {},
       makeEnv(),
     );
@@ -481,7 +481,7 @@ describe("GET /admin/analytics/active-users", () => {
     });
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/active-users?interval=day&lookback=1",
+      "/analytics/active-users?interval=day&lookback=1",
       {},
       makeEnv(),
     );
@@ -506,16 +506,16 @@ describe("GET /admin/analytics/active-users", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/breakdown
+// /analytics/breakdown
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/breakdown", () => {
+describe("GET /analytics/breakdown", () => {
   beforeEach(clearAllMocks);
 
   it("rejects unknown `by` values", async () => {
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/breakdown?by=garbage",
+      "/analytics/breakdown?by=garbage",
       {},
       makeEnv(),
     );
@@ -536,7 +536,7 @@ describe("GET /admin/analytics/breakdown", () => {
     ]);
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/breakdown?by=leverage",
+      "/analytics/breakdown?by=leverage",
       {},
       makeEnv(),
     );
@@ -562,10 +562,10 @@ describe("GET /admin/analytics/breakdown", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/revenue-forecast
+// /analytics/revenue-forecast
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/revenue-forecast", () => {
+describe("GET /analytics/revenue-forecast", () => {
   beforeEach(clearAllMocks);
 
   it("computes flat windows + EWMAs over the daily protocol-fee series", async () => {
@@ -598,7 +598,7 @@ describe("GET /admin/analytics/revenue-forecast", () => {
 
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/revenue-forecast",
+      "/analytics/revenue-forecast",
       {},
       makeEnv(),
     );
@@ -663,7 +663,7 @@ describe("GET /admin/analytics/revenue-forecast", () => {
 
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/revenue-forecast",
+      "/analytics/revenue-forecast",
       {},
       makeEnv(),
     );
@@ -683,7 +683,7 @@ describe("GET /admin/analytics/revenue-forecast", () => {
     mockFetchRevenueBuckets.mockResolvedValue([]);
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/revenue-forecast",
+      "/analytics/revenue-forecast",
       {},
       makeEnv(),
     );
@@ -699,10 +699,10 @@ describe("GET /admin/analytics/revenue-forecast", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/graduations
+// /analytics/graduations
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/graduations", () => {
+describe("GET /analytics/graduations", () => {
   beforeEach(clearAllMocks);
 
   it("returns time series + funnel block", async () => {
@@ -722,7 +722,7 @@ describe("GET /admin/analytics/graduations", () => {
     });
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/graduations?lookback=2",
+      "/analytics/graduations?lookback=2",
       {},
       makeEnv(),
     );
@@ -740,16 +740,16 @@ describe("GET /admin/analytics/graduations", () => {
 });
 
 // ---------------------------------------------------------------------------
-// /admin/analytics/top-tokens
+// /analytics/top-tokens
 // ---------------------------------------------------------------------------
 
-describe("GET /admin/analytics/top-tokens", () => {
+describe("GET /analytics/top-tokens", () => {
   beforeEach(clearAllMocks);
 
   it("rejects an unknown sort key", async () => {
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/top-tokens?sort=invalid",
+      "/analytics/top-tokens?sort=invalid",
       {},
       makeEnv(),
     );
@@ -772,7 +772,7 @@ describe("GET /admin/analytics/top-tokens", () => {
     ]);
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/top-tokens?sort=volume_lifetime&limit=10",
+      "/analytics/top-tokens?sort=volume_lifetime&limit=10",
       {},
       makeEnv(),
     );
@@ -800,7 +800,7 @@ describe("GET /admin/analytics/top-tokens", () => {
     mockFetchTopTokens.mockResolvedValue([]);
     const app = createApp();
     const res = await app.request(
-      "/admin/analytics/top-tokens?limit=99999",
+      "/analytics/top-tokens?limit=99999",
       {},
       makeEnv(),
     );

@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 
-import { createDb } from "../../db/client.js";
-import formatError from "../../utils/format-error.js";
-import formatSuccess from "../../utils/format-success.js";
-import { usdcRawToUsd } from "../../lib/token-enrich.js";
+import { createDb } from "../db/client.js";
+import formatError from "../utils/format-error.js";
+import formatSuccess from "../utils/format-success.js";
+import { usdcRawToUsd } from "../lib/token-enrich.js";
 import {
   fetchActiveUserBuckets,
   fetchBreakdown,
@@ -19,28 +19,31 @@ import {
   fetchWindowedFees,
   fetchWindowedVolume,
   quantizeWindowCutoff,
-} from "../../lib/analytics-reads.js";
+} from "../lib/analytics-reads.js";
 
-import type { AppBindings } from "../../lib/types.js";
+import type { AppBindings } from "../lib/types.js";
 import type {
   BreakdownDimension,
   TopTokensSort,
-} from "../../lib/analytics-reads.js";
+} from "../lib/analytics-reads.js";
 
 const analytics = new Hono<{ Bindings: AppBindings }>();
 
 /**
- * Admin analytics endpoints (`/api/v1/admin/analytics/*`). Surface
- * business-insight aggregates from the existing indexer-side tables
- * (`router_trade`, `fee_accrual`, `hourly_volume`, `token`,
- * `graduation`) — no indexer schema changes were needed to land
- * these.
+ * Analytics endpoints (`/api/v1/analytics/*`). Surface business-insight
+ * aggregates from the existing indexer-side tables (`router_trade`,
+ * `fee_accrual`, `hourly_volume`, `token`, `graduation`) — no indexer
+ * schema changes were needed to land these.
  *
- * Auth: every route mounted here inherits the `adminAuth` middleware
- * from the parent `/admin` router (`X-Admin-Key` header). The
- * endpoints serve a small set of operator dashboards, not public
- * pages — no edge caching is set on the responses so admins always
- * see current data.
+ * Auth: lives under `/api/v1/*` so it inherits the standard `apiKeyAuth`
+ * middleware (same as every other public read route). Not gated behind
+ * `adminAuth`: the data here (volume, revenue, DAU, leverage breakdown,
+ * token leaderboards) is the same business-state the protocol already
+ * exposes implicitly via `/stats`, `/tokens`, `/creators/:address/earnings`
+ * etc. — pulling it into one analytics surface for an internal dashboard
+ * doesn't change the sensitivity. The endpoints serve the internal
+ * dashboard, not public pages — no edge caching is set on the responses
+ * so operators always see current data.
  *
  * Common query params:
  *   - `interval` — `hour` / `day` / `week`. Default `day`.
