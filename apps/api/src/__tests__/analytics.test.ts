@@ -613,7 +613,11 @@ describe("GET /admin/analytics/revenue-forecast", () => {
           string,
           { dailyAverageUsd: number; annualisedUsd: number; windowDays: number }
         >;
-        lifetimeAverage: { dailyAverageUsd: number; annualisedUsd: number };
+        lifetimeAverage: {
+          dailyAverageUsd: number;
+          annualisedUsd: number;
+          windowDays: number;
+        };
         series: Array<{ t: number; protocolFeesUsd: number }>;
       };
     };
@@ -626,7 +630,53 @@ describe("GET /admin/analytics/revenue-forecast", () => {
     expect(body.data.ewma.halfLife7d.dailyAverageUsd).toBeLessThan(100);
     // Series should have 120 entries (HISTORY_DAYS).
     expect(body.data.series).toHaveLength(120);
-    expect(body.data.lifetimeAverage.dailyAverageUsd).toBeGreaterThan(0);
+    // Lifetime average uses "days since first non-zero fee". The fixture
+    // populates only the most recent 90 days; the older 30 buckets in
+    // the series are zero-filled. So firstNonZeroIdx = 30, window = 90.
+    // Total = 89 × $10 + $100 = $990. Daily avg = 990/90 = $11.
+    expect(body.data.lifetimeAverage.windowDays).toBe(90);
+    expect(body.data.lifetimeAverage.dailyAverageUsd).toBeCloseTo(990 / 90, 4);
+  });
+
+  it("counts only days since the first non-zero fee in lifetimeAverage", async () => {
+    const nowSec = 1_800_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(nowSec * 1000);
+    const todayBucketStart = Math.floor(nowSec / 86_400) * 86_400;
+    // 30 days of activity at $10/day; the prior 90 days are silent
+    // (pre-launch). `dailyMap` is sparse — the series builder
+    // zero-fills the gaps. Expected window = 30 days, NOT 120.
+    const buckets: Array<{
+      bucket: number;
+      protocolFeesUsdcRaw: string;
+      creatorFeesUsdcRaw: string;
+      feeEvents: number;
+    }> = [];
+    for (let i = 29; i >= 0; i--) {
+      buckets.push({
+        bucket: todayBucketStart - i * 86_400,
+        protocolFeesUsdcRaw: String(10 * 1_000_000),
+        creatorFeesUsdcRaw: "0",
+        feeEvents: 1,
+      });
+    }
+    mockFetchRevenueBuckets.mockResolvedValue(buckets);
+
+    const app = createApp();
+    const res = await app.request(
+      "/admin/analytics/revenue-forecast",
+      {},
+      makeEnv(),
+    );
+    const body = (await res.json()) as {
+      data: {
+        lifetimeAverage: {
+          dailyAverageUsd: number;
+          windowDays: number;
+        };
+      };
+    };
+    expect(body.data.lifetimeAverage.windowDays).toBe(30);
+    expect(body.data.lifetimeAverage.dailyAverageUsd).toBeCloseTo(10, 4);
   });
 
   it("zeroes the lifetime average when there's no fee data", async () => {

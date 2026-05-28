@@ -26,33 +26,80 @@ import type { AppBindings } from "../lib/types.js";
  * isn't injected — that's both the local "I haven't sourced `.dev.vars`"
  * case and the CI "no `DATABASE_URL` configured on this repo" case.
  *
- * The assertions are deliberately *shape-only* (not value-equality).
- * We're verifying:
+ * **Use a Neon branch URL, not production.** Per `.cursor/rules/testing.mdc`
+ * ("Test database queries against a Neon branch, not production"), point
+ * `DATABASE_URL` at a Neon branch of the launchpad project. The suite only
+ * issues read-only `SELECT` queries against `ponder_views.*` and the
+ * API-owned `public.tokens`, so hitting prod is technically safe — but a
+ * branch removes the production read load and isolates the test from
+ * concurrent schema changes. Spin one up via the Neon MCP or the Neon
+ * console; branches are copy-on-write from production so the read shape
+ * matches without re-indexing.
+ *
+ * A soft warning is logged when `DATABASE_URL` matches a production-looking
+ * pattern; the suite still runs (don't break the existing local-dev path)
+ * but the warning surfaces in test output so the operator sees the
+ * recommendation. Detection is best-effort — pooler hostnames on Neon
+ * are the high-signal pattern (`*-pooler.*.neon.tech`) since branch
+ * connection strings carry distinct host slugs.
+ *
+ * The assertions are deliberately *shape-only* (not value-equality):
  *
  *   - Every SQL string we ship parses on the live Postgres planner.
  *   - The Drizzle `sql.raw` columns join cleanly against the
  *     `ponder_views.*` mirror.
  *   - Response envelopes match the union shape the dashboard expects.
  *
- * Values are not pinned because the live DB is prod state and changes
- * minute-to-minute. The integration check is "can I make this query
- * without exploding", not "is the indexer at row count N".
+ * Values are not pinned because the live DB changes minute-to-minute.
+ * The integration check is "can I make this query without exploding",
+ * not "is the indexer at row count N".
  *
  * To run locally:
  *
  *   ```bash
- *   # Loads DATABASE_URL from .dev.vars
- *   source <(grep '^DATABASE_URL=' apps/api/.dev.vars | sed 's/^/export /')
- *   npm test --workspace=@launchpad/api -- analytics.integration
+ *   DATABASE_URL="<neon-branch-connection-string>" \
+ *     npm test --workspace=@launchpad/api -- analytics.integration
  *   ```
  *
- * To run in CI, add `DATABASE_URL` as a GitHub Actions secret and wire
- * the integration job in `.github/workflows/ci.yml` (see the optional
- * `api-analytics-integration` job).
+ * To run in CI, add `DATABASE_URL` as a GitHub Actions secret (point it
+ * at a long-lived Neon branch) and the `api-analytics-integration` job in
+ * `.github/workflows/ci.yml` picks it up.
  */
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "";
 const HAS_DB = DATABASE_URL.length > 0;
+
+/**
+ * Production-endpoint heuristic. Neon production pooler hostnames follow
+ * the `<endpoint-slug>-pooler.<region>.aws.neon.tech` shape; branch
+ * connection strings carry a distinct endpoint slug (e.g. `ep-branch-…`).
+ * We can't reliably tell prod from branch on the *direct* connection
+ * because both share the bare `*.aws.neon.tech` suffix — but the
+ * project's prod string lives behind the pooler, so flagging that is
+ * high-signal in practice. False negatives are acceptable (worst case:
+ * a missed recommendation); false positives are not (we'd nag every
+ * legit branch URL).
+ */
+function looksLikeProductionNeonUrl(url: string): boolean {
+  if (url.length === 0) return false;
+  // Match the prod-pooler host pattern in `.dev.vars` against any branch.
+  // A genuine Neon branch URL gets a different `<endpoint-slug>` even
+  // when going through a pooler, so the well-known prod slug
+  // `ep-super-feather-am3pnzsa-pooler` is the smoking gun. Generic
+  // "uses a pooler" isn't conclusive (branches can use poolers too)
+  // so we keep this conservative — operators can rename their branch
+  // slug to avoid the warning.
+  return /ep-super-feather-am3pnzsa-pooler/.test(url);
+}
+
+if (HAS_DB && looksLikeProductionNeonUrl(DATABASE_URL)) {
+  console.warn(
+    "[analytics.integration] DATABASE_URL looks like the production Neon endpoint. " +
+      "Per .cursor/rules/testing.mdc, please point it at a Neon branch for integration tests. " +
+      "The suite is read-only so this isn't blocking, but a branch isolates the test from " +
+      "production read load and concurrent schema changes.",
+  );
+}
 
 function makeEnv(): AppBindings {
   return {

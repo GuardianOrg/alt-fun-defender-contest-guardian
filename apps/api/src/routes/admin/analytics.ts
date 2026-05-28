@@ -694,17 +694,28 @@ analytics.get("/revenue-forecast", async (c) => {
   // recorded fee × 365. Lower-bound on what the protocol has ever
   // earned per day on average. Useful for spotting "this last-day
   // estimate is 50x the lifetime average — marketing campaign?"
+  //
+  // Denominator is `days since the first non-zero day INSIDE the
+  // 120-day window`, not `count of non-zero days` — a quiet weekend
+  // after the protocol started earning is legitimately a $0 day and
+  // belongs in the denominator, otherwise the per-day mean is
+  // upward-biased. The whole series is bounded at 120 days so this
+  // is conservative for protocols older than that (it under-counts
+  // historical activity); that's fine because the metric is the
+  // "current run-rate average", not an all-time figure.
   const liveDailyTotalUsd = series.reduce(
     (sum, day) => sum + day.protocolFeesUsd,
     0,
   );
-  const nonZeroDays = series.filter((d) => d.protocolFeesUsd > 0).length;
+  const firstNonZeroIdx = series.findIndex((d) => d.protocolFeesUsd > 0);
+  const daysSinceFirstFee =
+    firstNonZeroIdx === -1 ? 0 : series.length - firstNonZeroIdx;
   const lifetimeAverage =
-    nonZeroDays > 0
+    daysSinceFirstFee > 0
       ? {
-          dailyAverageUsd: liveDailyTotalUsd / nonZeroDays,
-          annualisedUsd: (liveDailyTotalUsd / nonZeroDays) * 365,
-          windowDays: nonZeroDays,
+          dailyAverageUsd: liveDailyTotalUsd / daysSinceFirstFee,
+          annualisedUsd: (liveDailyTotalUsd / daysSinceFirstFee) * 365,
+          windowDays: daysSinceFirstFee,
           stdDevUsd: standardDeviation(series.map((d) => d.protocolFeesUsd)),
         }
       : {

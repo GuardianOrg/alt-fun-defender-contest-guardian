@@ -53,15 +53,15 @@ Operator-facing business-insight endpoints. All read off existing indexer-side t
 
 | Endpoint | Purpose | Source tables |
 |---|---|---|
-| `GET /admin/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
-| `GET /admin/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
-| `GET /admin/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
-| `GET /admin/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
-| `GET /admin/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
-| `GET /admin/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
-| `GET /admin/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
-| `GET /admin/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
-| `GET /admin/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
+| `GET /api/v1/admin/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
+| `GET /api/v1/admin/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
+| `GET /api/v1/admin/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
+| `GET /api/v1/admin/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
+| `GET /api/v1/admin/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
+| `GET /api/v1/admin/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
+| `GET /api/v1/admin/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
+| `GET /api/v1/admin/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
+| `GET /api/v1/admin/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
 
 Common query params: `?interval={hour,day,week}` (default `day`) and `?lookback=<N>` (count of intervals, capped per route — 168h / 365d / 156w). Chart routes return a **dense** series (missing buckets zero-filled) so chart libraries don't have to handle gaps.
 
@@ -71,7 +71,14 @@ USDC amounts ride out as both raw 6dp strings (`*UsdcRaw`) and USD floats (`*Usd
 
 **Forecast philosophy** (`revenue-forecast`): protocol fees are highly volatile (10× day-to-day, marketing-campaign spikes, quiet stretches). One window is never right — surface multiple horizons (1d/3d/7d/30d/90d flat means, plus EWMA with 7d/14d/30d half-lives) and let the operator pick. Each estimate carries `stdDevUsd` so the dashboard can render a confidence band. The full 120-day daily series is returned alongside the projections so the operator can sanity-check visually.
 
-**Integration testing.** `src/__tests__/analytics.integration.test.ts` hits the real Neon DB and verifies every SQL string parses + every route returns the documented shape. Gated on `process.env.DATABASE_URL`: skips quietly when the secret isn't set, runs against prod Neon when it is. Locally: `DATABASE_URL=$(grep '^DATABASE_URL=' apps/api/.dev.vars | cut -d= -f2-) npm test --workspace=@launchpad/api -- analytics.integration`. In CI: the `api-analytics-integration` job in `.github/workflows/ci.yml` wires `secrets.DATABASE_URL` through. The companion unit suite (`analytics.test.ts`) mocks the helpers so the standard `npm test` stays hermetic.
+**Integration testing.** `src/__tests__/analytics.integration.test.ts` hits a real Neon database and verifies every SQL string parses + every route returns the documented shape. Gated on `process.env.DATABASE_URL`: skips quietly when the secret isn't set.
+
+Per `.cursor/rules/testing.mdc` ("Test database queries against a Neon branch, not production"), point `DATABASE_URL` at a **Neon branch** of the launchpad project, not the production endpoint. The suite is read-only (only `SELECT` queries), so hitting prod is technically safe — but a branch removes the production load and isolates the test from any concurrent schema change. Spin one up via the Neon MCP (`prepare_database_migration` flow) or the Neon console; branches are copy-on-write from `production` so the read shape matches without re-indexing.
+
+- **Locally**: `DATABASE_URL="<branch-connection-string>" npm test --workspace=@launchpad/api -- analytics.integration`. The integration test logs a soft warning when the URL looks like a `*-pooler.*.neon.tech` production endpoint — fix by switching to a branch URL.
+- **CI**: the `api-analytics-integration` job in `.github/workflows/ci.yml` wires `secrets.DATABASE_URL` through (scoped to the test step only, not the whole job). Configure that secret as the **branch** connection string.
+
+The companion unit suite (`analytics.test.ts`) mocks the helpers so the standard `npm test` stays hermetic and the Neon-branch convention only applies to the explicit integration step.
 
 ## Listing tabs (`GET /api/v1/tokens?status=…`)
 

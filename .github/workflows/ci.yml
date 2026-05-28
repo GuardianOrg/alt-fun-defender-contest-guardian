@@ -228,9 +228,6 @@ jobs:
   api-analytics-integration:
     name: API Analytics Integration
     runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v6
 
@@ -261,9 +258,15 @@ jobs:
         # Vitest auto-skips the gated `describe` blocks when DATABASE_URL
         # is unset, so this step is a clean pass on forks / repos
         # without the secret configured. When the secret is present
-        # the suite hits prod Neon and verifies every analytics
-        # SQL string parses + returns the documented shape.
+        # the suite runs read-only `SELECT` queries against the URL —
+        # prefer a Neon branch URL per `.cursor/rules/testing.mdc`
+        # ("Test database queries against a Neon branch, not
+        # production"). DB secrets are scoped to this single step so
+        # the checkout / cache / install steps above never see them.
         working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
         run: npx vitest run src/__tests__/analytics.integration.test.ts
         timeout-minutes: 5
 
