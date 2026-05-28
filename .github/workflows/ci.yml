@@ -218,7 +218,7 @@ jobs:
           FOUNDRY_PROFILE: ci
         run: forge test ${{ matrix.args }}
 
-  # Live-DB integration tests for the `/admin/analytics/*` endpoints.
+  # Live-DB integration tests for the `/api/v1/analytics/*` endpoints.
   # Gated on the `DATABASE_URL` secret being configured — the suite uses
   # `describe.skipIf(!process.env.DATABASE_URL)` so a missing secret is a
   # quiet "all-skipped" pass rather than a red CI. Configure the secret

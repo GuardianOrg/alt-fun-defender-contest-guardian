@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
@@ -81,6 +81,16 @@ function makeEnv(): AppBindings {
 function clearAllMocks() {
   vi.clearAllMocks();
 }
+
+// Restore every spy after each test. Several cases install `vi.spyOn(Date, "now")`
+// to make bucket math deterministic; `vi.clearAllMocks()` resets call history but
+// leaves the spy implementation in place, so without this hook the next test
+// inherits a frozen `Date.now()` and any time-sensitive logic (e.g. cache window
+// quantisation in `/overview`) silently sees a stale clock. CodeRabbit feedback
+// on PR #1168.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // /analytics/overview
@@ -879,5 +889,218 @@ describe("Analytics routes set Cache-Control headers", () => {
     const cc = res.headers.get("Cache-Control") ?? "";
     expect(cc).toContain(`s-maxage=${ttl}`);
     expect(cc).toContain(`stale-while-revalidate=${ttl * 2}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Failure paths — `.cursor/rules/testing.mdc` requires "Cover all error paths
+// and edge cases". Each test drives a specific dependency-failure path and
+// pins the expected response code or degraded flag. CodeRabbit feedback on
+// PR #1168.
+//
+// Two distinct contracts under test:
+//   1. **Primary helper failure → 503**: when the helper that provides the
+//      route's main payload (buckets, rows) returns `null`, the route emits
+//      503 with no body data. There's nothing meaningful to render and
+//      collapsing to a "0-row" 200 would hide the outage.
+//   2. **Secondary helper failure → `dataSource: "degraded"`**: when a
+//      *snapshot window* / aggregate / funnel helper returns `null` but the
+//      primary already rendered, the route returns 200 with the partial set
+//      and flags the response so the dashboard can show a "stale" hint.
+// ---------------------------------------------------------------------------
+
+describe("Analytics failure paths", () => {
+  beforeEach(() => {
+    clearAllMocks();
+    // Default success values for all helpers; individual tests override
+    // the specific helper they're driving to failure.
+    mockFetchPlatformAggregates.mockResolvedValue({
+      lifetimeProtocolFeesUsdcRaw: "0",
+      lifetimeCreatorFeesUsdcRaw: "0",
+      totalValueLockedUsdcRaw: "0",
+      lifetimeGrossVolumeUsdcRaw: "0",
+      cumulativeNetInflowUsdcRaw: "0",
+      uniqueTradersAllTime: 0,
+      uniqueCreatorsAllTime: 0,
+    });
+    mockFetchWindowedVolume.mockResolvedValue({
+      grossVolumeUsdcRaw: "0",
+      netInflowUsdcRaw: "0",
+      tradeCount: 0,
+    });
+    mockFetchWindowedFees.mockResolvedValue({
+      protocolFeesUsdcRaw: "0",
+      creatorFeesUsdcRaw: "0",
+      feeEvents: 0,
+    });
+    mockFetchUniqueTraderCount.mockResolvedValue({
+      uniqueTraders: 0,
+      qualifiedTraders: 0,
+    });
+    mockFetchGraduationFunnelStats.mockResolvedValue({
+      totalLaunched: 0,
+      totalGraduated: 0,
+      totalPendingGraduation: 0,
+      graduationRatePct: 0,
+      medianTimeToGraduateSec: null,
+      meanTimeToGraduateSec: null,
+    });
+    mockFetchVolumeBuckets.mockResolvedValue([]);
+    mockFetchRevenueBuckets.mockResolvedValue([]);
+    mockFetchNetInflowBuckets.mockResolvedValue([]);
+    mockFetchNetInflowBaseline.mockResolvedValue("0");
+    mockFetchActiveUserBuckets.mockResolvedValue([]);
+    mockFetchBreakdown.mockResolvedValue([]);
+    mockFetchGraduationBuckets.mockResolvedValue([]);
+    mockFetchTopTokens.mockResolvedValue([]);
+  });
+
+  // ── /revenue ────────────────────────────────────────────────────────────
+  it("/revenue 503s when the bucket query fails", async () => {
+    mockFetchRevenueBuckets.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/revenue", {}, makeEnv());
+    expect(res.status).toBe(503);
+  });
+
+  it("/revenue 400s on invalid interval", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/analytics/revenue?interval=fortnight",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("/revenue degrades when a window query fails", async () => {
+    // 24h fees null but buckets succeed → 200 with `dataSource: degraded`.
+    mockFetchWindowedFees.mockResolvedValueOnce(null);
+    const app = createApp();
+    const res = await app.request("/analytics/revenue", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
+  });
+
+  // ── /active-users ───────────────────────────────────────────────────────
+  it("/active-users 503s when the bucket query fails", async () => {
+    mockFetchActiveUserBuckets.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/active-users", {}, makeEnv());
+    expect(res.status).toBe(503);
+  });
+
+  it("/active-users 400s on invalid interval", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/analytics/active-users?interval=month",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("/active-users degrades when a window count fails", async () => {
+    mockFetchUniqueTraderCount.mockResolvedValueOnce(null);
+    const app = createApp();
+    const res = await app.request("/analytics/active-users", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
+  });
+
+  it("/active-users floors negative `?threshold=` to the default", async () => {
+    const app = createApp();
+    await app.request(
+      "/analytics/active-users?threshold=-100",
+      {},
+      makeEnv(),
+    );
+    // Negative threshold should be normalised to the default (`$500`).
+    const call = mockFetchActiveUserBuckets.mock.calls[0] as [
+      unknown,
+      { thresholdUsdcRaw: string },
+    ];
+    expect(call[1].thresholdUsdcRaw).toBe("500000000");
+  });
+
+  // ── /breakdown ──────────────────────────────────────────────────────────
+  it("/breakdown 503s when the dimension query fails", async () => {
+    mockFetchBreakdown.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request(
+      "/analytics/breakdown?by=leverage",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  // ── /revenue-forecast ───────────────────────────────────────────────────
+  it("/revenue-forecast 503s when the revenue bucket query fails", async () => {
+    mockFetchRevenueBuckets.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request(
+      "/analytics/revenue-forecast",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  // ── /graduations ────────────────────────────────────────────────────────
+  it("/graduations 503s when the bucket query fails", async () => {
+    mockFetchGraduationBuckets.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/graduations", {}, makeEnv());
+    expect(res.status).toBe(503);
+  });
+
+  it("/graduations 400s on invalid interval", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/analytics/graduations?interval=year",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("/graduations degrades when the funnel stats fail", async () => {
+    mockFetchGraduationFunnelStats.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/graduations", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
+  });
+
+  // ── /top-tokens ─────────────────────────────────────────────────────────
+  it("/top-tokens 503s when the leaderboard query fails", async () => {
+    mockFetchTopTokens.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/top-tokens", {}, makeEnv());
+    expect(res.status).toBe(503);
+  });
+
+  // ── /volume (existing 503/400 covered above; add degraded path) ────────
+  it("/volume degrades when a window query fails", async () => {
+    mockFetchWindowedVolume.mockResolvedValueOnce(null);
+    const app = createApp();
+    const res = await app.request("/analytics/volume", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
+  });
+
+  // ── /value-locked (existing 503 covered; add degraded path) ────────────
+  it("/value-locked degrades when the aggregates query fails", async () => {
+    mockFetchPlatformAggregates.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request("/analytics/value-locked", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
   });
 });

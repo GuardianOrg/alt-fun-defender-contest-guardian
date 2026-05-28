@@ -380,19 +380,29 @@ analytics.get("/volume", async (c) => {
     }),
     (t) => ({ t, volumeUsdcRaw: "0", volumeUsd: 0 }),
   );
+  // Windowed snapshots are nice-to-have; a degraded one shouldn't 503
+  // the whole route since the primary series rendered fine. Flag
+  // `dataSource: "degraded"` (matching `/overview`) so the dashboard
+  // can tell "this widget is showing zeros because the indexer hiccupped"
+  // from "this widget is showing zeros because the protocol is quiet".
+  const dataSource: "live" | "degraded" =
+    vol24h === null || vol7d === null || vol30d === null ? "degraded" : "live";
   setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
-    formatSuccess({
-      interval: window.interval,
-      intervalSec: window.intervalSec,
-      lookback: window.lookback,
-      series,
-      windows: {
-        last24h: snapVolume(vol24h),
-        last7d: snapVolume(vol7d),
-        last30d: snapVolume(vol30d),
+    formatSuccess(
+      {
+        interval: window.interval,
+        intervalSec: window.intervalSec,
+        lookback: window.lookback,
+        series,
+        windows: {
+          last24h: snapVolume(vol24h),
+          last7d: snapVolume(vol7d),
+          last30d: snapVolume(vol30d),
+        },
       },
-    }),
+      dataSource,
+    ),
   );
 });
 
@@ -449,20 +459,29 @@ analytics.get("/revenue", async (c) => {
     }),
   );
 
+  // Windowed snapshots are secondary — degrade rather than 503 when any
+  // single window query fails. See `/volume` for the rationale.
+  const dataSource: "live" | "degraded" =
+    fee24h === null || fee7d === null || fee30d === null || feeAll === null
+      ? "degraded"
+      : "live";
   setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
-    formatSuccess({
-      interval: window.interval,
-      intervalSec: window.intervalSec,
-      lookback: window.lookback,
-      series,
-      windows: {
-        last24h: snapFees(fee24h),
-        last7d: snapFees(fee7d),
-        last30d: snapFees(fee30d),
-        allTime: snapFees(feeAll),
+    formatSuccess(
+      {
+        interval: window.interval,
+        intervalSec: window.intervalSec,
+        lookback: window.lookback,
+        series,
+        windows: {
+          last24h: snapFees(fee24h),
+          last7d: snapFees(fee7d),
+          last30d: snapFees(fee30d),
+          allTime: snapFees(feeAll),
+        },
       },
-    }),
+      dataSource,
+    ),
   );
 });
 
@@ -536,26 +555,33 @@ analytics.get("/value-locked", async (c) => {
     };
   });
 
+  // The lifetime snapshot is secondary — degrade rather than 503 when
+  // the aggregates read fails (the series + baseline already rendered
+  // a meaningful response).
+  const dataSource: "live" | "degraded" = aggregates === null ? "degraded" : "live";
   setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
-    formatSuccess({
-      interval: window.interval,
-      intervalSec: window.intervalSec,
-      lookback: window.lookback,
-      baselineUsdcRaw: baseline,
-      baselineUsd: fmtUsd(baseline),
-      series,
-      snapshot: {
-        totalValueLockedUsdcRaw:
-          aggregates?.totalValueLockedUsdcRaw ?? "0",
-        totalValueLockedUsd: fmtUsd(aggregates?.totalValueLockedUsdcRaw),
-        cumulativeNetInflowUsdcRaw:
-          aggregates?.cumulativeNetInflowUsdcRaw ?? "0",
-        cumulativeNetInflowUsd: fmtUsd(
-          aggregates?.cumulativeNetInflowUsdcRaw,
-        ),
+    formatSuccess(
+      {
+        interval: window.interval,
+        intervalSec: window.intervalSec,
+        lookback: window.lookback,
+        baselineUsdcRaw: baseline,
+        baselineUsd: fmtUsd(baseline),
+        series,
+        snapshot: {
+          totalValueLockedUsdcRaw:
+            aggregates?.totalValueLockedUsdcRaw ?? "0",
+          totalValueLockedUsd: fmtUsd(aggregates?.totalValueLockedUsdcRaw),
+          cumulativeNetInflowUsdcRaw:
+            aggregates?.cumulativeNetInflowUsdcRaw ?? "0",
+          cumulativeNetInflowUsd: fmtUsd(
+            aggregates?.cumulativeNetInflowUsdcRaw,
+          ),
+        },
       },
-    }),
+      dataSource,
+    ),
   );
 });
 
@@ -618,20 +644,27 @@ analytics.get("/active-users", async (c) => {
     }),
   );
 
+  // Windowed snapshots are secondary — degrade rather than 503 when any
+  // single window query fails. See `/volume` for the rationale.
+  const dataSource: "live" | "degraded" =
+    dau === null || wau === null || mau === null ? "degraded" : "live";
   setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
-    formatSuccess({
-      interval: window.interval,
-      intervalSec: window.intervalSec,
-      lookback: window.lookback,
-      thresholdUsd,
-      series,
-      windows: {
-        last24h: dau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
-        last7d: wau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
-        last30d: mau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
+    formatSuccess(
+      {
+        interval: window.interval,
+        intervalSec: window.intervalSec,
+        lookback: window.lookback,
+        thresholdUsd,
+        series,
+        windows: {
+          last24h: dau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
+          last7d: wau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
+          last30d: mau ?? { uniqueTraders: 0, qualifiedTraders: 0 },
+        },
       },
-    }),
+      dataSource,
+    ),
   );
 });
 
@@ -887,22 +920,28 @@ analytics.get("/graduations", async (c) => {
     (r) => ({ t: r.bucket, graduations: r.graduations }),
     (t) => ({ t, graduations: 0 }),
   );
+  // The funnel block is secondary — degrade rather than 503 when the
+  // funnel-stats helper fails (the series + counts already rendered).
+  const dataSource: "live" | "degraded" = funnel === null ? "degraded" : "live";
   setAnalyticsCacheHeader(c, CACHE_TTL_SEC.chart);
   return c.json(
-    formatSuccess({
-      interval: window.interval,
-      intervalSec: window.intervalSec,
-      lookback: window.lookback,
-      series,
-      funnel: funnel ?? {
-        totalLaunched: 0,
-        totalGraduated: 0,
-        totalPendingGraduation: 0,
-        graduationRatePct: 0,
-        medianTimeToGraduateSec: null,
-        meanTimeToGraduateSec: null,
+    formatSuccess(
+      {
+        interval: window.interval,
+        intervalSec: window.intervalSec,
+        lookback: window.lookback,
+        series,
+        funnel: funnel ?? {
+          totalLaunched: 0,
+          totalGraduated: 0,
+          totalPendingGraduation: 0,
+          graduationRatePct: 0,
+          medianTimeToGraduateSec: null,
+          meanTimeToGraduateSec: null,
+        },
       },
-    }),
+      dataSource,
+    ),
   );
 });
 
