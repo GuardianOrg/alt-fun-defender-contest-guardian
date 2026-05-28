@@ -42,17 +42,13 @@ import type { Database } from "../db/client.js";
  * casts in `SELECT` don't affect index selection, only casts in
  * `WHERE`/`JOIN` predicates do. PR #1168 perf review.
  *
- * **`fee_accrual` has no `timestamp` index today.** The indexer
- * schema covers `id`, `creator`, `token_address` but not
- * `timestamp`, so windowed revenue queries (`fetchRevenueBuckets`,
- * `fetchWindowedFees`) seq-scan the full table even on selective
- * cutoffs. At ~250K rows it's ~25 ms — bearable for an internal
- * dashboard and absorbed by the route-level edge cache. Adding
- * `index("fee_accrual_timestamp_index").on(table.timestamp)` to
- * `apps/indexer/ponder.schema.ts` (mirroring the existing
- * `router_trade_timestamp_index`) would drop these to sub-ms, but is
- * intentionally deferred — the PR ships without indexer schema
- * changes (see the constraint in the PR description).
+ * **`fee_accrual.timestamp` is indexed.** Mirrors the equivalent
+ * `routerTrade.timestampIdx` so the windowed revenue queries
+ * (`fetchRevenueBuckets`, `fetchWindowedFees`) hit
+ * `Index Scan` with `Index Cond:` instead of seq-scanning the full
+ * ~250K-row table — keeps selective cutoffs sub-ms. Added in the
+ * same PR after a perf review against the live read replica
+ * (`apps/indexer/ponder.schema.ts → feeAccrual.timestampIdx`).
  *
  * Amounts are USDC 6dp throughout. Helpers return raw decimal strings
  * (never JS numbers) so callers can decide whether to format as USD
