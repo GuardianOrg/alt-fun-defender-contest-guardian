@@ -18,7 +18,7 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { useTokenLiveFeed } from "../../hooks/useTokenLiveFeed";
-import { formatUsd, formatUsdOrDash } from "../../utils/format";
+import { cn, formatUsd, formatUsdOrDash } from "../../utils/format";
 import NotFound from "../layout/NotFound";
 import Button from "../shared/Button";
 import ErrorBoundary from "../shared/ErrorBoundary";
@@ -113,7 +113,9 @@ export default function TokenDetailView() {
         <div className={styles.metadataStack}>
           {token && !isUsingCachedFallback && (
             <div className={styles.curveStrip}>
-              <span className={styles.curveLabel}>Curve</span>
+              <span className={cn(styles.curveLabel, "ui-subheading")}>
+                Curve
+              </span>
               <div className={styles.curveBody}>
                 {/* Hide raised USD after graduation; the curve reserve no longer exists. */}
                 {!isGraduated && (
@@ -148,7 +150,9 @@ export default function TokenDetailView() {
           )}
           {token && isUsingCachedFallback && (
             <div className={styles.curveStrip}>
-              <span className={styles.curveLabel}>Curve</span>
+              <span className={cn(styles.curveLabel, "ui-subheading")}>
+                Curve
+              </span>
               <div className={styles.curveBody}>
                 {isGraduated ? (
                   <>
@@ -178,7 +182,9 @@ export default function TokenDetailView() {
 
           {token?.description && (
             <section className={styles.descriptionSection}>
-              <span className={styles.descriptionLabel}>Description</span>
+              <span className={cn(styles.descriptionLabel, "ui-subheading")}>
+                Description
+              </span>
               <p className={styles.description}>{token.description}</p>
             </section>
           )}

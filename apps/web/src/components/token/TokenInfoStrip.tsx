@@ -110,7 +110,7 @@ export default function TokenInfoStrip({
     <div className={styles.strip}>
       <div className={styles.statsGroup}>
         <div className={styles.stat}>
-          <span className={styles.label}>Vol 24hr</span>
+          <span className={`${styles.label} ui-subheading`}>Vol 24hr</span>
           {liveDataPending ? (
             <Skeleton width="4.5rem" height="1rem" />
           ) : (
@@ -121,7 +121,9 @@ export default function TokenInfoStrip({
         </div>
 
         <div className={styles.stat}>
-          <span className={styles.label}>Leverage Boost</span>
+          <span className={`${styles.label} ui-subheading`}>
+            Leverage Boost
+          </span>
           {liveDataPending ? (
             <Skeleton width="3.5rem" height="1rem" />
           ) : (
@@ -133,7 +135,7 @@ export default function TokenInfoStrip({
       </div>
 
       <div className={`${styles.stat} ${styles.statEnd}`}>
-        <span className={styles.label}>Socials</span>
+        <span className={`${styles.label} ui-subheading`}>Socials</span>
         <div className={styles.socials}>
           {socials.map((s) => (
             <a

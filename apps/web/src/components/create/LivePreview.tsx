@@ -101,7 +101,9 @@ export default function LivePreview({
   return (
     <div className={styles.wrapper}>
       <div className={styles.content}>
-        <div className={styles.previewLabel}>live preview</div>
+        <div className={cn(styles.previewLabel, "ui-subheading")}>
+          live preview
+        </div>
 
         <div
           className={cn(
@@ -145,11 +147,15 @@ export default function LivePreview({
           <div className={styles.miniStats}>
             <div className={styles.miniStatCell}>
               <div className={styles.miniStatValue}>{leverage}×</div>
-              <div className={styles.miniStatLabel}>leverage</div>
+              <div className={cn(styles.miniStatLabel, "ui-subheading")}>
+                leverage
+              </div>
             </div>
             <div className={styles.miniStatCell}>
               <div className={styles.miniStatValue}>{assetDisplay}</div>
-              <div className={styles.miniStatLabel}>underlying</div>
+              <div className={cn(styles.miniStatLabel, "ui-subheading")}>
+                underlying
+              </div>
             </div>
             <div className={styles.miniStatCellLast}>
               <div
@@ -160,7 +166,9 @@ export default function LivePreview({
               >
                 {isLong ? "LONG" : "SHORT"}
               </div>
-              <div className={styles.miniStatLabel}>direction</div>
+              <div className={cn(styles.miniStatLabel, "ui-subheading")}>
+                direction
+              </div>
             </div>
           </div>
         </div>
@@ -216,7 +224,9 @@ export default function LivePreview({
         </div>
 
         <div className={styles.howSection}>
-          <div className={styles.howTitle}>how it works</div>
+          <div className={cn(styles.howTitle, "ui-subheading")}>
+            how it works
+          </div>
           {[
             { icon: "1", text: "Token deploys to bonding curve" },
             { icon: "2", text: "Users buy/sell with USDC atomically" },

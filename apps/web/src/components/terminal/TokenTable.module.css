@@ -146,8 +146,6 @@
 }
 
 .headCell {
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   display: flex;
   align-items: center;
   white-space: nowrap;

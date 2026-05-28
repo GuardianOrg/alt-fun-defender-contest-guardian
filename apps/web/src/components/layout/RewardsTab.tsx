@@ -44,7 +44,9 @@ export default function RewardsTab({
       <div aria-busy="true" aria-label="Loading creator rewards">
         <div className={styles.rewardsSummary}>
           <div className={styles.rewardsHero}>
-            <div className={styles.rewardsLabel}>claimable</div>
+            <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+              claimable
+            </div>
             <Skeleton width="6rem" height="1.75rem" />
           </div>
           <Skeleton
@@ -55,18 +57,24 @@ export default function RewardsTab({
           />
           <div className={styles.rewardsStats}>
             <div className={styles.rewardsStat}>
-              <div className={styles.rewardsLabel}>total earned</div>
+              <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+                total earned
+              </div>
               <Skeleton width="4rem" height="1.125rem" />
             </div>
             <div className={styles.rewardsStat}>
-              <div className={styles.rewardsLabel}>previously claimed</div>
+              <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+                previously claimed
+              </div>
               <Skeleton width="4rem" height="1.125rem" />
             </div>
           </div>
         </div>
 
         <div className={styles.tokensSection}>
-          <div className={styles.tokensSectionLabel}>your tokens</div>
+          <div className={cn(styles.tokensSectionLabel, "ui-subheading")}>
+            your tokens
+          </div>
           <div className={styles.tokensCards}>
             {Array.from({ length: REWARDS_SKELETON_COUNT }, (_, i) => (
               <div key={i} className={styles.tokenCard} aria-hidden="true">
@@ -89,11 +97,25 @@ export default function RewardsTab({
                 </div>
                 <div className={styles.tokenCardGrid}>
                   <div>
-                    <div className={styles.tokenCardStatLabel}>volume</div>
+                    <div
+                      className={cn(
+                        styles.tokenCardStatLabel,
+                        "ui-subheading",
+                      )}
+                    >
+                      volume
+                    </div>
                     <Skeleton width="4rem" height="13px" />
                   </div>
                   <div>
-                    <div className={styles.tokenCardStatLabel}>earned</div>
+                    <div
+                      className={cn(
+                        styles.tokenCardStatLabel,
+                        "ui-subheading",
+                      )}
+                    >
+                      earned
+                    </div>
                     <Skeleton width="4rem" height="13px" />
                   </div>
                 </div>
@@ -127,7 +149,9 @@ export default function RewardsTab({
     <>
       <div className={styles.rewardsSummary}>
         <div className={styles.rewardsHero}>
-          <div className={styles.rewardsLabel}>claimable</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            claimable
+          </div>
           <div className={styles.rewardsClaimable}>
             ${earnings.totalClaimable.toFixed(2)}
           </div>
@@ -156,13 +180,17 @@ export default function RewardsTab({
 
         <div className={styles.rewardsStats}>
           <div className={styles.rewardsStat}>
-            <div className={styles.rewardsLabel}>total earned</div>
+            <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+              total earned
+            </div>
             <div className={styles.rewardsStatValue}>
               ${earnings.totalEarned.toFixed(2)}
             </div>
           </div>
           <div className={styles.rewardsStat}>
-            <div className={styles.rewardsLabel}>previously claimed</div>
+            <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+              previously claimed
+            </div>
             <div className={styles.rewardsStatValue}>
               ${earnings.totalClaimed.toFixed(2)}
             </div>
@@ -171,7 +199,7 @@ export default function RewardsTab({
       </div>
 
       <div className={styles.tokensSection}>
-        <div className={styles.tokensSectionLabel}>
+        <div className={cn(styles.tokensSectionLabel, "ui-subheading")}>
           your tokens ({earnings.tokens.length})
         </div>
 
@@ -242,13 +270,27 @@ export default function RewardsTab({
 
               <div className={styles.tokenCardGrid}>
                 <div>
-                  <div className={styles.tokenCardStatLabel}>volume</div>
+                  <div
+                    className={cn(
+                      styles.tokenCardStatLabel,
+                      "ui-subheading",
+                    )}
+                  >
+                    volume
+                  </div>
                   <div className={styles.tokenCardStatValue}>
                     {formatUsd(t.totalVolumeUsd)}
                   </div>
                 </div>
                 <div>
-                  <div className={styles.tokenCardStatLabel}>earned</div>
+                  <div
+                    className={cn(
+                      styles.tokenCardStatLabel,
+                      "ui-subheading",
+                    )}
+                  >
+                    earned
+                  </div>
                   <div className={styles.tokenCardStatValue}>
                     ${t.feesEarnedUsd.toFixed(2)}
                   </div>
@@ -263,7 +305,7 @@ export default function RewardsTab({
                       style={{ width: `${t.curveFilled ?? 0}%` }}
                     />
                   </div>
-                  <div className={styles.curveLabel}>
+                  <div className={cn(styles.curveLabel, "ui-subheading")}>
                     {formatCurveFilled(t.curveFilled)} progress
                   </div>
                 </div>

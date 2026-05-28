@@ -262,7 +262,9 @@ export default function RightPanel() {
                     </span>
                   </div>
                   <div className={styles.tradeWalletRow}>
-                    <span className={styles.tradeWallet}>{t.walletAddress}</span>
+                    <span className={styles.tradeWallet}>
+                      {t.walletAddress}
+                    </span>
                     <CopyAddressButton
                       address={t.walletAddressFull}
                       className={styles.tradeCopyBtn}
@@ -275,8 +277,7 @@ export default function RightPanel() {
                     isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
                   )}
                 >
-                  {isBuy ? "+" : "-"}$
-                  {Math.round(t.amountUsd).toLocaleString()}
+                  {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
                 </span>
               </div>
             );
@@ -284,10 +285,18 @@ export default function RightPanel() {
         )}
         {/* Keep the sentinel mounted during skeleton state so pagination attaches on first render. */}
         {hasMore && (
-          <div ref={sentinelRef} className={styles.sentinel} aria-hidden="true" />
+          <div
+            ref={sentinelRef}
+            className={styles.sentinel}
+            aria-hidden="true"
+          />
         )}
         {isFetchingMore && (
-          <div role="status" aria-live="polite" aria-label="Loading more trades">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Loading more trades"
+          >
             {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
               <div
                 key={`page-skel-${i}`}

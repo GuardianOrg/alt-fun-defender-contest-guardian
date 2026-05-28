@@ -36,11 +36,6 @@ export default function CreatorBadge({ token }: Props) {
       <button className={styles.header} onClick={() => setExpanded(!expanded)}>
         <div className={styles.headerLeft}>
           <span className={styles.badge}>creator</span>
-          <span className={styles.claimable}>
-            {earnings
-              ? `$${totalClaimableUsd.toFixed(2)} claimable`
-              : "Your token"}
-          </span>
         </div>
         <span className={styles.chevron}>{expanded ? "▴" : "▾"}</span>
       </button>
@@ -62,19 +57,25 @@ export default function CreatorBadge({ token }: Props) {
           {tokenData && (
             <div className={styles.statsGrid}>
               <div>
-                <div className={styles.statLabel}>volume</div>
+                <div className={`${styles.statLabel} ui-subheading`}>
+                  volume
+                </div>
                 <div className={styles.statValue}>
                   {formatUsd(tokenData.totalVolumeUsd)}
                 </div>
               </div>
               <div>
-                <div className={styles.statLabel}>earned</div>
+                <div className={`${styles.statLabel} ui-subheading`}>
+                  earned
+                </div>
                 <div className={styles.statValue}>
                   ${tokenData.feesEarnedUsd.toFixed(2)}
                 </div>
               </div>
               <div>
-                <div className={styles.statLabel}>claimable</div>
+                <div className={`${styles.statLabel} ui-subheading`}>
+                  claimable
+                </div>
                 <div className={styles.statMint}>
                   ${totalClaimableUsd.toFixed(2)}
                 </div>

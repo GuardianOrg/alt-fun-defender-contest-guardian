@@ -230,7 +230,9 @@ function TransferRow({ token, currentCreator, onTransferred }: TransferRowProps)
       </div>
 
       <label className={styles.inputBlock}>
-        <span className={styles.inputLabel}>New creator wallet</span>
+        <span className={cn(styles.inputLabel, "ui-subheading")}>
+          New creator wallet
+        </span>
         <input
           type="text"
           inputMode="text"

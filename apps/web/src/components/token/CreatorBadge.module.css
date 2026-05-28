@@ -31,12 +31,6 @@
   border-radius: 0.125rem;
 }
 
-.claimable {
-  font-size: 13px;
-  color: var(--mint);
-  font-weight: 600;
-}
-
 .chevron {
   font-size: 13px;
   color: var(--txt-3);
@@ -57,10 +51,7 @@
 }
 
 .statLabel {
-  color: var(--txt-3);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: inline-block;
 }
 
 .statValue {
@@ -77,4 +68,5 @@
   font-size: 11px;
   color: var(--txt-3);
   line-height: 1.5;
+  font-family: var(--font-display);
 }

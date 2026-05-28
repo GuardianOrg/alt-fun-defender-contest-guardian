@@ -201,7 +201,9 @@ export default function Chart({ address, token }: Props) {
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
         <div className={styles.mcapOverlay} aria-label="Market cap">
-          <span className={styles.mcapLabel}>Market cap</span>
+          <span className={cn(styles.mcapLabel, "ui-subheading")}>
+            Market cap
+          </span>
           <RollingNumber
             className={styles.mcapValue}
             value={mcapUsd}
