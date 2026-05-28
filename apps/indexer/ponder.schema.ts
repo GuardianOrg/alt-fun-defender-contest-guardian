@@ -225,6 +225,15 @@ export const feeAccrual = onchainTable("fee_accrual", (t) => ({
 }), (table) => ({
   tokenIdx: index().on(table.tokenAddress),
   creatorIdx: index().on(table.creator),
+  // Backs the analytics revenue queries (`fetchRevenueBuckets`,
+  // `fetchWindowedFees`) which scan `fee_accrual` by a trailing
+  // `timestamp >=` cutoff. Without this, those queries seq-scan all
+  // ~250K rows even on a selective 24h window (~25 ms). With the
+  // index, selective windows drop to sub-ms. Mirrors the equivalent
+  // `routerTrade.timestampIdx` and matches the API-side Drizzle
+  // handle in `apps/api/src/db/indexer-schema.ts`. Added in PR #1168
+  // after a perf review against the live read replica.
+  timestampIdx: index().on(table.timestamp),
 }));
 
 /**

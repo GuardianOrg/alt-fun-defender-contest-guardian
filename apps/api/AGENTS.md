@@ -47,6 +47,39 @@ All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidat
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
 
+## Analytics (`/api/v1/analytics/*`)
+
+Internal-dashboard business-insight endpoints. All read off existing indexer-side tables (`router_trade`, `fee_accrual`, `hourly_volume`, `token`, `graduation`) plus the API-owned `public.tokens` — **no indexer schema changes** ship with these routes. Mounted in `src/routes/analytics.ts` and protected by the standard `apiKeyAuth` middleware that gates the rest of `/api/v1/*` (no extra admin gate — the data here is the same business-state the protocol already exposes implicitly via `/stats`, `/tokens`, `/creators/:address/earnings` etc.). Helpers live in `src/lib/analytics-reads.ts`.
+
+| Endpoint | Purpose | Source tables |
+|---|---|---|
+| `GET /api/v1/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
+| `GET /api/v1/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
+| `GET /api/v1/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
+| `GET /api/v1/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
+| `GET /api/v1/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
+| `GET /api/v1/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
+| `GET /api/v1/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
+| `GET /api/v1/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
+| `GET /api/v1/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
+
+Common query params: `?interval={hour,day,week}` (default `day`) and `?lookback=<N>` (count of intervals, capped per route — 168h / 365d / 156w). Chart routes return a **dense** series (missing buckets zero-filled) so chart libraries don't have to handle gaps.
+
+USDC amounts ride out as both raw 6dp strings (`*UsdcRaw`) and USD floats (`*Usd`) — same dual shape `/creators/:address/earnings` already uses.
+
+**Why this layer doesn't add new indexer columns:** the dashboard is an operator-only surface, queried at most a few times a minute, and every aggregate falls out of an existing index (`router_trade_timestamp_index`, `fee_accrual_timestamp_index`, `token_hourly_metrics_hour_start_index`, …). Persisting per-day pre-aggregates would save query cost only marginally and would lock the schema before we know what views matter most — accept the small live-query cost while the surface is still evolving.
+
+**Forecast philosophy** (`revenue-forecast`): protocol fees are highly volatile (10× day-to-day, marketing-campaign spikes, quiet stretches). One window is never right — surface multiple horizons (1d/3d/7d/30d/90d flat means, plus EWMA with 7d/14d/30d half-lives) and let the operator pick. Each estimate carries `stdDevUsd` so the dashboard can render a confidence band. The full 120-day daily series is returned alongside the projections so the operator can sanity-check visually.
+
+**Integration testing.** `src/__tests__/analytics.integration.test.ts` hits a real Neon database and verifies every SQL string parses + every route returns the documented shape. Gated on `process.env.DATABASE_URL`: skips quietly when the secret isn't set.
+
+Per `.cursor/rules/testing.mdc` ("Test database queries against a Neon branch, not production"), point `DATABASE_URL` at a **Neon branch** of the launchpad project, not the production endpoint. The suite is read-only (only `SELECT` queries), so hitting prod is technically safe — but a branch removes the production load and isolates the test from any concurrent schema change. Spin one up via the Neon MCP (`prepare_database_migration` flow) or the Neon console; branches are copy-on-write from `production` so the read shape matches without re-indexing.
+
+- **Locally**: `DATABASE_URL="<branch-connection-string>" npm test --workspace=@launchpad/api -- analytics.integration`. The integration test logs a soft warning when the URL matches the project's known prod-Neon pooler slug (`ep-super-feather-am3pnzsa-pooler`) — fix by switching to a branch URL. The check is intentionally conservative (no false positives on legit branch URLs that happen to use a pooler); if you rename the prod endpoint, update both the slug pattern in `analytics.integration.test.ts` and this sentence.
+- **CI**: the `api-analytics-integration` job in `.github/workflows/ci.yml` wires `secrets.DATABASE_URL` through (scoped to the test step only, not the whole job). Configure that secret as the **branch** connection string.
+
+The companion unit suite (`analytics.test.ts`) mocks the helpers so the standard `npm test` stays hermetic and the Neon-branch convention only applies to the explicit integration step.
+
 ## Listing tabs (`GET /api/v1/tokens?status=…`)
 
 The `?status=` filter on `GET /api/v1/tokens` powers the home-page tabs. Three values are accepted; each takes a different code path inside `src/routes/tokens/list.ts`:

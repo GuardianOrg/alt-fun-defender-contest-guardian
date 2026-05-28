@@ -218,6 +218,58 @@ jobs:
           FOUNDRY_PROFILE: ci
         run: forge test ${{ matrix.args }}
 
+  # Live-DB integration tests for the `/api/v1/analytics/*` endpoints.
+  # Gated on the `DATABASE_URL` secret being configured — the suite uses
+  # `describe.skipIf(!process.env.DATABASE_URL)` so a missing secret is a
+  # quiet "all-skipped" pass rather than a red CI. Configure the secret
+  # at `Settings → Secrets and variables → Actions → DATABASE_URL` to
+  # opt the repo in. The check is shape-only (no value pinning) so a
+  # changing prod indexer state doesn't break the gate.
+  api-analytics-integration:
+    name: API Analytics Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
+      - name: Build shared package
+        run: npx turbo run build --filter=@launchpad/shared
+
+      - name: Run analytics integration tests
+        # Vitest auto-skips the gated `describe` blocks when DATABASE_URL
+        # is unset, so this step is a clean pass on forks / repos
+        # without the secret configured. When the secret is present
+        # the suite runs read-only `SELECT` queries against the URL —
+        # prefer a Neon branch URL per `.cursor/rules/testing.mdc`
+        # ("Test database queries against a Neon branch, not
+        # production"). DB secrets are scoped to this single step so
+        # the checkout / cache / install steps above never see them.
+        working-directory: apps/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
+        run: npx vitest run src/__tests__/analytics.integration.test.ts
+        timeout-minutes: 5
+
   # Temporarily disabled — both smoke jobs hit the shared Neon DB and
   # were compounding an ongoing database load issue. Re-enable once the
   # underlying DB problem is resolved.
