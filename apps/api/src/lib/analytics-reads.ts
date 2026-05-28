@@ -28,6 +28,32 @@ import type { Database } from "../db/client.js";
  * SQL — admins reading weekly charts will see consistent week
  * boundaries regardless of where in the week they query.
  *
+ * **`timestamp` casts in `WHERE` clauses defeat the index** —
+ * `ponder_views.router_trade.timestamp` is `numeric(78,0)` and is
+ * indexed by `router_trade_timestamp_index`. Writing
+ * `WHERE timestamp::bigint >= $cutoff` casts the indexed column into
+ * a function call, which forces Postgres to fall back to a parallel
+ * seq scan with `Filter:` instead of an index range scan with
+ * `Index Cond:`. For a selective 24h window that's ~40× slower
+ * (24 ms vs 0.6 ms in `EXPLAIN ANALYZE`). Always compare bare —
+ * `WHERE timestamp >= $cutoff` — and let Postgres implicit-cast the
+ * integer parameter to numeric. The `FLOOR(timestamp::bigint /
+ * $bucket)` bucket expression in the projection is fine to keep:
+ * casts in `SELECT` don't affect index selection, only casts in
+ * `WHERE`/`JOIN` predicates do. PR #1168 perf review.
+ *
+ * **`fee_accrual` has no `timestamp` index today.** The indexer
+ * schema covers `id`, `creator`, `token_address` but not
+ * `timestamp`, so windowed revenue queries (`fetchRevenueBuckets`,
+ * `fetchWindowedFees`) seq-scan the full table even on selective
+ * cutoffs. At ~250K rows it's ~25 ms — bearable for an internal
+ * dashboard and absorbed by the route-level edge cache. Adding
+ * `index("fee_accrual_timestamp_index").on(table.timestamp)` to
+ * `apps/indexer/ponder.schema.ts` (mirroring the existing
+ * `router_trade_timestamp_index`) would drop these to sub-ms, but is
+ * intentionally deferred — the PR ships without indexer schema
+ * changes (see the constraint in the PR description).
+ *
  * Amounts are USDC 6dp throughout. Helpers return raw decimal strings
  * (never JS numbers) so callers can decide whether to format as USD
  * float (`usdcRawToUsd`) or pass through verbatim.
@@ -129,7 +155,7 @@ export async function fetchVolumeBuckets(
         (FLOOR(timestamp::bigint / ${bucketSec}) * ${bucketSec})::text AS bucket,
         SUM(usdc_amount)::text AS volume_usd
       FROM ponder_views.router_trade
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
       GROUP BY bucket
       ORDER BY bucket ASC
     `);
@@ -184,7 +210,7 @@ export async function fetchRevenueBuckets(
         SUM(creator_amount)::text AS creator_amount,
         COUNT(*)::int AS fee_events
       FROM ponder_views.fee_accrual
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
       GROUP BY bucket
       ORDER BY bucket ASC
     `);
@@ -243,7 +269,7 @@ export async function fetchNetInflowBuckets(
         SUM(CASE WHEN is_buy THEN usdc_amount ELSE -usdc_amount END)::text AS net_inflow,
         SUM(usdc_amount)::text AS gross_volume
       FROM ponder_views.router_trade
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
       GROUP BY bucket
       ORDER BY bucket ASC
     `);
@@ -283,7 +309,7 @@ export async function fetchNetInflowBaseline(
       SELECT
         COALESCE(SUM(CASE WHEN is_buy THEN usdc_amount ELSE -usdc_amount END), 0)::text AS net_inflow
       FROM ponder_views.router_trade
-      WHERE timestamp::bigint < ${cutoffSec}
+      WHERE timestamp < ${cutoffSec}
     `);
     const rows = result.rows as unknown as Array<{ net_inflow: string }>;
     return rows[0]?.net_inflow ?? "0";
@@ -341,7 +367,7 @@ export async function fetchActiveUserBuckets(
           trader,
           SUM(usdc_amount) AS trader_volume
         FROM ponder_views.router_trade
-        WHERE timestamp::bigint >= ${sinceSec}
+        WHERE timestamp >= ${sinceSec}
         GROUP BY bucket, trader
       )
       SELECT
@@ -403,7 +429,7 @@ export async function fetchUniqueTraderCount(
           trader,
           SUM(usdc_amount) AS trader_volume
         FROM ponder_views.router_trade
-        WHERE timestamp::bigint >= ${sinceSec}
+        WHERE timestamp >= ${sinceSec}
         GROUP BY trader
       )
       SELECT
@@ -453,7 +479,7 @@ export async function fetchGraduationBuckets(
         (FLOOR(timestamp::bigint / ${bucketSec}) * ${bucketSec})::text AS bucket,
         COUNT(*)::int AS graduations
       FROM ponder_views.graduation
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
       GROUP BY bucket
       ORDER BY bucket ASC
     `);
@@ -680,7 +706,7 @@ export async function fetchWindowedFees(
         COALESCE(SUM(creator_amount), 0)::text AS creator_amount,
         COUNT(*)::int AS fee_events
       FROM ponder_views.fee_accrual
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
     `);
     const rows = result.rows as unknown as Array<{
       protocol_amount: string;
@@ -719,7 +745,7 @@ export async function fetchWindowedVolume(
         COALESCE(SUM(CASE WHEN is_buy THEN usdc_amount ELSE -usdc_amount END), 0)::text AS net_inflow,
         COUNT(*)::int AS trade_count
       FROM ponder_views.router_trade
-      WHERE timestamp::bigint >= ${sinceSec}
+      WHERE timestamp >= ${sinceSec}
     `);
     const rows = result.rows as unknown as Array<{
       gross_volume: string;
