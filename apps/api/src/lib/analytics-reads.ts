@@ -817,7 +817,7 @@ export async function fetchBreakdown(
         COALESCE(SUM(pt.protocol_fees_usd), 0)::text AS protocol_fees,
         COALESCE(SUM(pt.creator_fees_usd), 0)::text AS creator_fees,
         COALESCE(SUM(pt.organic_usdc_raised), 0)::text AS total_raised
-      FROM tokens t
+      FROM public.tokens t
       JOIN ponder_views.token pt ON pt.address = LOWER(t.address)
       WHERE t.is_hidden = false
       GROUP BY dim_key
@@ -912,7 +912,7 @@ export async function fetchTopTokens(
         pt.creator_fees_usd::text AS creator_fees_usd,
         pt.organic_usdc_raised::text AS organic_usdc_raised
       FROM ponder_views.token pt
-      LEFT JOIN tokens t ON LOWER(t.address) = pt.address
+      LEFT JOIN public.tokens t ON LOWER(t.address) = pt.address
       WHERE COALESCE(t.is_hidden, false) = false
       ORDER BY ${sql.raw(sortCol)} DESC NULLS LAST
       LIMIT ${opts.limit}
