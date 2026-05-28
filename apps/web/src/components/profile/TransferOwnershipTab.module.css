@@ -7,7 +7,7 @@
 }
 
 .introTitle {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -16,7 +16,7 @@
 }
 
 .introBody {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.6;
   color: var(--txt-2);
@@ -24,7 +24,7 @@
 
 .introWarning {
   display: block;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
   line-height: 1.6;
   color: var(--txt-3);
@@ -96,7 +96,7 @@
 }
 
 .inputLabel {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;

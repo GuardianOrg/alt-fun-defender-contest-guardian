@@ -334,7 +334,7 @@ function BalancesSummarySkeleton() {
 
 function BalancesListHeader() {
   return (
-    <div className={styles.balanceHeader}>
+    <div className={cn(styles.balanceHeader, "terminal-table-head")}>
       <span>Altcoin</span>
       <span className={styles.balanceHeadAddress}>Address</span>
       <span className={styles.balanceHeadAmount}>Amount</span>
@@ -419,7 +419,6 @@ function BalanceRow({ token, onClick }: BalanceRowProps) {
         <span className={styles.balanceAmountValue}>
           {formatTokenAmount(token.amount)}
         </span>
-        <span className={styles.balanceAmountTicker}>{token.ticker}</span>
       </div>
       <div className={cn(styles.balanceChange, changeClass)}>
         {formatPercentOrDash(change)}
@@ -548,7 +547,7 @@ function RewardsSummarySkeleton() {
 
 function RewardsListHeader() {
   return (
-    <div className={styles.rewardsHeader}>
+    <div className={cn(styles.rewardsHeader, "terminal-table-head")}>
       <span>Altcoin</span>
       <span className={styles.balanceHeadAddress}>Address</span>
       <span>Volume</span>

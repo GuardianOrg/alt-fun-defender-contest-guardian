@@ -201,10 +201,17 @@
  * the button to the right edge of the hero so it doesn't crowd the
  * cluster of address + copy + explorer-link controls on the left.
  * `flex-shrink: 0` keeps the button at its natural width even when
- * the address row wraps on narrow viewports. */
+ * the address row wraps on narrow viewports. The doubled class below
+ * intentionally outranks the shared secondary-button hover rule. */
 .disconnectBtn {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.disconnectBtn.disconnectBtn:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-bg);
 }
 
 .address {
@@ -359,11 +366,11 @@
   min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--txt-3);
+  color: var(--txt-2);
   background: var(--bg-2);
 }
 
@@ -510,7 +517,7 @@
 
 .balanceAddressText {
   font-size: 12px;
-  color: var(--txt-3);
+  color: var(--txt);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   overflow: hidden;
@@ -530,11 +537,6 @@
   font-size: 13px;
   color: var(--txt);
   font-weight: 600;
-}
-
-.balanceAmountTicker {
-  font-size: 11px;
-  color: var(--txt-3);
 }
 
 .balanceChange {
@@ -598,7 +600,7 @@
 }
 
 .rewardsLabel {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -704,11 +706,11 @@
   min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--txt-3);
+  color: var(--txt-2);
   background: var(--bg-2);
 }
 
@@ -745,16 +747,14 @@
 /* Standing disclaimer beneath the populated rewards table. Mirrors the
  * footer chrome in `layout/EarningsPanel.module.css` so the same copy
  * (`CREATOR_FEE_SHARE_PCT`% of fees go to creators…`) reads identically
- * across the floating earnings panel and the profile page. Top border +
- * mono small-caps body matches the panel's other low-contrast strips so
- * the disclaimer reads as chrome rather than primary content. */
+ * across the floating earnings panel and the profile page. */
 .rewardsFooter {
   padding: 1.2rem 1.6rem;
   border-top: 1px solid var(--border);
 }
 
 .rewardsFooterText {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
   line-height: 1.6;
   color: var(--txt-3);
@@ -784,11 +784,8 @@
   }
 }
 
-/* Empty-state surface shared by both profile tabs while real balances
- * / rewards data isn't wired yet. Centered vertical stack with a
- * small uppercase mono title, body copy, and a sized-down CTA.
- * Spacing lands on the doubling scale; tokens only — no shadows,
- * no rounded card. */
+/* Empty-state surface shared by profile tabs. Centered vertical stack with
+ * a small uppercase title, body copy, and a sized-down CTA. */
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -801,7 +798,7 @@
 }
 
 .emptyTitle {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -810,7 +807,7 @@
 }
 
 .emptyBody {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.6;
   color: var(--txt-3);
