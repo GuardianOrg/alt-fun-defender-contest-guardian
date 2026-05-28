@@ -40,12 +40,8 @@ export default function SettingsPopup({
   return (
     <div ref={ref} className={styles.settingsPopup}>
       <div className={styles.settingsHeader}>
-        <span className={styles.settingsTitle}>Settings</span>
-        <IconButton
-          onClick={onClose}
-          aria-label="Close settings"
-          flush
-        >
+        <span className={`ui-subheading`}>Max slippage (%)</span>
+        <IconButton onClick={onClose} aria-label="Close max slippage" flush>
           <svg
             aria-hidden="true"
             focusable="false"
@@ -65,7 +61,6 @@ export default function SettingsPopup({
       </div>
 
       <div>
-        <div className={styles.slippageLabel}>Max slippage (%)</div>
         <div className={styles.slippageInputWrap}>
           <input
             className={styles.slippageInput}

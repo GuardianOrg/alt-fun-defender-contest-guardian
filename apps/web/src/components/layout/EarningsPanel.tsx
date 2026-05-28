@@ -117,7 +117,10 @@ export default function EarningsPanel() {
             </div>
           </div>
         ) : (
-          <div id="earnings-panel-title" className={styles.profileLabel}>
+          <div
+            id="earnings-panel-title"
+            className={`${styles.profileLabel} ui-subheading`}
+          >
             profile
           </div>
         )}

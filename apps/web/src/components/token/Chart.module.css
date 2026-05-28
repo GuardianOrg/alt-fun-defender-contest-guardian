@@ -170,11 +170,7 @@
 }
 
 .mcapLabel {
-  font-family: var(--font-display);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
 .mcapValue {

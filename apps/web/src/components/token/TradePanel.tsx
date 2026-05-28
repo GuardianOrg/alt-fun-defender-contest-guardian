@@ -443,7 +443,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
               <IconButton
                 active={settingsOpen}
                 onClick={() => setSettingsOpen(!settingsOpen)}
-                aria-label="Trade settings"
+                aria-label="Max slippage"
                 aria-expanded={settingsOpen}
               >
                 <svg
@@ -475,7 +475,9 @@ export default function TradePanel({ token, chromeless = false }: Props) {
 
         {isConnected && mode === "buy" && (
           <div className={styles.balanceRow}>
-            <span className={styles.balanceLabel}>USDC balance</span>
+            <span className={`${styles.balanceLabel} ui-subheading`}>
+              USDC balance
+            </span>
             <span className={styles.balanceValue}>
               {usdcBalance !== null
                 ? `$${parseFloat(usdcBalance).toLocaleString(undefined, {
@@ -489,7 +491,9 @@ export default function TradePanel({ token, chromeless = false }: Props) {
 
         {isConnected && mode === "sell" && (
           <div className={styles.balanceRow}>
-            <span className={styles.balanceLabel}>{ticker} balance</span>
+            <span className={`${styles.balanceLabel} ui-subheading`}>
+              {ticker} balance
+            </span>
             <span className={styles.balanceValue}>
               {maxBalance !== null
                 ? `${formatTokenAmount(parseFloat(maxBalance))} ${ticker}`

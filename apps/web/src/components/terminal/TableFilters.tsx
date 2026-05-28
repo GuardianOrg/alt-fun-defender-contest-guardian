@@ -228,7 +228,9 @@ function FilterTrigger({ label, value, active, open, onClick }: TriggerProps) {
       aria-haspopup="menu"
       aria-expanded={open}
     >
-      <span className={styles.triggerLabel}>{label}</span>
+      <span className={cn(styles.triggerLabel, "ui-subheading")}>
+        {label}
+      </span>
       <span className={styles.triggerValue}>{value ?? "All"}</span>
       <ChevronIcon open={open} />
     </button>
@@ -345,7 +347,9 @@ export default function TableFilters() {
             />
             {open === "sort" && (
               <FilterPopover anchorRef={sortRef} onClose={closeAll}>
-                <div className={styles.popoverHeader}>Sort by</div>
+                <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                  Sort by
+                </div>
                 <div className={styles.optionList}>
                   <OptionRow
                     selected={tokenSort === "default"}
@@ -392,7 +396,9 @@ export default function TableFilters() {
           />
           {open === "market" && (
             <FilterPopover anchorRef={marketRef} onClose={closeAll}>
-              <div className={styles.popoverHeader}>Market</div>
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Market
+              </div>
               <div className={styles.optionList}>
                 <OptionRow
                   selected={filters.underlying === undefined}
@@ -430,7 +436,9 @@ export default function TableFilters() {
           />
           {open === "leverage" && (
             <FilterPopover anchorRef={leverageRef} onClose={closeAll}>
-              <div className={styles.popoverHeader}>Leverage</div>
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Leverage
+              </div>
               <div className={styles.optionList}>
                 <OptionRow
                   selected={filters.leverage === undefined}
@@ -472,7 +480,9 @@ export default function TableFilters() {
               onClose={closeAll}
               align="right"
             >
-              <div className={styles.popoverHeader}>Direction</div>
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Direction
+              </div>
               <div className={styles.optionList}>
                 <OptionRow
                   selected={filters.direction === undefined}

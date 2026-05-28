@@ -197,7 +197,7 @@ export default function CreateView() {
     <div className={styles.layout}>
       <div className={styles.formColumn}>
         <div className={styles.pageHeader}>
-          <div className={styles.eyebrow}>new token</div>
+          <div className={cn(styles.eyebrow, "ui-subheading")}>new token</div>
           <div className={styles.heading}>Create an altcoin</div>
           <div className={styles.subheading}>
             Choose a direction, pick your underlying, set your leverage, and

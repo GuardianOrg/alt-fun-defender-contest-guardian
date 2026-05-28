@@ -205,7 +205,7 @@ export default function ProfileView() {
           <span className={styles.avatarFace}>{face}</span>
         </button>
         <div className={styles.identity}>
-          <div className={styles.label}>profile</div>
+          <div className={cn(styles.label, "ui-subheading")}>profile</div>
           <div className={styles.addressRow}>
             <span className={styles.address} title={address}>
               {isConnected ? shortAddress : "not connected"}
@@ -315,7 +315,9 @@ export default function ProfileView() {
 function BalancesSummary({ totalValue }: { totalValue: number }) {
   return (
     <div className={styles.balanceSummary}>
-      <div className={styles.balanceSummaryLabel}>total value</div>
+      <div className={cn(styles.balanceSummaryLabel, "ui-subheading")}>
+        total value
+      </div>
       <div className={styles.balanceSummaryValue}>
         {formatUsd(totalValue)}
       </div>
@@ -326,7 +328,9 @@ function BalancesSummary({ totalValue }: { totalValue: number }) {
 function BalancesSummarySkeleton() {
   return (
     <div className={styles.balanceSummary} aria-hidden="true">
-      <div className={styles.balanceSummaryLabel}>total value</div>
+      <div className={cn(styles.balanceSummaryLabel, "ui-subheading")}>
+        total value
+      </div>
       <Skeleton width="8rem" height="1.6rem" />
     </div>
   );
@@ -474,7 +478,9 @@ function RewardsSummary({
   return (
     <div className={styles.rewardsSummary}>
       <div className={styles.rewardsHero}>
-        <div className={styles.rewardsLabel}>claimable</div>
+        <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+          claimable
+        </div>
         <div className={styles.rewardsClaimable}>
           ${totalClaimable.toFixed(2)}
         </div>
@@ -505,13 +511,17 @@ function RewardsSummary({
 
       <div className={styles.rewardsStats}>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>total earned</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            total earned
+          </div>
           <div className={styles.rewardsStatValue}>
             ${totalEarned.toFixed(2)}
           </div>
         </div>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>previously claimed</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            previously claimed
+          </div>
           <div className={styles.rewardsStatValue}>
             ${totalClaimed.toFixed(2)}
           </div>
@@ -525,7 +535,9 @@ function RewardsSummarySkeleton() {
   return (
     <div className={styles.rewardsSummary} aria-hidden="true">
       <div className={styles.rewardsHero}>
-        <div className={styles.rewardsLabel}>claimable</div>
+        <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+          claimable
+        </div>
         <Skeleton width="8rem" height="2.4rem" />
       </div>
       <div className={styles.rewardsCtaWrap}>
@@ -533,11 +545,15 @@ function RewardsSummarySkeleton() {
       </div>
       <div className={styles.rewardsStats}>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>total earned</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            total earned
+          </div>
           <Skeleton width="5rem" height="1.4rem" />
         </div>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>previously claimed</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            previously claimed
+          </div>
           <Skeleton width="5rem" height="1.4rem" />
         </div>
       </div>

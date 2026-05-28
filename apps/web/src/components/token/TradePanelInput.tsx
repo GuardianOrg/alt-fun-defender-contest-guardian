@@ -67,7 +67,7 @@ export default function TradePanelInput({
   return (
     <>
       <div className={styles.amountHeader}>
-        <div className={styles.denomToggle}>
+        <div className={cn(styles.denomToggle, "ui-subheading")}>
           {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
         </div>
         {headerAction}

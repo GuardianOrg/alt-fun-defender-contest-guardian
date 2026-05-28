@@ -96,11 +96,7 @@
 }
 
 .inputLabel {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
 /* Address input — sized like the create-flow inputs (`TokenForm.input`) so
@@ -118,7 +114,7 @@
   color: var(--txt);
   background: var(--bg-2);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 0;
   padding: 1.2rem;
   outline: none;
   transition:

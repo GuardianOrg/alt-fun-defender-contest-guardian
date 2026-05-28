@@ -5,6 +5,14 @@
   margin-bottom: 1.2rem;
 }
 
+.fieldLabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
 .charCount {
   color: var(--txt-4);
   letter-spacing: normal;

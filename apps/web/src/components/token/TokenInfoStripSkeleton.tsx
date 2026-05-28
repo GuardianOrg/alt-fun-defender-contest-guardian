@@ -11,18 +11,20 @@ export default function TokenInfoStripSkeleton() {
     <div className={styles.strip} aria-hidden="true">
       <div className={styles.statsGroup}>
         <div className={styles.stat}>
-          <span className={styles.label}>Vol 24hr</span>
+          <span className={`${styles.label} ui-subheading`}>Vol 24h</span>
           <Skeleton width="4rem" height="13px" />
         </div>
 
         <div className={styles.stat}>
-          <span className={styles.label}>Leverage Boost</span>
+          <span className={`${styles.label} ui-subheading`}>
+            Leverage Boost
+          </span>
           <Skeleton width="3rem" height="13px" />
         </div>
       </div>
 
       <div className={`${styles.stat} ${styles.statEnd}`}>
-        <span className={styles.label}>Socials</span>
+        <span className={`${styles.label} ui-subheading`}>Socials</span>
         <Skeleton width="3.5rem" height="13px" />
       </div>
     </div>

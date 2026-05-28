@@ -1,6 +1,5 @@
 import { getAssetDisplayName } from "@launchpad/shared";
 
-import labelStyles from "./FieldLabel.module.css";
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import { COLORS, rgba } from "../../config/colors";
@@ -153,7 +152,9 @@ export default function PairSelector({
         </button>
       </div>
 
-      <label className={labelStyles.label}>Underlying asset</label>
+      <label className={cn(styles.fieldLabel, "ui-subheading")}>
+        Underlying asset
+      </label>
       <div className={styles.assetGrid}>
         {availableAssets.map((a) => {
           const change = assetChanges[a];
@@ -200,7 +201,9 @@ export default function PairSelector({
         })}
       </div>
 
-      <label className={cn(labelStyles.label, styles.leverageLabel)}>
+      <label
+        className={cn(styles.fieldLabel, styles.leverageLabel, "ui-subheading")}
+      >
         Leverage
       </label>
       <div className={styles.leverageRow}>
