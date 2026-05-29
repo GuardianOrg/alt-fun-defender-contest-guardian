@@ -61,11 +61,20 @@ export function fromApiToken(api: ApiToken): Token {
   };
 }
 
+// Manual website overrides for tokens whose on-chain `urls` were set before the
+// create-flow ordering fix, so their website never reached the DB. Keyed by
+// lowercased address. Remove an entry once the row is amended at source.
+const WEBSITE_OVERRIDES: Record<string, string> = {
+  "0x774d9f7ba2c55074e036f1b237293a4dd1900000": "https://bidthegoat.lol/",
+};
+
 /** Build full social URLs from API-stored handles/URLs. */
 function buildSocialLinks(api: ApiToken): Token["socialLinks"] {
   const twitter = buildTwitterUrl(api.twitterUrl);
   const telegram = buildTelegramUrl(api.telegramUrl);
-  const website = buildWebsiteUrl(api.websiteUrl);
+  const website =
+    WEBSITE_OVERRIDES[api.address.toLowerCase()] ??
+    buildWebsiteUrl(api.websiteUrl);
   if (!twitter && !telegram && !website) return undefined;
   // Omit absent keys rather than writing `undefined`.
   return {

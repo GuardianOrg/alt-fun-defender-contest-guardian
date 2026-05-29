@@ -73,13 +73,15 @@ export default function CreateView() {
   const [vanityError, setVanityError] = useState<string | null>(null);
   const availableAssets = useAvailableUnderlyingAssets();
   const leverageOptions = useLeverageOptions(asset, isLong);
-  const noDetectedPairs = availableAssets.length === 0 || leverageOptions.length === 0;
+  const noDetectedPairs =
+    availableAssets.length === 0 || leverageOptions.length === 0;
   useEffect(() => {
     if (availableAssets.length === 0 || availableAssets.includes(asset)) return;
     setAsset(availableAssets[0]);
   }, [asset, availableAssets]);
   useEffect(() => {
-    if (leverageOptions.length === 0 || leverageOptions.includes(leverage)) return;
+    if (leverageOptions.length === 0 || leverageOptions.includes(leverage))
+      return;
     setLeverage(leverageOptions.includes(3) ? 3 : leverageOptions[0]);
   }, [leverage, leverageOptions]);
   const invalidLeverageForAsset =
@@ -158,7 +160,7 @@ export default function CreateView() {
           socialLinks.twitter,
           socialLinks.telegram,
           socialLinks.website,
-        ].filter(Boolean),
+        ],
       },
       vanityResult.salt,
       vanityResult.address,
