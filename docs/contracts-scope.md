@@ -141,6 +141,8 @@ All fees are charged by `Zap` in USDC and forwarded into `FeeVault`. The router 
 | `Referred` | Zap | `trader`, `referrer`, `token`, `usdcAmount` |
 | `TokenCreated` | Zap | `token`, `creator`, `ltAddress` |
 
+`TokenGraduated.tokensInLP` is the phase-1 LP-seed target (the intended seed pinned at the last curve price). It matches the tokens actually deposited for the normal empty-pair seed; if the pair already holds live reserves the deposit rebalances, so it is the intended target rather than the exact deposit. Use `liquidity` (LP minted to the lock) or live pair reserves for the actual locked amounts.
+
 ---
 
 ## External Integrations
