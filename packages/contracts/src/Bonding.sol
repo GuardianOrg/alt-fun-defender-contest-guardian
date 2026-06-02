@@ -105,9 +105,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         The seed buy attached to the launch tx bypasses the gate via
     ///         the transient flag set in `launch()` — see `buy()` for the
     ///         consume-once mechanic. Combined with `Zap.MIN_SEED_USDC`, this
-    ///         is the system's first-block-sniper mitigation: the creator's
-    ///         seed absorbs the cheap end of the curve, and no other buyer
-    ///         can race them into block N or pile in at N+1..N+3.
+    ///         is the system's first-block-sniper mitigation: no other buyer
+    ///         can race the creator into block N or pile in at N+1..N+3. The
+    ///         gate is buy-only and does not lock the seed in — see
+    ///         `_enforceLaunchDelay`.
     uint256 public constant LAUNCH_TRADING_DELAY_BLOCKS = 3;
 
     /// @dev Transient-storage slot keying the seed-buy bypass. Set in
@@ -820,20 +821,26 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     // ─── Internals ───────────────────────────────────────────────────────
 
-    /// @dev Anti-snipe gate. Inside the launch tx the seed buy fires the
-    ///      transient bypass set in `launch()`, so the creator's seed always
-    ///      lands. Any other buy (including same-block sniper bundles in a
-    ///      separate tx) sees a cleared transient slot and reverts until
+    /// @dev Anti-snipe gate on the buy path. Inside the launch tx the seed
+    ///      buy fires the transient bypass set in `launch()`, so the
+    ///      creator's seed always lands. Any other buy (including same-block
+    ///      sniper bundles in a separate tx) sees a cleared transient slot
+    ///      and reverts until
     ///      `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The
     ///      bypass is consumed on first use so a malicious router that
     ///      crammed multiple buys into one tx still only gets one through.
+    ///
+    ///      Only buys are gated; the creator can sell the seed back into the
+    ///      curve within the window. We accept this for the same reason we
+    ///      don't cap the seed (below): the creator controls their own open
+    ///      regardless and cannot be forced to leave the seed in the curve.
     ///
     ///      We do **not** cap the seed-buy size. Some creators legitimately
     ///      seed >50% of a curve and burn the result post-launch as a supply
     ///      sink — capping would block that pattern, and the cap is
     ///      trivially bypassable anyway via a second wallet at
-    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. Auditors: this
-    ///      is intentional, not an oversight.
+    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. This is
+    ///      intentional, not an oversight.
     function _enforceLaunchDelay(
         address tokenAddress
     ) internal {
