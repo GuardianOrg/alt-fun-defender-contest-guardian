@@ -439,13 +439,20 @@ contract ZapTest is DeployHelper {
         );
     }
 
-    function test_createToken_revertsBelowRaisedSeedFloor() public {
+    function test_createToken_seedFloorGrossesUpForBuyFee() public {
         // BounceTech raises the floor above the anti-snipe seed minimum.
-        // A seed at the (now stale) `MIN_SEED_USDC` must be rejected at the
-        // `createToken` pre-check, not deep inside the seed mint.
-        bounceGlobalStorage.setMinTransactionSize(50e6);
-        assertEq(zap.minSeedUsdc(), 50e6, "Effective seed floor tracks the live floor when it exceeds MIN_SEED_USDC");
+        uint256 liveFloor = 50e6;
+        bounceGlobalStorage.setMinTransactionSize(liveFloor);
+        lt.setMinTransactionSize(liveFloor);
 
+        // The seed minimum grosses the live floor up for the buy fee, since
+        // the seed is re-checked on the post-fee amount in `_executeBuy`.
+        uint256 seedFloor = zap.minSeedUsdc();
+        assertGt(seedFloor, liveFloor, "Seed floor grosses up the live mint floor for the buy fee");
+
+        // A seed at exactly the raw floor clears it in gross terms but nets
+        // below it after the buy fee — rejected at the `createToken`
+        // pre-check, not deep inside the seed mint.
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "TestToken",
             ticker: "TEST",
@@ -455,14 +462,16 @@ contract ZapTest is DeployHelper {
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator, "TestToken", "TEST")
         });
-
-        uint256 staleSeed = zap.MIN_SEED_USDC(); // $20 — below the raised $50 floor
-        usdc.mint(creator, staleSeed);
+        usdc.mint(creator, liveFloor);
         vm.startPrank(creator);
-        usdc.approve(address(zap), staleSeed);
+        usdc.approve(address(zap), liveFloor);
         vm.expectRevert(Zap.BelowMinSeed.selector);
-        zap.createToken(params, staleSeed);
+        zap.createToken(params, liveFloor);
         vm.stopPrank();
+
+        // A seed at the reported minimum nets >= the floor and launches.
+        address tokenAddr = _createToken(seedFloor);
+        assertTrue(bonding.creatorOf(tokenAddr) != address(0), "Launch at minSeedUsdc() succeeds");
     }
 
     function test_buy_revertsOnSlippage() public {

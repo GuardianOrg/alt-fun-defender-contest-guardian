@@ -643,10 +643,14 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
 
     /// @notice Effective minimum seed buy for `createToken`: the larger of the
     ///         anti-snipe `MIN_SEED_USDC` floor and the live `minUsdcAmount()`
-    ///         mint floor. Enforced so a launch can never pass the seed
-    ///         pre-check only to revert when the seed is minted.
+    ///         mint floor grossed up for the buy fee. Enforced so a launch can
+    ///         never pass the seed pre-check only to revert when the post-fee
+    ///         seed is minted. `MIN_SEED_USDC` is already a gross floor; the
+    ///         mint floor binds on the post-fee amount, so it's grossed up.
     function minSeedUsdc() public view returns (uint256) {
-        return Math.max(MIN_SEED_USDC, minUsdcAmount());
+        uint256 grossFloorForMint =
+            Math.mulDiv(minUsdcAmount(), BPS_DENOM, BPS_DENOM - _s().buyFeeBps, Math.Rounding.Ceil);
+        return Math.max(MIN_SEED_USDC, grossFloorForMint);
     }
 
     function _authorizeUpgrade(
