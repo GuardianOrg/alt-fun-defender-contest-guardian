@@ -644,8 +644,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         launch snapshot (`_deployAndSeed`); the inline post-buy path
     ///         is unaffected (`Zap.buy`'s `mint` checkpoints in the same tx)
     ///         and LP seeding never reads the rate, so the pool still opens
-    ///         at the exact curve-close price. Deep dive in
-    ///         `docs/contracts-scope.md` (Graduation).
+    ///         at the exact curve-close price.
     ///
     ///         Supply trigger: uses live `IPair.tokenBalance()`. This IS an
     ///         `IERC20.balanceOf` read but is donation-resistant in the
