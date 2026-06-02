@@ -135,6 +135,32 @@ contract RouterTest is Test {
         assertTrue(out < TOKEN_SUPPLY, "Output should not exceed supply");
     }
 
+    // When the virtual token reserve runs above the real sellable balance (the
+    // production seeding), a large buy quote must clamp to the sellable balance
+    // and agree with `previewBuy` / `buy`.
+    function test_getAmountOut_buy_capsAtSellableBalance() public {
+        MockERC20 token2 = new MockERC20("Token2", "TK2");
+        vm.prank(bondingRole);
+        address pair2 = factory.createPair(address(token2), address(asset));
+
+        uint256 virtualReserve = 1_000_000_000 ether;
+        uint256 realBalance = 750_000_000 ether;
+        token2.mint(bondingRole, realBalance);
+        vm.startPrank(bondingRole);
+        token2.approve(address(router), realBalance);
+        router.addInitialLiquidity(address(token2), virtualReserve, realBalance, ASSET_RESERVE);
+        vm.stopPrank();
+
+        // Uncapped curve output exceeds the real balance once amountIn > 3× the
+        // asset reserve; pick well past that so the cap binds.
+        uint256 amountIn = 20_000 ether;
+        uint256 quoted = router.getAmountOut(address(token2), true, amountIn);
+        (, uint256 previewTokensOut) = router.previewBuy(address(token2), amountIn);
+
+        assertEq(quoted, IPair(pair2).tokenBalance(), "Quote caps at sellable balance");
+        assertEq(quoted, previewTokensOut, "Quote matches previewBuy");
+    }
+
     // ─── Buy Tests ───────────────────────────────────────────────────────
 
     function test_buy_transfersTokensToTrader() public {
