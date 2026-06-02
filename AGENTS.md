@@ -93,10 +93,12 @@ The launch flow is gated by a two-knob anti-snipe mechanism (issue #310). First-
 
 | Knob | Where | Value |
 |---|---|---|
-| Mandatory creator seed buy | `Zap.MIN_SEED_USDC` | `$20` (real USDC, 6dp) |
+| Mandatory creator seed buy | `Zap.MIN_SEED_USDC` | `$20` (real USDC, 6dp; gross spend, pre-fee) |
 | Public-trading delay | `Bonding.LAUNCH_TRADING_DELAY_BLOCKS` | 3 blocks |
 
 The combination is what works: the seed buy absorbs the bottom of the curve, and the 3-block delay stops anyone (sniper or retail) racing the seed at block N or piling in at N+1..N+3. Trading opens at `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. The seed buy itself bypasses the delay via a transient-storage flag set inside `Bonding.launch` and consumed by the very next `Bonding.buy` in the same tx — so the in-tx seed always lands while same-block sniper bundles (separate txs, transient cleared) revert with `TradingNotOpen`.
+
+The `$20` floor is on the **gross** seed the creator supplies, not the amount that reaches the curve: the buy fee is skimmed before the seed hits the curve, so net curve liquidity is `$20 − buyFee`.
 
 **No upper bound on the seed buy. This is intentional.** A cap is trivially bypassable (the same creator seeds via wallet A then snipes the open at block N+4 from wallet B), and some creators legitimately seed >50% of a curve and burn the result post-launch as a supply sink. The lower bound is the protective side; the upper bound would block useful patterns and provide no real defence. Auditors: this is a deliberate design decision, not an oversight. See the inline natspec on `Zap.MIN_SEED_USDC` and `Bonding._enforceLaunchDelay`.
 

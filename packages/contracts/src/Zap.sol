@@ -49,6 +49,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ///         design: the creator's seed absorbs the cheap end of the curve
     ///         while public buys are gated for the next 3 blocks, so first-
     ///         block bots cannot capture supply at the curve floor.
+    /// @dev    The floor is measured against the gross `seedUsdcAmount` the
+    ///         creator supplies, not the post-fee amount routed to the curve.
+    ///         The buy fee is skimmed in `_executeBuy`, so a `$20` seed lands
+    ///         `$20 − buyFee` of net curve liquidity.
     /// @dev    There is **no upper bound** on the seed buy. This is
     ///         intentional. A cap is trivially bypassable (the same creator
     ///         seeds via wallet A then snipes from wallet B at

@@ -69,7 +69,7 @@ real user EOA). Seed buys via `createToken` attribute to the creator.
 
 Two cooperating knobs eliminate the standard pump.fun-class first-block snipe:
 
-- `Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp) — `Zap.createToken` reverts with `BelowMinSeed` for any smaller seed. Mandatory; the seed buy is no longer optional.
+- `Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp) — `Zap.createToken` reverts with `BelowMinSeed` for any smaller seed. Mandatory; the seed buy is no longer optional. The floor is on the gross seed (pre-fee); the buy fee is skimmed in `_executeBuy`, so net curve liquidity is `$20 − buyFee`.
 - `Bonding.LAUNCH_TRADING_DELAY_BLOCKS = 3` — `Bonding.buy` reverts with `TradingNotOpen` until `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The seed buy bypasses the gate via a transient-storage slot (`_SEED_BUY_BYPASS_SLOT`, EIP-1153 TLOAD/TSTORE) set in `launch()` and consumed on first match in `buy()`. Bypass is consume-once and naturally cleared at end-of-tx — separate-tx sniper buys at the same block see a cleared slot and revert.
 
 Combined: the creator's seed absorbs the cheap end of the curve, and no public buy can land before `launchBlock + 4`. **No upper bound on the seed.** A cap would be trivially bypassable via a second wallet at `launchBlock + 4` and would block legitimate seed-and-burn patterns; the floor is the only side that protects retail. This is a deliberate design choice — see `Zap.MIN_SEED_USDC` natspec and `Bonding._enforceLaunchDelay`.
