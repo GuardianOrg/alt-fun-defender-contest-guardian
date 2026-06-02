@@ -1086,9 +1086,9 @@ contract ZapTest is DeployHelper {
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
     }
 
-    // `uniswapV2Router` is set once at `initialize` and has no live setter —
-    // see the natspec on the storage slot in `Zap.sol`. Migrating to a
-    // different HyperSwap fork requires a UUPS upgrade.
+    // `uniswapV2Router` is currently unused and retained for potential future
+    // use (see the natspec on the storage slot in `Zap.sol`); it's set once at
+    // `initialize` and has no live setter.
     function test_uniswapV2Router_hasNoLiveSetter() public {
         // Owner `call` (not `staticcall`) with non-zero args: a missing
         // selector hits the empty fallback and returns no revert data, while
