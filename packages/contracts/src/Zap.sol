@@ -46,9 +46,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     /// @notice Mandatory seed-buy floor enforced on every `createToken` call
     ///         (real USDC, 6dp — `$20`). Combined with `Bonding`'s
     ///         `LAUNCH_TRADING_DELAY_BLOCKS`, this is the system's anti-snipe
-    ///         design: the creator's seed absorbs the cheap end of the curve
-    ///         while public buys are gated for the next 3 blocks, so first-
-    ///         block bots cannot capture supply at the curve floor.
+    ///         design: the seed lands ahead of the gate while public buys are
+    ///         blocked for the next 3 blocks, so no one else can race the
+    ///         creator into the cheap end of the curve. The gate covers buys
+    ///         only — see the no-cap note below for why the creator is never
+    ///         forced to leave the seed in the curve.
     /// @dev    There is **no upper bound** on the seed buy. This is
     ///         intentional. A cap is trivially bypassable (the same creator
     ///         seeds via wallet A then snipes from wallet B at
