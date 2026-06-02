@@ -25,7 +25,7 @@ interface IBounceLeveragedToken is IERC20 {
     /// @notice Idle USDC available for atomic redeem.
     function baseAssetBalance() external view returns (uint256);
 
-    /// @notice USD per LT unit, 18-dp.
+    /// @notice USDC per LT unit, 18-dp.
     function exchangeRate() external view returns (uint256);
 
     /// @notice Equals the LT amount that `mint(_, baseAmount, _)` will produce

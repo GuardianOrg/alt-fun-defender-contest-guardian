@@ -47,7 +47,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    /// @dev USD-denominated (18-dp) virtual liquidity seeded at launch.
+    /// @dev Virtual liquidity seeded at launch, in USDC (18-dp). Every
+    ///      `*Usd`-named value and every "USD" figure in this contract is
+    ///      a USDC amount scaled to 18-dp: the protocol treats 1 USDC as
+    ///      1 USD and holds no price oracle.
     ///      Combined with the LT's launch-time `exchangeRate()` to derive
     ///      the launch-time `virtualLtReserve`, which permanently shapes
     ///      the curve via `K = TOTAL_SUPPLY * virtualLtReserve`. Pairs
@@ -313,7 +316,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         _disableInitializers();
     }
 
-    /// @param graduationThresholdUsd_ Immutable USD trigger (18-dp). Must be
+    /// @param graduationThresholdUsd_ Immutable USDC trigger (18-dp). Must be
     ///        ≥ `VIRTUAL_LIQUIDITY_USD` so a fresh curve can't be pre-graduated.
     function initialize(
         address factory_,
