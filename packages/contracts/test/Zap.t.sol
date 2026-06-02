@@ -600,6 +600,26 @@ contract ZapTest is DeployHelper {
         assertGt(usdcOut, 0, "holder exits for USDC post-graduation");
     }
 
+    function test_sell_graduatable_withPositiveMinOut_reverts() public {
+        address tokenAddr = _createToken(0);
+        _buyViaRouter(tokenAddr, trader, _usdcStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr));
+
+        uint256 sellerTokens = Token(tokenAddr).balanceOf(trader);
+
+        // The graduation path fills nothing; a positive floor can't be met, so
+        // the sell must revert rather than return 0 — and must NOT graduate.
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), sellerTokens);
+        vm.expectRevert(Zap.TokenIsGraduating.selector);
+        zap.sell(tokenAddr, sellerTokens, 1);
+        vm.stopPrank();
+
+        assertTrue(bonding.isTrading(tokenAddr), "reverted sell must not graduate the token");
+        assertEq(Token(tokenAddr).balanceOf(trader), sellerTokens, "tokens must not be pulled");
+    }
+
     /// @dev The cap-binding buy must not round-trip leftover LT through
     ///      `redeem`. With `LT.redeem` mocked to revert, the graduating
     ///      buy must still succeed.
