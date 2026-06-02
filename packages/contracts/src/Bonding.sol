@@ -1024,7 +1024,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address pairAddr = _s().tokenInfo[tokenAddress].pair;
         (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
-        unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
+        unsoldBurned = IPair(pairAddr).tokenBalance();
         if (unsoldBurned > 0) {
             Token(tokenAddress).burn(pairAddr, unsoldBurned);
         }
