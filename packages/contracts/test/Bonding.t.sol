@@ -310,6 +310,52 @@ contract BondingTest is DeployHelper {
         assertTrue(tokenAddr != address(0));
     }
 
+    // ─── Exchange-Rate Bounds ───────────────────────────────────────────
+    //
+    // The curve's raised LT reserve peaks at `3 * virtualLtReserve` and is
+    // deposited into a HyperSwap V2 pair (uint112 reserves) at graduation.
+    // `_deployAndSeed` rejects launches whose `virtualLtReserve` exceeds
+    // `type(uint112).max / 4`, so a fitting reserve is guaranteed for the
+    // life of the token. `virtualLtReserve = VIRTUAL_LIQUIDITY_USD * 1e18 / rate`.
+
+    function test_launch_revertsWhenExchangeRateTooLow() public {
+        uint256 maxVirtualLt = uint256(type(uint112).max) / 4;
+        uint256 numerator = bonding.VIRTUAL_LIQUIDITY_USD() * 1e18;
+        // Largest rate that still pushes virtualLtReserve over the bound.
+        uint256 tooLowRate = numerator / (maxVirtualLt + 1);
+        lt.setExchangeRate(tooLowRate);
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("LowRate", "LOW");
+        vm.expectRevert(Bonding.ExchangeRateTooLow.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_succeedsAtExchangeRateBoundary() public {
+        uint256 maxVirtualLt = uint256(type(uint112).max) / 4;
+        uint256 numerator = bonding.VIRTUAL_LIQUIDITY_USD() * 1e18;
+        // Smallest rate that keeps virtualLtReserve within the bound.
+        uint256 okRate = numerator / maxVirtualLt + 1;
+        lt.setExchangeRate(okRate);
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("OkRate", "OK");
+        (address tokenAddr,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function test_launch_allowsLowButViableExchangeRate() public {
+        lt.setExchangeRate(0.0001 ether); // $0.0001 / LT — far from the bound
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Cheap", "CHEAP");
+        (address tokenAddr,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
     // ─── Description / Image / URL Length Validation ────────────────────
     //
     // These caps exist as DoS guards. A misbehaving caller could otherwise

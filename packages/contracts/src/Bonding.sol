@@ -302,6 +302,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     error RouterNotFound();
     error MustKeepOneRouter();
     error ZeroExchangeRate();
+    /// @dev Launch-time `exchangeRate` so low the curve's LT reserve would
+    ///      overflow the HyperSwap V2 pair's `uint112` reserve slot at
+    ///      graduation, bricking `finalizeGraduation`.
+    error ExchangeRateTooLow();
     error InvalidNameLength();
     error InvalidTickerLength();
     error InvalidDescriptionLength();
@@ -457,6 +461,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
+        // The raised LT reserve peaks at `3 * virtualLtReserve` (curve sell-out)
+        // and is later deposited into a HyperSwap V2 pair, whose reserves are
+        // `uint112`. Bound it at launch (4x headroom) so graduation can never
+        // exceed that slot.
+        if (virtualLtReserve > type(uint112).max / 4) revert ExchangeRateTooLow();
 
         IERC20(tokenAddr).forceApprove(address($.router), curveSupply);
         // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
