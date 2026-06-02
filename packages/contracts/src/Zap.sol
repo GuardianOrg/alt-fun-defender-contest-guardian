@@ -66,10 +66,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     struct ZapStorage {
         Bonding bonding;
         IERC20 usdc;
-        /// @dev Set once at `initialize` and immutable thereafter — there is
-        ///      no live setter. Migrating to a different HyperSwap fork
-        ///      requires a UUPS upgrade so the change is visible on-chain
-        ///      ahead of time.
+        /// @dev Currently unused. Post-graduation swaps go direct-to-pair
+        ///      (see `_swapOnUniswapV2`), so nothing reads this on-chain. Set
+        ///      once at `initialize`, with no live setter. Retained in case a
+        ///      future version routes swaps through the V2 router; rotating it
+        ///      would then require a UUPS upgrade.
         IUniswapV2Router02 uniswapV2Router;
         FeeVault feeVault;
         uint256 buyFeeBps;
