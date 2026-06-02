@@ -254,9 +254,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
-        uint256 amountInUsed;
+        uint256 grossSpent;
         uint256 actualFee;
-        (tokensOut, amountInUsed, actualFee) = _executeBuy(tokenAddress, usdcAmount);
+        (tokensOut, grossSpent, actualFee) = _executeBuy(tokenAddress, usdcAmount);
 
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
@@ -264,10 +264,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             _accrueFee(tokenAddress, bonding_.creatorOf(tokenAddress), actualFee, true);
         }
 
-        emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
+        // Report the USDC actually spent, not the submitted `usdcAmount`. A
+        // graduation-capped buy refunds the unused principal and fee, so the
+        // two diverge there; for every other buy they're equal.
+        emit Buy(tokenAddress, msg.sender, grossSpent, tokensOut);
 
         if (referrer != address(0) && referrer != msg.sender) {
-            emit Referred(tokenAddress, msg.sender, referrer, usdcAmount);
+            emit Referred(tokenAddress, msg.sender, referrer, grossSpent);
         }
     }
 
@@ -281,7 +284,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
-    ) internal returns (uint256 tokensOut, uint256 amountInUsed, uint256 actualFee) {
+    ) internal returns (uint256 tokensOut, uint256 grossSpent, uint256 actualFee) {
         ZapStorage storage $ = _s();
         address lt = $.bonding.ltOf(tokenAddress);
 
@@ -316,6 +319,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // storage with no security gain).
         uint256 baseToConvert;
         uint256 ltMinted;
+        uint256 amountInUsed;
         if ($.bonding.isGraduated(tokenAddress)) {
             baseToConvert = netUsdc;
             $.usdc.forceApprove(lt, baseToConvert);
@@ -323,10 +327,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             tokensOut = _buyOnUniswapV2(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
-            uint256 ltIfFull = IBounceLeveragedToken(lt).baseToLtAmount(netUsdc);
             uint256 ltUntilGraduation = $.bonding.previewLtUntilGraduation(tokenAddress);
 
-            if (ltUntilGraduation >= ltIfFull) {
+            if (ltUntilGraduation >= IBounceLeveragedToken(lt).baseToLtAmount(netUsdc)) {
                 baseToConvert = netUsdc;
             } else {
                 // `ltToBaseAmount` floors. Bump up so `mint(baseToConvert)`
@@ -372,33 +375,37 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // construction). Sent to `msg.sender` — `_buyInternal` is
         // `nonReentrant`, mirroring the safe-transfer-at-end-of-flow
         // pattern used for the USDC refund below.
-        uint256 ltExcess = ltMinted - amountInUsed;
-        if (ltExcess > 0) {
-            IERC20(lt).safeTransfer(msg.sender, ltExcess);
+        if (ltMinted > amountInUsed) {
+            IERC20(lt).safeTransfer(msg.sender, ltMinted - amountInUsed);
         }
 
-        // Pro-rate fees against the LT actually consumed by the curve.
-        // For non-cap and dust-cap buys `amountInUsed ≈ ltMinted` so
-        // `effectiveBaseSpent ≈ baseToConvert` and behaviour matches the
-        // pre-floor-bump formula. The floor-bump branch overshoots the
-        // mint past what the curve consumes; charging fee on the minted
-        // size (rather than the consumed slice) would over-charge users
-        // who hit this dust band.
-        uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
-        // Round the prorated fee up in favour of the protocol and creator, then
-        // cap it at the gross fee already withheld so the refund can't underflow
-        // and a full-size buy never charges more than `feeOnGross`.
-        actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
+        // Pro-rate the fee against the LT the curve actually consumed
+        // (`amountInUsed * baseToConvert / ltMinted`). For non-cap and
+        // dust-cap buys `amountInUsed ≈ ltMinted` so the effective spend ≈
+        // `baseToConvert` and behaviour matches the pre-floor-bump formula.
+        // The floor-bump branch overshoots the mint past what the curve
+        // consumes; charging fee on the minted size (rather than the
+        // consumed slice) would over-charge users who hit this dust band.
+        // Round up in favour of protocol+creator, then cap at the gross fee
+        // already withheld so the refund can't underflow and a full-size buy
+        // never charges more than `feeOnGross`.
+        actualFee = Math.mulDiv(
+            usdcAmount * buyFeeBps_, (amountInUsed * baseToConvert) / ltMinted, BPS_DENOM * netUsdc, Math.Rounding.Ceil
+        );
         if (actualFee > feeOnGross) actualFee = feeOnGross;
-        uint256 feeRefund = feeOnGross - actualFee;
 
-        uint256 usdcLeft = netUsdc - baseToConvert;
-        if (usdcLeft > 0) {
-            $.usdc.safeTransfer(msg.sender, usdcLeft);
+        // Refund the unconverted principal and the unused (pro-rated) fee.
+        if (netUsdc > baseToConvert) {
+            $.usdc.safeTransfer(msg.sender, netUsdc - baseToConvert);
         }
-        if (feeRefund > 0) {
-            $.usdc.safeTransfer(msg.sender, feeRefund);
+        if (feeOnGross > actualFee) {
+            $.usdc.safeTransfer(msg.sender, feeOnGross - actualFee);
         }
+
+        // Gross USDC the trade actually consumed: converted principal plus the
+        // retained fee. Equals the submitted amount on every non-capped buy; a
+        // graduation-capped buy refunds the difference above.
+        grossSpent = baseToConvert + actualFee;
     }
 
     function _sellInternal(

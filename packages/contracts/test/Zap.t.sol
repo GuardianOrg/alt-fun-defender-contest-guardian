@@ -588,6 +588,71 @@ contract ZapTest is DeployHelper {
         assertGt(usdc.balanceOf(trader), 0, "Trader must hold the refunded USDC");
     }
 
+    /// @dev On a cap-binding buy the `Buy` / `Referred` amount must reflect the
+    ///      USDC actually spent (input minus the refunded principal and fee),
+    ///      not the over-sized submitted amount.
+    function test_buy_capPath_emitsActualGrossSpent() public {
+        address tokenAddr = _createToken(0);
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderUsdcBefore = usdc.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.recordLogs();
+        zap.buy(tokenAddr, buyAmount, 0, referrer);
+        vm.stopPrank();
+
+        uint256 usdcSpent = traderUsdcBefore - usdc.balanceOf(trader);
+        assertLt(usdcSpent, buyAmount, "Cap-binding buy must refund part of the input");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 buySig = keccak256("Buy(address,address,uint256,uint256)");
+        bytes32 referredSig = keccak256("Referred(address,address,address,uint256)");
+        bool sawBuy;
+        bool sawReferred;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == buySig) {
+                (uint256 usdcIn,) = abi.decode(logs[i].data, (uint256, uint256));
+                assertEq(usdcIn, usdcSpent, "Buy.usdcIn must equal USDC actually spent");
+                sawBuy = true;
+            } else if (logs[i].topics[0] == referredSig) {
+                uint256 referredUsdc = abi.decode(logs[i].data, (uint256));
+                assertEq(referredUsdc, usdcSpent, "Referred.usdcAmount must equal USDC actually spent");
+                sawReferred = true;
+            }
+        }
+        assertTrue(sawBuy, "Buy event must be emitted");
+        assertTrue(sawReferred, "Referred event must be emitted");
+    }
+
+    /// @dev A non-cap buy consumes the whole input, so the emitted amount must
+    ///      equal the submitted `usdcAmount` exactly.
+    function test_buy_nonCapPath_emitsFullSubmittedAmount() public {
+        address tokenAddr = _createToken(0);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.recordLogs();
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 buySig = keccak256("Buy(address,address,uint256,uint256)");
+        bool sawBuy;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == buySig) {
+                (uint256 usdcIn,) = abi.decode(logs[i].data, (uint256, uint256));
+                assertEq(usdcIn, buyAmount, "Non-cap Buy.usdcIn must equal submitted amount");
+                sawBuy = true;
+            }
+        }
+        assertTrue(sawBuy, "Buy event must be emitted");
+    }
+
     function test_buy_nonCapPath_spendsFullUsdc() public {
         address tokenAddr = _createToken(0);
         uint256 buyAmount = _smallBuyUsdc();
