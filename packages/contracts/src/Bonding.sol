@@ -255,6 +255,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     event TokenGraduating(
         address indexed token, uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned
     );
+    /// @notice Phase 2 complete: the V2 LP has been seeded and locked.
+    /// @param liquidity LP tokens minted to the lock — the authoritative
+    ///        locked-liquidity figure.
+    /// @param tokensInLP The phase-1 LP-seed target cached in
+    ///        `pendingGraduation` (pinned at the last curve price). Equals the
+    ///        tokens actually deposited on the normal empty-pair seed; when the
+    ///        pair already holds live reserves the deposit rebalances, so this
+    ///        is the intended target rather than the exact amount deposited.
+    ///        Derive actual reserves from `liquidity` / the pair state.
     event TokenGraduated(
         address indexed token,
         address indexed pairAddress,

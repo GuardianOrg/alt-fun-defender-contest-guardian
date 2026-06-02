@@ -167,7 +167,14 @@ export const graduation = onchainTable("graduation", (t) => ({
   tokenAddress: t.hex().primaryKey(),
   pairAddress: t.hex().notNull(),
   liquidity: t.bigint().notNull(),
-  /** Exact tokens seeded into the HyperSwap LP (dynamic LP seeding). */
+  /**
+   * Phase-1 LP-seed target from `TokenGraduated.tokensInLP`. Equals the tokens
+   * deposited for the normal empty-pair seed; on a pair pre-seeded with live
+   * reserves the deposit rebalances, so this is the intended target rather than
+   * the exact deposit. For actual liquidity use `liquidity` or the live
+   * `HyperSwapPair:Sync` reserves mirrored into `token.curveSupply` /
+   * `token.ltReserve`.
+   */
   tokensInLP: t.bigint().notNull(),
   /** LP reserve leftovers burned to make the LP open at the last curve price. */
   lpBurned: t.bigint().notNull(),
