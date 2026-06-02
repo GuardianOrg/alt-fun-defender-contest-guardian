@@ -566,6 +566,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
+        // A graduatable curve token must graduate, not sell back below the
+        // threshold. The user-facing router triggers graduation up front via
+        // `triggerGraduation`; rejecting here stops any router that skipped
+        // that step from un-ripening a ready graduation.
+        if (canGraduate(tokenAddress)) revert TokenIsGraduating();
 
         (, uint256 assetOut) = $.router.sell(amountIn, tokenAddress, msg.sender);
         if (assetOut < amountOutMin) revert SlippageExceeded();

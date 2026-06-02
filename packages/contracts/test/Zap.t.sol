@@ -545,6 +545,61 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
     }
 
+    // ─── Sell-triggered graduation ───────────────────────────────────────
+    // When LT appreciation pushes a curve token past the USD threshold with
+    // no buy, an attempted sell triggers graduation instead of executing.
+    // The seller keeps their tokens and exits on the graduated pool.
+
+    function test_sell_triggersGraduation_whenGraduatable() public {
+        address tokenAddr = _createToken(0);
+        // Stage ~80% of the threshold, then pump the LT rate so `canGraduate`
+        // flips true without a buy crossing it.
+        _buyViaRouter(tokenAddr, trader, _usdcStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr), "setup: token must be graduatable");
+        assertTrue(bonding.isTrading(tokenAddr), "setup: token must still be on the curve");
+
+        uint256 sellerTokens = Token(tokenAddr).balanceOf(trader);
+        assertGt(sellerTokens, 0, "setup: seller must hold tokens");
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), sellerTokens);
+        uint256 usdcOut = zap.sell(tokenAddr, sellerTokens, 0);
+        vm.stopPrank();
+
+        assertEq(usdcOut, 0, "graduatable sell returns no USDC");
+        assertTrue(bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "sell must trigger graduation");
+        // Seller keeps their tokens (nothing pulled) and is paid nothing.
+        assertEq(Token(tokenAddr).balanceOf(trader), sellerTokens, "tokens must not be pulled");
+        assertEq(usdc.balanceOf(trader), 0, "no USDC paid out");
+    }
+
+    function test_sell_graduatable_holderExitsOnGraduatedPool() public {
+        address tokenAddr = _createToken(0);
+        _buyViaRouter(tokenAddr, trader, _usdcStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr));
+
+        uint256 sellerTokens = Token(tokenAddr).balanceOf(trader);
+
+        // First sell triggers graduation (phase 1) instead of selling.
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), sellerTokens);
+        zap.sell(tokenAddr, sellerTokens, 0);
+        vm.stopPrank();
+
+        // Drive phase 2 (the keeper does this in production).
+        if (bonding.isGraduating(tokenAddr)) bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr), "token must finalize");
+
+        // The holder still has their tokens and can now exit on the pool.
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), sellerTokens);
+        uint256 usdcOut = zap.sell(tokenAddr, sellerTokens, 0);
+        vm.stopPrank();
+        assertGt(usdcOut, 0, "holder exits for USDC post-graduation");
+    }
+
     /// @dev The cap-binding buy must not round-trip leftover LT through
     ///      `redeem`. With `LT.redeem` mocked to revert, the graduating
     ///      buy must still succeed.

@@ -413,6 +413,15 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
+        // LT appreciation can push a curve token past the graduation threshold
+        // with no buy. Selling now would drag the raised reserve back below it,
+        // so graduate the token instead. The holder keeps their tokens and
+        // exits on the graduated pool; nothing is sold, so `usdcOut` is 0.
+        if (bonding_.canGraduate(tokenAddress)) {
+            bonding_.triggerGraduation(tokenAddress);
+            return 0;
+        }
+
         address lt = bonding_.ltOf(tokenAddress);
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
