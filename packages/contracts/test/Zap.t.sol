@@ -1050,6 +1050,8 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
         _graduateToken(tokenAddr);
 
+        // Raise the pair fee to 0.9% (900 / FEE_DENOMINATOR 100_000); the
+        // canonical default is 0.3% (300).
         MockHyperswapPair(bonding.graduatedPair(tokenAddr)).setFeePercent(900, 900);
 
         uint256 tokensOut = _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), _smallBuyUsdc());
@@ -1063,6 +1065,8 @@ contract ZapTest is DeployHelper {
         address seller = makeAddr("postGradSeller");
         uint256 tokensOut = _buyViaRouter(tokenAddr, seller, _smallBuyUsdc());
 
+        // Raise the pair fee to 0.9% (900 / FEE_DENOMINATOR 100_000); the
+        // canonical default is 0.3% (300).
         MockHyperswapPair(bonding.graduatedPair(tokenAddr)).setFeePercent(900, 900);
 
         vm.startPrank(seller);

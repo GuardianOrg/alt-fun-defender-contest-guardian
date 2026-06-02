@@ -316,8 +316,9 @@ contract TwoPhaseGraduationTest is DeployHelper {
         MockHyperswapPair(hyperPair).mint(griefer);
         vm.stopPrank();
 
-        // HyperSwap raises this pair's fee above the canonical default before
-        // the protocol gets to finalize.
+        // HyperSwap raises this pair's fee to 0.9% (900 / FEE_DENOMINATOR
+        // 100_000) before the protocol gets to finalize; the canonical default
+        // is 0.3% (300).
         MockHyperswapPair(hyperPair).setFeePercent(900, 900);
 
         bonding.finalizeGraduation(tokenAddr);
