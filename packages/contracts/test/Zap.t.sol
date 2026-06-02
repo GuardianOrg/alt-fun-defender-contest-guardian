@@ -439,6 +439,32 @@ contract ZapTest is DeployHelper {
         );
     }
 
+    function test_createToken_revertsBelowRaisedSeedFloor() public {
+        // BounceTech raises the floor above the anti-snipe seed minimum.
+        // A seed at the (now stale) `MIN_SEED_USDC` must be rejected at the
+        // `createToken` pre-check, not deep inside the seed mint.
+        bounceGlobalStorage.setMinTransactionSize(50e6);
+        assertEq(zap.minSeedUsdc(), 50e6, "Effective seed floor tracks the live floor when it exceeds MIN_SEED_USDC");
+
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "TestToken",
+            ticker: "TEST",
+            description: "A test token",
+            image: "https://img.test/logo.png",
+            urls: ["https://x.com/test", "", "https://test.com"],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator, "TestToken", "TEST")
+        });
+
+        uint256 staleSeed = zap.MIN_SEED_USDC(); // $20 — below the raised $50 floor
+        usdc.mint(creator, staleSeed);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), staleSeed);
+        vm.expectRevert(Zap.BelowMinSeed.selector);
+        zap.createToken(params, staleSeed);
+        vm.stopPrank();
+    }
+
     function test_buy_revertsOnSlippage() public {
         address tokenAddr = _createToken(0);
         uint256 buyAmount = _smallBuyUsdc();

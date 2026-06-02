@@ -224,7 +224,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) internal returns (address tokenAddr) {
         if (params.ltAddress == address(0)) revert InvalidInput();
         // Mandatory seed buy. See `MIN_SEED_USDC` for the no-cap rationale.
-        if (seedUsdcAmount < MIN_SEED_USDC) revert BelowMinSeed();
+        // Floored at the live mint floor too, so a seed can't pass here and
+        // then revert when it's minted (see `minSeedUsdc`).
+        if (seedUsdcAmount < minSeedUsdc()) revert BelowMinSeed();
 
         (tokenAddr,) = _s().bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
@@ -637,6 +639,14 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ///         off-chain callers sizing minimum trades.
     function minUsdcAmount() public view returns (uint256) {
         return _s().bonding.bounceGlobalStorage().minTransactionSize();
+    }
+
+    /// @notice Effective minimum seed buy for `createToken`: the larger of the
+    ///         anti-snipe `MIN_SEED_USDC` floor and the live `minUsdcAmount()`
+    ///         mint floor. Enforced so a launch can never pass the seed
+    ///         pre-check only to revert when the seed is minted.
+    function minSeedUsdc() public view returns (uint256) {
+        return Math.max(MIN_SEED_USDC, minUsdcAmount());
     }
 
     function _authorizeUpgrade(

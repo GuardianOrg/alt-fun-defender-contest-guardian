@@ -414,6 +414,19 @@ export const ZapAbi = [
   },
   {
     "type": "function",
+    "name": "minSeedUsdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "minUsdcAmount",
     "inputs": [],
     "outputs": [
