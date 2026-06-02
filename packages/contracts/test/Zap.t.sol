@@ -1086,9 +1086,9 @@ contract ZapTest is DeployHelper {
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
     }
 
-    // `uniswapV2Router` is set once at `initialize` and has no live setter —
-    // see the natspec on the storage slot in `Zap.sol`. Migrating to a
-    // different HyperSwap fork requires a UUPS upgrade.
+    // `uniswapV2Router` is currently unused and retained for potential future
+    // use (see the natspec on the storage slot in `Zap.sol`); it's set once at
+    // `initialize` and has no live setter.
     function test_uniswapV2Router_hasNoLiveSetter() public {
         // Owner `call` (not `staticcall`) with non-zero args: a missing
         // selector hits the empty fallback and returns no revert data, while
@@ -1169,9 +1169,12 @@ contract ZapTest is DeployHelper {
         uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
-        // Fee is 0.75% of grossUsdc. usdcOut = grossUsdc - fee → fee = usdcOut * 75 / 9925.
-        uint256 fee = (usdcOut * 75) / 9925;
-        assertApproxEqAbs(usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "FeeVault should receive sell fee");
+        // Fee is 0.75% of grossUsdc, rounded up in favour of the protocol.
+        // grossUsdc is reconstructed exactly as usdcOut + fee.
+        uint256 feeDelta = usdc.balanceOf(address(feeVault)) - vaultBefore;
+        uint256 grossUsdc = usdcOut + feeDelta;
+        uint256 expectedFee = (grossUsdc * 75 + 9999) / 10_000;
+        assertEq(feeDelta, expectedFee, "Sell fee must round up to the protocol");
     }
 
     function test_createToken_seedBuy_feeAccruesToCreator() public {
@@ -1218,10 +1221,10 @@ contract ZapTest is DeployHelper {
         uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
-        uint256 fee = (usdcOut * 75) / 9925;
-        assertApproxEqAbs(
-            usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "Post-grad sells must still accrue the same fee"
-        );
+        uint256 feeDelta = usdc.balanceOf(address(feeVault)) - vaultBefore;
+        uint256 grossUsdc = usdcOut + feeDelta;
+        uint256 expectedFee = (grossUsdc * 75 + 9999) / 10_000;
+        assertEq(feeDelta, expectedFee, "Post-grad sells must round the fee up to the protocol");
     }
 
     function test_setFees_onlyOwner() public {

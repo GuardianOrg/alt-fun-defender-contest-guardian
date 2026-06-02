@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
@@ -46,9 +47,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     /// @notice Mandatory seed-buy floor enforced on every `createToken` call
     ///         (real USDC, 6dp — `$20`). Combined with `Bonding`'s
     ///         `LAUNCH_TRADING_DELAY_BLOCKS`, this is the system's anti-snipe
-    ///         design: the creator's seed absorbs the cheap end of the curve
-    ///         while public buys are gated for the next 3 blocks, so first-
-    ///         block bots cannot capture supply at the curve floor.
+    ///         design: the seed lands ahead of the gate while public buys are
+    ///         blocked for the next 3 blocks, so no one else can race the
+    ///         creator into the cheap end of the curve. The gate covers buys
+    ///         only — see the no-cap note below for why the creator is never
+    ///         forced to leave the seed in the curve.
     /// @dev    The floor is measured against the gross `seedUsdcAmount` the
     ///         creator supplies, not the post-fee amount routed to the curve.
     ///         The buy fee is skimmed in `_executeBuy`, so a `$20` seed lands
@@ -67,10 +70,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     struct ZapStorage {
         Bonding bonding;
         IERC20 usdc;
-        /// @dev Set once at `initialize` and immutable thereafter — there is
-        ///      no live setter. Migrating to a different HyperSwap fork
-        ///      requires a UUPS upgrade so the change is visible on-chain
-        ///      ahead of time.
+        /// @dev Currently unused. Post-graduation swaps go direct-to-pair
+        ///      (see `_swapOnUniswapV2`), so nothing reads this on-chain. Set
+        ///      once at `initialize`, with no live setter. Retained in case a
+        ///      future version routes swaps through the V2 router; rotating it
+        ///      would then require a UUPS upgrade.
         IUniswapV2Router02 uniswapV2Router;
         FeeVault feeVault;
         uint256 buyFeeBps;
@@ -381,7 +385,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // size (rather than the consumed slice) would over-charge users
         // who hit this dust band.
         uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
-        actualFee = (usdcAmount * buyFeeBps_ * effectiveBaseSpent) / (BPS_DENOM * netUsdc);
+        // Round the prorated fee up in favour of the protocol and creator, then
+        // cap it at the gross fee already withheld so the refund can't underflow
+        // and a full-size buy never charges more than `feeOnGross`.
+        actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
+        if (actualFee > feeOnGross) actualFee = feeOnGross;
         uint256 feeRefund = feeOnGross - actualFee;
 
         uint256 usdcLeft = netUsdc - baseToConvert;
@@ -426,7 +434,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Symmetric with `_executeBuy`: fee charged on EVERY sell — curve
         // AND post-graduation. The `isGraduated` branch above selects the
         // venue, not the fee policy. See `_executeBuy` for the rationale.
-        uint256 fee = (grossUsdc * $.sellFeeBps) / BPS_DENOM;
+        uint256 fee = Math.mulDiv(grossUsdc, $.sellFeeBps, BPS_DENOM, Math.Rounding.Ceil);
         usdcOut = grossUsdc - fee;
 
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
