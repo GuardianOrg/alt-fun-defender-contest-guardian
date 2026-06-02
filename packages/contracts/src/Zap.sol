@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
@@ -377,7 +378,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // size (rather than the consumed slice) would over-charge users
         // who hit this dust band.
         uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
-        actualFee = (usdcAmount * buyFeeBps_ * effectiveBaseSpent) / (BPS_DENOM * netUsdc);
+        // Round the prorated fee up in favour of the protocol and creator, then
+        // cap it at the gross fee already withheld so the refund can't underflow
+        // and a full-size buy never charges more than `feeOnGross`.
+        actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
+        if (actualFee > feeOnGross) actualFee = feeOnGross;
         uint256 feeRefund = feeOnGross - actualFee;
 
         uint256 usdcLeft = netUsdc - baseToConvert;
@@ -422,7 +427,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Symmetric with `_executeBuy`: fee charged on EVERY sell — curve
         // AND post-graduation. The `isGraduated` branch above selects the
         // venue, not the fee policy. See `_executeBuy` for the rationale.
-        uint256 fee = (grossUsdc * $.sellFeeBps) / BPS_DENOM;
+        uint256 fee = Math.mulDiv(grossUsdc, $.sellFeeBps, BPS_DENOM, Math.Rounding.Ceil);
         usdcOut = grossUsdc - fee;
 
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
