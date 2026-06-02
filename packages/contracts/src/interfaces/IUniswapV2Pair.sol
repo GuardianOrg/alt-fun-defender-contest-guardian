@@ -12,6 +12,15 @@ interface IUniswapV2Pair {
     function token0() external view returns (address);
     function token1() external view returns (address);
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+
+    /// @notice Fee-aware output quote for swapping `amountIn` of `tokenIn`.
+    ///         Reads the pair's live per-token fee, so callers never have to
+    ///         assume a fee rate that could diverge from the pair's K-check.
+    function getAmountOut(
+        uint256 amountIn,
+        address tokenIn
+    ) external view returns (uint256 amountOut);
+
     function swap(
         uint256 amount0Out,
         uint256 amount1Out,

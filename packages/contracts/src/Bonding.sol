@@ -1279,11 +1279,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      with a non-standard ABI. Same direct-to-pair pattern
     ///      `Zap._swapOnUniswapV2` uses for the same reason.
     ///
-    ///      We compute the V2 fee-charging amount-out ourselves
-    ///      (`(s · 997 · rOut) / (rIn · 1000 + s · 997)`) and pass it as
-    ///      the output to `pair.swap`. The pair's K-invariant check uses
-    ///      the canonical V2 0.3% fee math, so a wrong `expectedOut`
-    ///      would revert there.
+    ///      We read the output from the pair's own fee-aware quote
+    ///      (`getAmountOut`) and pass it to `pair.swap`, so the value always
+    ///      tracks the pair's live per-token fee and stays consistent with
+    ///      its K-invariant check.
     ///
     ///      The `expectedOut == 0` precheck is necessary because
     ///      `pair.swap` reverts with `INSUFFICIENT_OUTPUT_AMOUNT` when
@@ -1304,8 +1303,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 s = _noFeeSwapInput(p.reserveIn, p.reserveOut, p.targetN, p.targetD, p.maxSwap);
         if (s == 0) return;
 
-        uint256 amountInWithFee = s * 997;
-        uint256 expectedOut = (amountInWithFee * p.reserveOut) / (p.reserveIn * 1000 + amountInWithFee);
+        // Quote from the pair so the output tracks its live fee; a value
+        // derived from a stale fee rate would trip the pair's K-check.
+        uint256 expectedOut = IUniswapV2Pair(p.pair).getAmountOut(s, p.tokenIn);
         if (expectedOut == 0) return;
 
         IERC20(p.tokenIn).safeTransfer(p.pair, s);
@@ -1375,9 +1375,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      under the no-fee constant-product model:
     ///        `(reserveIn + s)² = reserveIn * reserveOut * targetN/targetD`
     ///      ⇒ `s = sqrt(reserveIn * reserveOut * targetN/targetD) - reserveIn`,
-    ///      capped at `maxSwap`. The actual swap is fee-charging (V2 0.3%),
-    ///      so the post-swap ratio drifts ~30 bps from the target; the
-    ///      balanced-subset deposit absorbs the residual without donating.
+    ///      capped at `maxSwap`. The actual swap is fee-charging (the pair's
+    ///      live fee), so the post-swap ratio drifts from the target by the
+    ///      fee; the balanced-subset deposit absorbs the residual without
+    ///      donating.
     ///
     ///      `Math.mulDiv` keeps the intermediate product
     ///      `reserveIn * reserveOut * targetN` inside its 512-bit working

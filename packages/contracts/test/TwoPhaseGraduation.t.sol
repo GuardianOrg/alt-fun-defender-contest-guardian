@@ -287,6 +287,48 @@ contract TwoPhaseGraduationTest is DeployHelper {
         assertTrue(lockedLp > 0, "lpLock must hold the protocol LP");
     }
 
+    /// @notice Same hostile mint pre-seed as the dust-seed case, but the pair's
+    ///         fee has been moved off the default beforehand. The rebalance leg
+    ///         quotes its output from the pair, so finalize must still succeed;
+    ///         a hardcoded fee rate would overshoot the pair's K-check and brick
+    ///         the graduation.
+    function test_brick_resistance_preSeed_withRaisedPairFee() public {
+        (address tokenAddr,) = _launchToken();
+
+        if (!bonding.isRouter(griefer)) bonding.addRouter(griefer);
+        uint256 grieferBuy = _smallBuyLt();
+        lt.mintDirect(griefer, grieferBuy);
+        vm.startPrank(griefer);
+        lt.approve(address(curveRouter), grieferBuy);
+        bonding.buy(grieferBuy, tokenAddr, 0, griefer);
+        vm.stopPrank();
+        assertTrue(Token(tokenAddr).balanceOf(griefer) > 0);
+
+        _enterGraduating(tokenAddr);
+
+        MockHyperswapFactory hsFactory = MockHyperswapFactory(hyperswapRouter.factory());
+        address hyperPair = hsFactory.createPair(tokenAddr, address(lt));
+        lt.mintDirect(griefer, 1 ether);
+
+        vm.startPrank(griefer);
+        IERC20(tokenAddr).transfer(hyperPair, 1 ether);
+        lt.transfer(hyperPair, 1 ether);
+        MockHyperswapPair(hyperPair).mint(griefer);
+        vm.stopPrank();
+
+        // HyperSwap raises this pair's fee above the canonical default before
+        // the protocol gets to finalize.
+        MockHyperswapPair(hyperPair).setFeePercent(900, 900);
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        assertTrue(bonding.isGraduated(tokenAddr), "finalize must survive a non-default pair fee");
+        assertEq(bonding.graduatedPair(tokenAddr), hyperPair, "must reuse the front-run pair");
+        assertTrue(
+            MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)) > 0, "lpLock must hold the protocol LP"
+        );
+    }
+
     /// @notice Variation: the griefer creates the pair but doesn't seed it.
     ///         Empty pre-created pair must still work (this was the only
     ///         brick-resistance path the old code handled).
