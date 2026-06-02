@@ -335,8 +335,8 @@ contract BondingTest is DeployHelper {
     function test_launch_succeedsAtExchangeRateBoundary() public {
         uint256 maxVirtualLt = uint256(type(uint112).max) / 4;
         uint256 numerator = bonding.VIRTUAL_LIQUIDITY_USD() * 1e18;
-        // Smallest rate that keeps virtualLtReserve within the bound.
-        uint256 okRate = numerator / maxVirtualLt + 1;
+        // First passing rate: one tick above the largest rejected rate.
+        uint256 okRate = numerator / (maxVirtualLt + 1) + 1;
         lt.setExchangeRate(okRate);
 
         vm.startPrank(creator);
