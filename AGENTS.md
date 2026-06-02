@@ -44,7 +44,7 @@ Data flow: Contracts emit events → Ponder indexes into Postgres (shared with t
 | Graduation market cap | `~$12K` at launch-time rate when threshold = `$9K` (higher when LT rallies). `graduationThresholdUsd` is set at `Bonding.initialize` and only changeable via a UUPS upgrade with a `reinitializer`. |
 | Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$9K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
 | Dynamic LP seeding | `tokensForLP = raisedLT × reserve0 / reserve1`. Guarantees LP opens at the exact last curve price (zero-gap). Excess of `LP_RESERVE` burned. |
-| Overflow buy protection | A buy that would exceed remaining real supply is capped; unused LT refunded (as USDC) to the buyer. |
+| Overflow buy protection | A buy that would exceed remaining real supply is capped; LT minted but not consumed is returned to the buyer as LT (unconverted USDC and the fee over-charge are refunded in USDC). |
 | User-facing currency | USDC in / USDC out. LT fully abstracted. |
 | Post-grad venue | HyperSwap V2 |
 | Post-grad pair | TOKEN/LT (leveraged exposure persists) |

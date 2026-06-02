@@ -47,9 +47,9 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 2. `Zap` pulls `usdcAmount` USDC and deducts the 0.75% Alt Fun fee up-front (forwarded to `FeeVault`, split 0.5% protocol / 0.25% creator). The fee is charged on every buy — curve **and** post-graduation — not just curve trades.
 3. Net USDC is minted to LT
 4. If on curve: routes through `Bonding.buy()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). The 0.75% Alt Fun fee is identical on both paths; post-grad, HyperSwap also charges its own 0.3% LP fee on the swap leg, on top of the Alt Fun fee.
-5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
+5. Tokens sent to user; on a capped buy, any LT minted but not consumed by the curve is returned directly as LT, while unconverted USDC and the pro-rata fee over-charge are refunded in USDC
 
-**Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `IBounceLeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
+**Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` transfers the LT it minted but the curve didn't consume (`ltMinted - amountInUsed`) straight back to the buyer as LT — it is **not** redeemed, since round-tripping the dust overshoot through `redeem()` would re-incur the LT's redemption fee. Net USDC that was never minted into LT, plus the pro-rata fee over-charge, is refunded separately in USDC.
 
 ## Sell Flow
 
