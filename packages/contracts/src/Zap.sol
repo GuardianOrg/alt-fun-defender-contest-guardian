@@ -530,13 +530,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address pair = bonding_.graduatedPair(tokenIn);
         if (pair == address(0)) pair = bonding_.graduatedPair(tokenOut);
 
-        (uint112 reserve0, uint112 reserve1,) = IUniswapV2Pair(pair).getReserves();
         bool inIsToken0 = IUniswapV2Pair(pair).token0() == tokenIn;
-        (uint256 reserveIn, uint256 reserveOut) =
-            inIsToken0 ? (uint256(reserve0), uint256(reserve1)) : (uint256(reserve1), uint256(reserve0));
-
-        uint256 amountInWithFee = amountIn * 997;
-        amountOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+        // Quote from the pair so the output tracks its live fee instead of a
+        // hardcoded rate, keeping `amountOut` consistent with the K-check.
+        amountOut = IUniswapV2Pair(pair).getAmountOut(amountIn, tokenIn);
 
         IERC20(tokenIn).safeTransfer(pair, amountIn);
 

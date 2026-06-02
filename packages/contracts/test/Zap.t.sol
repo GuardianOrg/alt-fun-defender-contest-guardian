@@ -10,6 +10,7 @@ import {Zap} from "../src/Zap.sol";
 import {IBounceLeveragedToken} from "../src/interfaces/IBounceLeveragedToken.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
+import {MockHyperswapPair} from "./mocks/MockHyperswapRouter.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract ZapV2 is Zap {
@@ -1038,6 +1039,42 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
 
         assertTrue(usdcOut > 0, "Post-grad sell should return USDC");
+    }
+
+    /// @notice HyperSwap pairs carry a per-pair, owner-settable fee. The swap
+    ///         output is quoted from the pair rather than a hardcoded rate, so
+    ///         a post-grad buy keeps working after the pair's fee moves off the
+    ///         default (a stale rate would overshoot the pair's K-check and
+    ///         revert the swap).
+    function test_buy_postGrad_succeedsWhenPairFeeRaised() public {
+        address tokenAddr = _createToken(0);
+        _graduateToken(tokenAddr);
+
+        // Raise the pair fee to 0.9% (900 / FEE_DENOMINATOR 100_000); the
+        // canonical default is 0.3% (300).
+        MockHyperswapPair(bonding.graduatedPair(tokenAddr)).setFeePercent(900, 900);
+
+        uint256 tokensOut = _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), _smallBuyUsdc());
+        assertTrue(tokensOut > 0, "Post-grad buy must survive a non-default pair fee");
+    }
+
+    function test_sell_postGrad_succeedsWhenPairFeeRaised() public {
+        address tokenAddr = _createToken(0);
+        _graduateToken(tokenAddr);
+
+        address seller = makeAddr("postGradSeller");
+        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, _smallBuyUsdc());
+
+        // Raise the pair fee to 0.9% (900 / FEE_DENOMINATOR 100_000); the
+        // canonical default is 0.3% (300).
+        MockHyperswapPair(bonding.graduatedPair(tokenAddr)).setFeePercent(900, 900);
+
+        vm.startPrank(seller);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+
+        assertTrue(usdcOut > 0, "Post-grad sell must survive a non-default pair fee");
     }
 
     // ─── Admin Tests ─────────────────────────────────────────────────────

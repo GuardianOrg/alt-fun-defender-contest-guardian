@@ -17,6 +17,15 @@ contract MockHyperswapPair is ERC20 {
     address public token0;
     address public token1;
 
+    /// @dev Camelot-style per-token, owner-settable fees (numerator over
+    ///      `FEE_DENOMINATOR`). Default 300 / 100_000 == 0.3%, matching the
+    ///      canonical UniswapV2 fee so existing tests are unaffected;
+    ///      `setFeePercent` lets tests model HyperSwap raising/lowering a
+    ///      pair's fee away from the default.
+    uint256 public constant FEE_DENOMINATOR = 100_000;
+    uint16 public token0FeePercent = 300;
+    uint16 public token1FeePercent = 300;
+
     /// @dev UniswapV2's `MINIMUM_LIQUIDITY`. The first mint to a virgin pair
     ///      locks this many LP tokens permanently and requires
     ///      `sqrt(amount0 * amount1) > MINIMUM_LIQUIDITY`. Real V2 burns to
@@ -91,15 +100,41 @@ contract MockHyperswapPair is ERC20 {
         uint256 amount1In = balance1 > reserve1 - amount1Out ? balance1 - (reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, "MockPair: INSUFFICIENT_INPUT_AMOUNT");
 
-        // K-invariant check with 0.3% fee, matching UniswapV2Pair.
-        uint256 balance0Adjusted = (balance0 * 1000) - (amount0In * 3);
-        uint256 balance1Adjusted = (balance1 * 1000) - (amount1In * 3);
+        // K-invariant check charging each input side its own per-token fee,
+        // matching CamelotPair (the fork HyperSwap V2 is based on).
+        uint256 balance0Adjusted = (balance0 * FEE_DENOMINATOR) - (amount0In * token0FeePercent);
+        uint256 balance1Adjusted = (balance1 * FEE_DENOMINATOR) - (amount1In * token1FeePercent);
         require(
-            balance0Adjusted * balance1Adjusted >= uint256(reserve0) * uint256(reserve1) * (1000 ** 2), "MockPair: K"
+            balance0Adjusted * balance1Adjusted >= uint256(reserve0) * uint256(reserve1) * (FEE_DENOMINATOR ** 2),
+            "MockPair: K"
         );
 
         _reserve0 = uint112(balance0);
         _reserve1 = uint112(balance1);
+    }
+
+    /// @dev Fee-aware output quote mirroring CamelotPair: charges the input
+    ///      token's fee percent against `FEE_DENOMINATOR`. Consistent with the
+    ///      K-check above by construction.
+    function getAmountOut(
+        uint256 amountIn,
+        address tokenIn
+    ) external view returns (uint256) {
+        bool inIs0 = tokenIn == token0;
+        (uint256 reserveIn, uint256 reserveOut) =
+            inIs0 ? (uint256(_reserve0), uint256(_reserve1)) : (uint256(_reserve1), uint256(_reserve0));
+        uint256 feePercent = inIs0 ? token0FeePercent : token1FeePercent;
+        uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - feePercent);
+        return (amountInWithFee * reserveOut) / (reserveIn * FEE_DENOMINATOR + amountInWithFee);
+    }
+
+    /// @dev Test hook for HyperSwap's owner-settable per-pair fee.
+    function setFeePercent(
+        uint16 newToken0FeePercent,
+        uint16 newToken1FeePercent
+    ) external {
+        token0FeePercent = newToken0FeePercent;
+        token1FeePercent = newToken1FeePercent;
     }
 
     /// @dev Standard UniswapV2 `skim`: transfer any balance in excess of
@@ -276,12 +311,8 @@ contract MockHyperswapRouter {
         uint256 amountIn,
         address to
     ) internal {
-        (uint112 r0, uint112 r1,) = pair.getReserves();
         bool inIs0 = pair.token0() == tokenIn;
-        uint256 rIn = inIs0 ? uint256(r0) : uint256(r1);
-        uint256 rOut = inIs0 ? uint256(r1) : uint256(r0);
-        uint256 amountInWithFee = amountIn * 997;
-        uint256 amountOut = (amountInWithFee * rOut) / (rIn * 1000 + amountInWithFee);
+        uint256 amountOut = pair.getAmountOut(amountIn, tokenIn);
         (uint256 a0, uint256 a1) = inIs0 ? (uint256(0), amountOut) : (amountOut, uint256(0));
         pair.swap(a0, a1, to, new bytes(0));
     }
