@@ -54,6 +54,7 @@ contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
     error AlreadyLocked();
     error LockerAlreadyAdded();
     error ZeroAddress();
+    error ZeroAmount();
 
     constructor() {
         _disableInitializers();
@@ -73,7 +74,11 @@ contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
     ) external {
         LPLockStorage storage $ = _s();
         if (!$.isLocker[msg.sender]) revert NotAuthorized();
-        if ($.locks[token].amount != 0) revert AlreadyLocked();
+        if (lpPair == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+        // `lockedAt` is the one-shot sentinel: it is always set to a non-zero
+        // timestamp on the first lock, so the guard holds for any `amount`.
+        if ($.locks[token].lockedAt != 0) revert AlreadyLocked();
         if (IERC20(lpPair).balanceOf(address(this)) < amount) revert InsufficientLPBalance();
         $.locks[token] = LockInfo({lpPair: lpPair, amount: amount, lockedAt: block.timestamp});
         emit LPLocked(token, lpPair, amount);
