@@ -428,10 +428,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///
     ///      Drift is accepted: it's inherent to using a leveraged token as
     ///      the reserve (same drift class as the phase-1 → phase-2 gap on
-    ///      `finalizeGraduation`). A donation attack on the LT's
-    ///      `baseAssetBalance` to skew the snapshot is cost-negative — the
-    ///      donation is irrevocable and the only direct victim is the
-    ///      creator's `MIN_SEED_USDC`-floored seed buy.
+    ///      `finalizeGraduation`). The snapshot is also a pre-checkpoint
+    ///      view — `exchangeRate()` doesn't settle the LT's accrued
+    ///      streaming fee until the seed buy's `mint` checkpoints it moments
+    ///      later — so the curve opens off a rate marginally above the
+    ///      settled one, bounded by the pending fee and immaterial. A
+    ///      donation attack on the LT's `baseAssetBalance` to skew the
+    ///      snapshot is cost-negative — the donation is irrevocable and the
+    ///      only direct victim is the creator's `MIN_SEED_USDC`-floored seed
+    ///      buy.
     ///
     ///      No `(min, max)` band on `LaunchParams` by design: a band
     ///      introduces a launch-failure mode users can't diagnose and forces
@@ -630,6 +635,17 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         see `_launchTimeVirtualLtReserve`). Donations to the pair
     ///         move only the live ERC20 balance, not the stored reserve, so
     ///         they are excluded from the threshold.
+    ///
+    ///         `exchangeRate()` is a view that doesn't settle the LT's
+    ///         accrued streaming fee (only mint / redeem / agent checkpoints
+    ///         do), so the USD leg can read marginally high and trip the
+    ///         threshold a touch early. Bounded by the pending fee,
+    ///         one-directional, and the same accepted drift class as the
+    ///         launch snapshot (`_deployAndSeed`); the inline post-buy path
+    ///         is unaffected (`Zap.buy`'s `mint` checkpoints in the same tx)
+    ///         and LP seeding never reads the rate, so the pool still opens
+    ///         at the exact curve-close price. Deep dive in
+    ///         `docs/contracts-scope.md` (Graduation).
     ///
     ///         Supply trigger: uses live `IPair.tokenBalance()`. This IS an
     ///         `IERC20.balanceOf` read but is donation-resistant in the
