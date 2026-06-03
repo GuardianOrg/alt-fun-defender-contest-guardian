@@ -195,6 +195,7 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:SP500",
       "xyz:SPCX",
       "xyz:XYZ100",
+      "xyz:BB",
     ]);
   });
 });

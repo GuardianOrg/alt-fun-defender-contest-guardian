@@ -74,6 +74,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "xyz:SP500",
   "xyz:SPCX",
   "xyz:XYZ100",
+  "xyz:BB",
 ] as const;
 
 export type SupportedAsset = (typeof SUPPORTED_UNDERLYING_ASSETS)[number];
