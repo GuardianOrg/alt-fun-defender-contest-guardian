@@ -150,7 +150,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         narrowing cast would strand real LT in phase 2.
     /// @dev    No `pendingSince` / freshness timestamp by design — see the
     ///         "exchange-rate drift between phase 1 and phase 2" note on
-    ///         `finalizeGraduation` for the audit-acceptance rationale.
+    ///         `finalizeGraduation` for the rationale.
     struct PendingGraduation {
         uint256 tokensForLP;
         uint256 ltFromPair;
@@ -1115,8 +1115,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         }
     }
 
-    /// @dev LP-seeding into the HyperSwap pair, with hostile-pre-seed defense
-    ///      (#308). Three regimes:
+    /// @dev LP-seeding into the HyperSwap pair, hardened against hostile
+    ///      pre-seeds. Three regimes:
     ///
     ///        1. **Empty pair (~99% of graduations).** Pristine direct mint
     ///           at exactly `(tokensForLP, ltFromPair)` — pool opens at the
@@ -1133,29 +1133,35 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           escrow). NEVER routed to `LPLock` — `LPLock` has no
     ///           rescue path in v1, so anything that lands there is
     ///           permanently stuck.
-    ///        3. **Mint pre-seed (the actual issue).** Attacker called
-    ///           `pair.mint` against a self-funded dust seed, baking a
-    ///           hostile (TOKEN, LT) ratio into the pool. Without
-    ///           intervention `pair.mint(lpLock)`'s `min(amount0·S/r0,
-    ///           amount1·S/r1)` formula would (a) open the LP off
-    ///           curve-close-price and (b) donate the larger arm to the
-    ///           attacker's pre-existing LP. We rebalance via a direct
-    ///           `pair.swap` toward the curve-close ratio, then deposit
-    ///           the remaining inventory via the router's `quote()`-based
-    ///           `addLiquidity` — which only pulls the optimal amounts
-    ///           at the post-swap ratio, so neither side becomes a
-    ///           `min()` donation. Off-ratio TOKEN remainder is burned;
-    ///           off-ratio LT remainder is auto-swept to the owner by
-    ///           `finalizeGraduation`'s post-bookend (see its natspec).
+    ///        3. **Mint pre-seed.** Attacker called `pair.mint` against a
+    ///           self-funded seed, baking a hostile (TOKEN, LT) ratio into
+    ///           the pool. Without intervention `pair.mint(lpLock)`'s
+    ///           `min(amount0·S/r0, amount1·S/r1)` formula would (a) open
+    ///           the LP off curve-close-price and (b) donate the larger arm
+    ///           to the attacker's pre-existing LP. We rebalance via a
+    ///           direct `pair.swap` toward the curve-close ratio, then
+    ///           deposit the remaining inventory via the router's
+    ///           `quote()`-based `addLiquidity` — which only pulls the
+    ///           optimal amounts at the post-swap ratio, so neither side
+    ///           becomes a `min()` donation. Off-ratio TOKEN remainder is
+    ///           burned; off-ratio LT remainder is auto-swept to the owner
+    ///           by `finalizeGraduation`'s post-bookend (see its natspec).
+    ///           When the seed is small enough that the fee-charging swap
+    ///           quote rounds to zero, no swap can move the ratio — but the
+    ///           reserves are then negligible against this graduation's
+    ///           inventory, so we fall back to the regime-1 direct mint
+    ///           (`_seedDirectMint`) and open at the cached ratio anyway.
+    ///           The captured LP share is bounded by
+    ///           `max(reserveToken/tokensForLP, reserveLT/ltFromPair)`,
+    ///           which vanishes for any seed that small.
     ///
     ///      Brick resistance: the rebalance swap input is capped at our
-    ///      per-side budget; the swap is precondition-checked to skip
-    ///      when V2's fee-charging `getAmountOut` would round to zero
-    ///      (which would otherwise revert `pair.swap` with
-    ///      `INSUFFICIENT_OUTPUT_AMOUNT`); the deposit uses
-    ///      `addLiquidity(min=1, min=1)`; and the empty/donation regimes
-    ///      don't touch the router or `pair.swap`. So a hostile pre-seed
-    ///      of any shape cannot DoS `finalizeGraduation`.
+    ///      per-side budget; a swap whose fee-charging `getAmountOut` would
+    ///      round to zero (which would otherwise revert `pair.swap` with
+    ///      `INSUFFICIENT_OUTPUT_AMOUNT`) is replaced by the direct-mint
+    ///      fallback; the deposit uses `addLiquidity(min=1, min=1)`; and the
+    ///      empty/donation regimes don't touch the router or `pair.swap`. So
+    ///      a hostile pre-seed of any shape cannot DoS `finalizeGraduation`.
     ///
     ///      Asymmetric router usage: **the rebalance swap is direct-to-pair
     ///      (`pair.swap`), not router-mediated.** HyperSwap mainnet's V2
@@ -1192,18 +1198,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         // Regime 1 — pristine pair, direct mint at exact curve-close ratio.
         if (r0 == 0 && r1 == 0) {
-            IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
-            IERC20(lt).safeTransfer(pair, ltFromPair);
-            liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
-            // Burn any TOKEN remainder skimmed from a pure-donation
-            // pre-seed (Regime 2 → 1 fall-through). LT remainder is
-            // handled by `finalizeGraduation`'s `_sweepLTToOwner` post-
-            // bookend; no extra call needed here.
-            uint256 leftoverToken = IERC20(tokenAddress).balanceOf(address(this));
-            if (leftoverToken > 0) {
-                Token(tokenAddress).burn(address(this), leftoverToken);
-            }
-            return liquidity;
+            return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
         }
 
         // Regime 3 — mint pre-seed: rebalance, then deposit balanced subset.
@@ -1212,6 +1207,31 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // keep this function's stack pressure under solc's 16-slot ceiling
         // without `viaIR`.
         return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair, protectedLT);
+    }
+
+    /// @dev Transfer the full `(tokensForLP, ltFromPair)` to the pair and
+    ///      `mint` the LP to `LPLock`, opening at the exact cached
+    ///      curve-close ratio. Used by the empty-pair regime and as the
+    ///      dust-pre-seed fallback in `_seedRebalancing` — against dust
+    ///      reserves the V2 `min()` formula's donation to any pre-existing
+    ///      LP is negligible (see `_seedUniswapV2Direct` natspec). Any TOKEN
+    ///      remainder (a skimmed pure-donation pre-seed) is burned; the LT
+    ///      remainder is left for `finalizeGraduation`'s `_sweepLTToOwner`
+    ///      post-bookend.
+    function _seedDirectMint(
+        address tokenAddress,
+        address lt,
+        address pair,
+        uint256 tokensForLP,
+        uint256 ltFromPair
+    ) internal returns (uint256 liquidity) {
+        IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
+        IERC20(lt).safeTransfer(pair, ltFromPair);
+        liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
+        uint256 leftoverToken = IERC20(tokenAddress).balanceOf(address(this));
+        if (leftoverToken > 0) {
+            Token(tokenAddress).burn(address(this), leftoverToken);
+        }
     }
 
     /// @dev Memory bag for `_seedRebalancing` → `_pairRebalance` so the call
@@ -1249,35 +1269,45 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // Direction: pool TOKEN-rich vs target ⇒ swap LT in (TOKEN out).
         // Pool LT-rich ⇒ swap TOKEN in (LT out). Bounded by uint112 reserves
         // and curve-close-shape targets, both products fit in uint256.
+        // When `_pairRebalance` returns false the seed is too small for any
+        // swap to move the ratio (its fee-charging quote rounds to zero), so
+        // the reserves are negligible against this graduation's inventory:
+        // overpower them with a direct mint at the cached ratio rather than
+        // letting the router deposit at the attacker's ratio. A swap that
+        // does fire leaves the pool ≈ at target for the router deposit.
         if (reserveToken * ltFromPair > reserveLT * tokensForLP) {
             // Pool TOKEN-rich. tokenIn = lt, tokenOut = tokenAddress.
             // tokenInIs0 = (lt is token0) = !tokenIs0.
-            _pairRebalance(
-                RebalanceParams({
-                    pair: pair,
-                    tokenIn: lt,
-                    tokenInIs0: !tokenIs0,
-                    reserveIn: reserveLT,
-                    reserveOut: reserveToken,
-                    targetN: ltFromPair,
-                    targetD: tokensForLP,
-                    maxSwap: _swapBudget(_ltSwapInventory(lt, protectedLT))
-                })
-            );
+            if (!_pairRebalance(
+                    RebalanceParams({
+                        pair: pair,
+                        tokenIn: lt,
+                        tokenInIs0: !tokenIs0,
+                        reserveIn: reserveLT,
+                        reserveOut: reserveToken,
+                        targetN: ltFromPair,
+                        targetD: tokensForLP,
+                        maxSwap: _swapBudget(_ltSwapInventory(lt, protectedLT))
+                    })
+                )) {
+                return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+            }
         } else if (reserveToken * ltFromPair < reserveLT * tokensForLP) {
             // Pool LT-rich. tokenIn = tokenAddress, tokenInIs0 = tokenIs0.
-            _pairRebalance(
-                RebalanceParams({
-                    pair: pair,
-                    tokenIn: tokenAddress,
-                    tokenInIs0: tokenIs0,
-                    reserveIn: reserveToken,
-                    reserveOut: reserveLT,
-                    targetN: tokensForLP,
-                    targetD: ltFromPair,
-                    maxSwap: _swapBudget(IERC20(tokenAddress).balanceOf(address(this)))
-                })
-            );
+            if (!_pairRebalance(
+                    RebalanceParams({
+                        pair: pair,
+                        tokenIn: tokenAddress,
+                        tokenInIs0: tokenIs0,
+                        reserveIn: reserveToken,
+                        reserveOut: reserveLT,
+                        targetN: tokensForLP,
+                        targetD: ltFromPair,
+                        maxSwap: _swapBudget(IERC20(tokenAddress).balanceOf(address(this)))
+                    })
+                )) {
+                return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+            }
         }
         // else: pool already at curve-close ratio (rare — e.g. attacker
         // pre-seeded at exactly target). Skip swap, deposit directly.
@@ -1332,33 +1362,32 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      tracks the pair's live per-token fee and stays consistent with
     ///      its K-invariant check.
     ///
-    ///      The `expectedOut == 0` precheck is necessary because
-    ///      `pair.swap` reverts with `INSUFFICIENT_OUTPUT_AMOUNT` when
-    ///      both output amounts are zero — happens for tiny `s` against
-    ///      an extremely imbalanced pool. Skipping is safe — the
-    ///      subsequent `addLiquidity` still defuses the LP-capture
-    ///      attack via its `quote()`-based optimal split, just opens at
-    ///      the (sub-bp) residual skew the swap would have closed.
-    ///      Whether the skip fired is observable post-hoc by comparing
-    ///      the cached `tokensForLP / ltFromPair` ratio in the
-    ///      `TokenGraduating` event against the resulting pool reserves.
+    ///      Returns `true` if a swap executed, `false` if it was skipped.
+    ///      Skips when the no-fee input rounds to zero (`s == 0`) or when
+    ///      the pair's fee-charging `getAmountOut(s)` rounds to zero — the
+    ///      latter would otherwise revert `pair.swap` with
+    ///      `INSUFFICIENT_OUTPUT_AMOUNT`. Both only happen for a seed too
+    ///      small to move the ratio by a whole wei of output; the caller
+    ///      reads the `false` return and falls back to a direct mint that
+    ///      overpowers the dust at the cached ratio.
     ///
     ///      No router approval needed (we transfer to the pair directly),
     ///      so no allowance hygiene to worry about.
     function _pairRebalance(
         RebalanceParams memory p
-    ) internal {
+    ) internal returns (bool) {
         uint256 s = _noFeeSwapInput(p.reserveIn, p.reserveOut, p.targetN, p.targetD, p.maxSwap);
-        if (s == 0) return;
+        if (s == 0) return false;
 
         // Quote from the pair so the output tracks its live fee; a value
         // derived from a stale fee rate would trip the pair's K-check.
         uint256 expectedOut = IUniswapV2Pair(p.pair).getAmountOut(s, p.tokenIn);
-        if (expectedOut == 0) return;
+        if (expectedOut == 0) return false;
 
         IERC20(p.tokenIn).safeTransfer(p.pair, s);
         (uint256 amount0Out, uint256 amount1Out) = p.tokenInIs0 ? (uint256(0), expectedOut) : (expectedOut, uint256(0));
         IUniswapV2Pair(p.pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
+        return true;
     }
 
     /// @dev Deposit leg: add liquidity at the post-swap pool ratio via the
