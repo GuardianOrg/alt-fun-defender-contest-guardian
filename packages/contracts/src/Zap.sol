@@ -349,8 +349,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
                 // `redeem` would re-incur BounceTech's redemption fee on
                 // dust, defeating the pre-sizing optimisation this branch
                 // exists for.
-                if (baseToConvert < minUsdcAmount()) {
-                    baseToConvert = minUsdcAmount();
+                uint256 floor = minUsdcAmount();
+                if (baseToConvert < floor) {
+                    baseToConvert = floor;
                     if (baseToConvert > netUsdc) revert BelowMinAmount();
                 }
             }
