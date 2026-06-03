@@ -665,13 +665,17 @@ contract ZapTest is DeployHelper {
 
     /// @dev On a cap-binding buy the `Buy` / `Referred` amount must reflect the
     ///      USDC actually spent (input minus the refunded principal and fee),
-    ///      not the over-sized submitted amount.
+    ///      not the over-sized submitted amount. The `2×` rate makes the
+    ///      threshold leg bind cleanly with no LT refund, so the spent amount
+    ///      equals the trader's USDC outflow exactly.
     function test_buy_capPath_emitsActualGrossSpent() public {
         address tokenAddr = _createToken(0);
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
 
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
         uint256 traderUsdcBefore = usdc.balanceOf(trader);
+        uint256 traderLtBefore = lt.balanceOf(trader);
 
         vm.startPrank(trader);
         usdc.approve(address(zap), buyAmount);
@@ -681,6 +685,7 @@ contract ZapTest is DeployHelper {
 
         uint256 usdcSpent = traderUsdcBefore - usdc.balanceOf(trader);
         assertLt(usdcSpent, buyAmount, "Cap-binding buy must refund part of the input");
+        assertEq(lt.balanceOf(trader) - traderLtBefore, 0, "Clean threshold cap: no LT refund");
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 buySig = keccak256("Buy(address,address,uint256,uint256)");
@@ -695,6 +700,54 @@ contract ZapTest is DeployHelper {
             } else if (logs[i].topics[0] == referredSig) {
                 uint256 referredUsdc = abi.decode(logs[i].data, (uint256));
                 assertEq(referredUsdc, usdcSpent, "Referred.usdcAmount must equal USDC actually spent");
+                sawReferred = true;
+            }
+        }
+        assertTrue(sawBuy, "Buy event must be emitted");
+        assertTrue(sawReferred, "Referred event must be emitted");
+    }
+
+    /// @dev When the floor-bump branch mints past the curve's need and refunds
+    ///      the overshoot as LT, the emitted amount must reflect only the
+    ///      curve-consumed slice (plus fee) — i.e. it must be strictly below the
+    ///      trader's USDC outflow, since the refunded LT is value returned in a
+    ///      different asset that should not count as launched-token buy volume.
+    function test_buy_floorBump_emitsConsumedSliceExcludingLtRefund() public {
+        address tokenAddr = _createToken(0);
+
+        _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, 5e6));
+        lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderUsdcBefore = usdc.balanceOf(trader);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.recordLogs();
+        zap.buy(tokenAddr, buyAmount, 0, referrer);
+        vm.stopPrank();
+
+        uint256 usdcSpent = traderUsdcBefore - usdc.balanceOf(trader);
+        assertGt(lt.balanceOf(trader) - traderLtBefore, 0, "Floor-bump must refund LT");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 buySig = keccak256("Buy(address,address,uint256,uint256)");
+        bytes32 referredSig = keccak256("Referred(address,address,address,uint256)");
+        bool sawBuy;
+        bool sawReferred;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == buySig) {
+                (uint256 usdcIn,) = abi.decode(logs[i].data, (uint256, uint256));
+                assertGt(usdcIn, 0, "Buy.usdcIn must be positive");
+                assertLt(usdcIn, usdcSpent, "Buy.usdcIn must exclude the refunded LT value");
+                assertLt(usdcIn, buyAmount, "Buy.usdcIn must be below the submitted amount");
+                sawBuy = true;
+            } else if (logs[i].topics[0] == referredSig) {
+                uint256 referredUsdc = abi.decode(logs[i].data, (uint256));
+                assertLt(referredUsdc, usdcSpent, "Referred.usdcAmount must exclude the refunded LT value");
                 sawReferred = true;
             }
         }

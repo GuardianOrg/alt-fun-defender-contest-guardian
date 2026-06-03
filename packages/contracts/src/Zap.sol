@@ -395,11 +395,12 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (actualFee > feeOnGross) actualFee = feeOnGross;
 
         // `amountInUsed` (the curve-consumed LT) is not read by the caller, so
-        // repurpose this return to report the USDC the trade actually spent:
-        // converted principal plus the retained fee. Equals the submitted
-        // amount on every non-capped buy; a graduation-capped buy refunds the
-        // difference below.
-        amountInUsed = baseToConvert + actualFee;
+        // repurpose this return to report the USDC the trade actually spent on
+        // the launched token: the curve-consumed slice plus the retained fee.
+        // Using `effectiveBaseSpent` (not `baseToConvert`) excludes any LT
+        // refunded to the buyer in the floor-bump branch, so the amount tracks
+        // `tokensOut`. Equals the submitted amount on every non-capped buy.
+        amountInUsed = effectiveBaseSpent + actualFee;
 
         uint256 feeRefund = feeOnGross - actualFee;
 
