@@ -20,6 +20,7 @@ import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
 import spcx from "../../assets/Logos/spcx.svg";
 import tesla from "../../assets/Logos/tesla.svg";
+import xyz_BB from "../../assets/Logos/xyz_BB.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
 import cbrs from "../../assets/Logos/xyz_CBRS.svg";
 import xyz_CL from "../../assets/Logos/xyz_CL.svg";
@@ -50,6 +51,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:SP500": SP500,
   "xyz:SPCX": spcx,
   "xyz:XYZ100": xyz_XYZ100,
+  "xyz:BB": xyz_BB,
 };
 
 interface Props {
