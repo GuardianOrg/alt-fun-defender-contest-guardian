@@ -310,6 +310,52 @@ contract BondingTest is DeployHelper {
         assertTrue(tokenAddr != address(0));
     }
 
+    // ─── Exchange-Rate Bounds ───────────────────────────────────────────
+    //
+    // The curve's raised LT reserve peaks at `3 * virtualLtReserve` and is
+    // deposited into a HyperSwap V2 pair (uint112 reserves) at graduation.
+    // `_deployAndSeed` rejects launches whose `virtualLtReserve` exceeds
+    // `type(uint112).max / 4`, so a fitting reserve is guaranteed for the
+    // life of the token. `virtualLtReserve = VIRTUAL_LIQUIDITY_USD * 1e18 / rate`.
+
+    function test_launch_revertsWhenExchangeRateTooLow() public {
+        uint256 maxVirtualLt = uint256(type(uint112).max) / 4;
+        uint256 numerator = bonding.VIRTUAL_LIQUIDITY_USD() * 1e18;
+        // Largest rate that still pushes virtualLtReserve over the bound.
+        uint256 tooLowRate = numerator / (maxVirtualLt + 1);
+        lt.setExchangeRate(tooLowRate);
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("LowRate", "LOW");
+        vm.expectRevert(Bonding.ExchangeRateTooLow.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_succeedsAtExchangeRateBoundary() public {
+        uint256 maxVirtualLt = uint256(type(uint112).max) / 4;
+        uint256 numerator = bonding.VIRTUAL_LIQUIDITY_USD() * 1e18;
+        // First passing rate: one tick above the largest rejected rate.
+        uint256 okRate = numerator / (maxVirtualLt + 1) + 1;
+        lt.setExchangeRate(okRate);
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("OkRate", "OK");
+        (address tokenAddr,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function test_launch_allowsLowButViableExchangeRate() public {
+        lt.setExchangeRate(0.0001 ether); // $0.0001 / LT — far from the bound
+
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Cheap", "CHEAP");
+        (address tokenAddr,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
     // ─── Description / Image / URL Length Validation ────────────────────
     //
     // These caps exist as DoS guards. A misbehaving caller could otherwise
@@ -511,6 +557,29 @@ contract BondingTest is DeployHelper {
         vm.expectRevert(Bonding.SlippageExceeded.selector);
         bonding.sell(tokensOut, tokenAddr, type(uint256).max, trader);
         vm.stopPrank();
+    }
+
+    /// @notice A curve sell on an already-graduatable token is rejected so it
+    ///         can't drag the raised reserve back below the threshold. The
+    ///         user-facing router triggers graduation up front; this guards
+    ///         any router that reaches `sell` without doing so.
+    function test_sell_revertsWhenGraduatable() public {
+        (address tokenAddr,) = _launchToken();
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+
+        // LT appreciation flips `canGraduate` true with no further buy.
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr), "setup: token must be graduatable");
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
+        vm.expectRevert(Bonding.TokenIsGraduating.selector);
+        bonding.sell(tokensOut, tokenAddr, 0, trader);
+        vm.stopPrank();
+
+        // The rejected sell leaves the token on the curve and still ripe.
+        assertTrue(bonding.isTrading(tokenAddr), "token must remain on the curve");
+        assertTrue(bonding.canGraduate(tokenAddr), "token must stay graduatable");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────

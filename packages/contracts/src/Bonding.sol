@@ -302,6 +302,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     error RouterNotFound();
     error MustKeepOneRouter();
     error ZeroExchangeRate();
+    /// @dev Launch-time `exchangeRate` so low the curve's LT reserve would
+    ///      overflow the HyperSwap V2 pair's `uint112` reserve slot at
+    ///      graduation, bricking `finalizeGraduation`.
+    error ExchangeRateTooLow();
     error InvalidNameLength();
     error InvalidTickerLength();
     error InvalidDescriptionLength();
@@ -428,10 +432,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///
     ///      Drift is accepted: it's inherent to using a leveraged token as
     ///      the reserve (same drift class as the phase-1 → phase-2 gap on
-    ///      `finalizeGraduation`). A donation attack on the LT's
-    ///      `baseAssetBalance` to skew the snapshot is cost-negative — the
-    ///      donation is irrevocable and the only direct victim is the
-    ///      creator's `MIN_SEED_USDC`-floored seed buy.
+    ///      `finalizeGraduation`). The snapshot is also a pre-checkpoint
+    ///      view — `exchangeRate()` doesn't settle the LT's accrued
+    ///      streaming fee until the seed buy's `mint` checkpoints it moments
+    ///      later — so the curve opens off a rate marginally above the
+    ///      settled one, bounded by the pending fee and immaterial. A
+    ///      donation attack on the LT's `baseAssetBalance` to skew the
+    ///      snapshot is cost-negative — the donation is irrevocable and the
+    ///      only direct victim is the creator's `MIN_SEED_USDC`-floored seed
+    ///      buy.
     ///
     ///      No `(min, max)` band on `LaunchParams` by design: a band
     ///      introduces a launch-failure mode users can't diagnose and forces
@@ -457,6 +466,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
+        // The raised LT reserve peaks at `3 * virtualLtReserve` (curve sell-out)
+        // and is later deposited into a HyperSwap V2 pair, whose reserves are
+        // `uint112`. Bound it at launch (4x headroom) so graduation can never
+        // exceed that slot.
+        if (virtualLtReserve > type(uint112).max / 4) revert ExchangeRateTooLow();
 
         IERC20(tokenAddr).forceApprove(address($.router), curveSupply);
         // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
@@ -566,6 +580,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
+        // A graduatable curve token must graduate, not sell back below the
+        // threshold. The user-facing router triggers graduation up front via
+        // `triggerGraduation`; rejecting here stops any router that skipped
+        // that step from un-ripening a ready graduation.
+        if (canGraduate(tokenAddress)) revert TokenIsGraduating();
 
         (, uint256 assetOut) = $.router.sell(amountIn, tokenAddress, msg.sender);
         if (assetOut < amountOutMin) revert SlippageExceeded();
@@ -630,6 +649,16 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         see `_launchTimeVirtualLtReserve`). Donations to the pair
     ///         move only the live ERC20 balance, not the stored reserve, so
     ///         they are excluded from the threshold.
+    ///
+    ///         `exchangeRate()` is a view that doesn't settle the LT's
+    ///         accrued streaming fee (only mint / redeem / agent checkpoints
+    ///         do), so the USD leg can read marginally high and trip the
+    ///         threshold a touch early. Bounded by the pending fee,
+    ///         one-directional, and the same accepted drift class as the
+    ///         launch snapshot (`_deployAndSeed`); the inline post-buy path
+    ///         is unaffected (`Zap.buy`'s `mint` checkpoints in the same tx)
+    ///         and LP seeding never reads the rate, so the pool still opens
+    ///         at the exact curve-close price.
     ///
     ///         Supply trigger: uses live `IPair.tokenBalance()`. This IS an
     ///         `IERC20.balanceOf` read but is donation-resistant in the
