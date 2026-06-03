@@ -284,7 +284,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
-    ) internal returns (uint256 tokensOut, uint256 grossSpent, uint256 actualFee) {
+    ) internal returns (uint256 tokensOut, uint256 amountInUsed, uint256 actualFee) {
         ZapStorage storage $ = _s();
         address lt = $.bonding.ltOf(tokenAddress);
 
@@ -319,7 +319,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // storage with no security gain).
         uint256 baseToConvert;
         uint256 ltMinted;
-        uint256 amountInUsed;
         if ($.bonding.isGraduated(tokenAddress)) {
             baseToConvert = netUsdc;
             $.usdc.forceApprove(lt, baseToConvert);
@@ -327,9 +326,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             tokensOut = _buyOnUniswapV2(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
+            uint256 ltIfFull = IBounceLeveragedToken(lt).baseToLtAmount(netUsdc);
             uint256 ltUntilGraduation = $.bonding.previewLtUntilGraduation(tokenAddress);
 
-            if (ltUntilGraduation >= IBounceLeveragedToken(lt).baseToLtAmount(netUsdc)) {
+            if (ltUntilGraduation >= ltIfFull) {
                 baseToConvert = netUsdc;
             } else {
                 // `ltToBaseAmount` floors. Bump up so `mint(baseToConvert)`
@@ -375,8 +375,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // construction). Sent to `msg.sender` — `_buyInternal` is
         // `nonReentrant`, mirroring the safe-transfer-at-end-of-flow
         // pattern used for the USDC refund below.
-        if (ltMinted > amountInUsed) {
-            IERC20(lt).safeTransfer(msg.sender, ltMinted - amountInUsed);
+        uint256 ltExcess = ltMinted - amountInUsed;
+        if (ltExcess > 0) {
+            IERC20(lt).safeTransfer(msg.sender, ltExcess);
         }
 
         // Pro-rate fees against the LT actually consumed by the curve.
@@ -393,11 +394,15 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
         if (actualFee > feeOnGross) actualFee = feeOnGross;
 
-        // USDC the trade actually consumed: converted principal plus the
-        // retained fee. Equals the submitted amount on every non-capped buy.
-        grossSpent = baseToConvert + actualFee;
+        // `amountInUsed` (the curve-consumed LT) is not read by the caller, so
+        // repurpose this return to report the USDC the trade actually spent:
+        // converted principal plus the retained fee. Equals the submitted
+        // amount on every non-capped buy; a graduation-capped buy refunds the
+        // difference below.
+        amountInUsed = baseToConvert + actualFee;
 
         uint256 feeRefund = feeOnGross - actualFee;
+
         uint256 usdcLeft = netUsdc - baseToConvert;
         if (usdcLeft > 0) {
             $.usdc.safeTransfer(msg.sender, usdcLeft);
@@ -418,6 +423,18 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         Bonding bonding_ = $.bonding;
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
+
+        // LT appreciation can push a curve token past the graduation threshold
+        // with no buy. Selling now would drag the raised reserve back below it,
+        // so graduate the token instead. The holder keeps their tokens and
+        // exits on the graduated pool. Nothing is sold, so this fills `0` — only
+        // take it when the caller set no floor; a positive `minUsdcOut` reverts
+        // so the `usdcOut >= minUsdcOut` guarantee is never silently broken.
+        if (bonding_.canGraduate(tokenAddress)) {
+            if (minUsdcOut != 0) revert TokenIsGraduating();
+            bonding_.triggerGraduation(tokenAddress);
+            return 0;
+        }
 
         address lt = bonding_.ltOf(tokenAddress);
 
