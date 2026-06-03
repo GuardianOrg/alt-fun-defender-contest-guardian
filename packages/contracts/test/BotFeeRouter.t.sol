@@ -415,7 +415,7 @@ contract BotFeeRouterTest is DeployHelper {
 
     /// @notice Regression: when `Zap._executeBuy` hits its floor-bump dust-cap
     ///         branch (a near-graduation buy where the curve can only absorb
-    ///         `MIN_USDC_AMOUNT` worth of LT), it refunds the unused USDC and
+    ///         `Zap.minUsdcAmount()` worth of LT), it refunds the unused USDC and
     ///         LT excess to `msg.sender` — which is THIS router. Without the
     ///         post-buy sweep in `_buy`, those user-owed funds would sit in
     ///         the router forever. Asserts the sweep reaches the user and the

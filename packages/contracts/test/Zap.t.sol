@@ -346,10 +346,10 @@ contract ZapTest is DeployHelper {
     function test_buy_revertsBelowMinAmount() public {
         address tokenAddr = _createToken(0);
 
-        // Mock USDC is 18-dp, so MIN_USDC_AMOUNT (10e6) sits in the
+        // Mock USDC is 18-dp, so minUsdcAmount (10e6) sits in the
         // sub-cent range for the test token. Anything below 10e6 wei
         // triggers the on-chain pre-check.
-        uint256 belowMin = zap.MIN_USDC_AMOUNT() - 1;
+        uint256 belowMin = zap.minUsdcAmount() - 1;
 
         vm.prank(trader);
         vm.expectRevert(Zap.BelowMinAmount.selector);
@@ -357,14 +357,14 @@ contract ZapTest is DeployHelper {
     }
 
     /// @dev Regression for the post-fee floor leak. `_buyInternal` checks the
-    ///      gross `usdcAmount` against `MIN_USDC_AMOUNT`, but the LT mint
+    ///      gross `usdcAmount` against `minUsdcAmount`, but the LT mint
     ///      consumes `netUsdc = usdcAmount − feeOnGross`. With `buyFeeBps = 75`
-    ///      a gross of `10e6` yields `netUsdc = 9_925_000 < MIN_USDC_AMOUNT`,
+    ///      a gross of `10e6` yields `netUsdc = 9_925_000 < minUsdcAmount`,
     ///      so without the post-fee guard the LT reverts with the undecodable
     ///      `0x05eb05ac` selector instead of `BelowMinAmount`.
     function test_buy_revertsInPostFeeDirtyBand() public {
         address tokenAddr = _createToken(0);
-        uint256 dirtyBandInput = zap.MIN_USDC_AMOUNT();
+        uint256 dirtyBandInput = zap.minUsdcAmount();
         usdc.mint(trader, dirtyBandInput);
 
         vm.startPrank(trader);
@@ -374,6 +374,105 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(trader), dirtyBandInput, "USDC should not have moved");
+    }
+
+    // ─── Live BounceTech floor ───────────────────────────────────────────
+    // The floor is read live from `GlobalStorage.minTransactionSize` rather
+    // than hardcoded, so a BounceTech floor raise is honoured immediately
+    // (clean `BelowMinAmount` instead of the LT's undecodable selector, and
+    // a graduation floor-bump that mints at the new floor).
+
+    function test_minUsdcAmount_tracksGlobalStorageFloor() public {
+        assertEq(zap.minUsdcAmount(), 10e6, "Default floor mirrors the $10 mainnet value");
+        bounceGlobalStorage.setMinTransactionSize(75e6);
+        assertEq(zap.minUsdcAmount(), 75e6, "Floor tracks GlobalStorage live");
+    }
+
+    function test_buy_revertsBelowRaisedFloor() public {
+        address tokenAddr = _createToken(0);
+
+        // Raise the live floor above the historical $10. A buy that clears
+        // the old floor but sits below the new one must still surface
+        // `BelowMinAmount`, not the LT's raw selector.
+        bounceGlobalStorage.setMinTransactionSize(50e6);
+        uint256 belowRaised = 30e6; // > 10e6 (old floor), < 50e6 (new floor)
+        usdc.mint(trader, belowRaised);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), belowRaised);
+        vm.expectRevert(Zap.BelowMinAmount.selector);
+        zap.buy(tokenAddr, belowRaised, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(trader), belowRaised, "USDC should not have moved");
+    }
+
+    function test_buy_floorBump_usesRaisedGlobalFloor() public {
+        address tokenAddr = _createToken(0);
+
+        // Same dust-cap setup as `test_buy_capPath_floorBump_succeeds`, but
+        // the BounceTech floor has been raised. A hardcoded $10 floor-bump
+        // would mint below the LT floor and revert with the raw selector;
+        // reading the floor live keeps the closing buy alive.
+        uint256 drainHeadroom = 5e6;
+        _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, drainHeadroom));
+
+        lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
+        assertTrue(bonding.canGraduate(tokenAddr), "Curve should be graduatable post rate pump");
+
+        bounceGlobalStorage.setMinTransactionSize(50e6);
+        lt.setMinTransactionSize(zap.minUsdcAmount());
+        assertEq(zap.minUsdcAmount(), 50e6, "Floor-bump target tracks GlobalStorage");
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        uint256 tokensOut = zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertGt(tokensOut, 0, "Closing buy should consume the dust supply");
+        assertGt(lt.balanceOf(trader) - traderLtBefore, 0, "Floor-bump LT excess must refund to trader");
+        assertTrue(
+            bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "Closing buy should arm graduation"
+        );
+    }
+
+    function test_createToken_seedFloorGrossesUpForBuyFee() public {
+        // BounceTech raises the floor above the anti-snipe seed minimum.
+        uint256 liveFloor = 50e6;
+        bounceGlobalStorage.setMinTransactionSize(liveFloor);
+        lt.setMinTransactionSize(liveFloor);
+
+        // The seed minimum grosses the live floor up for the buy fee, since
+        // the seed is re-checked on the post-fee amount in `_executeBuy`.
+        uint256 seedFloor = zap.minSeedUsdc();
+        assertGt(seedFloor, liveFloor, "Seed floor grosses up the live mint floor for the buy fee");
+
+        // A seed at exactly the raw floor clears it in gross terms but nets
+        // below it after the buy fee — rejected at the `createToken`
+        // pre-check, not deep inside the seed mint.
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "TestToken",
+            ticker: "TEST",
+            description: "A test token",
+            image: "https://img.test/logo.png",
+            urls: ["https://x.com/test", "", "https://test.com"],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator, "TestToken", "TEST")
+        });
+        usdc.mint(creator, liveFloor);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), liveFloor);
+        vm.expectRevert(Zap.BelowMinSeed.selector);
+        zap.createToken(params, liveFloor);
+        vm.stopPrank();
+
+        // A seed at the reported minimum nets >= the floor and launches.
+        address tokenAddr = _createToken(seedFloor);
+        assertTrue(bonding.creatorOf(tokenAddr) != address(0), "Launch at minSeedUsdc() succeeds");
     }
 
     function test_buy_revertsOnSlippage() public {
@@ -508,7 +607,7 @@ contract ZapTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         // Crash the LT exchange rate so the curve sell yields LT worth
-        // ~zero USDC, well below `MIN_USDC_AMOUNT`. The Zap must catch
+        // ~zero USDC, well below `minUsdcAmount`. The Zap must catch
         // this before forwarding to `LT.redeem` (which would revert with
         // the cryptic `0x05eb05ac` selector).
         lt.setExchangeRate(1);
@@ -521,10 +620,10 @@ contract ZapTest is DeployHelper {
     }
 
     /// @dev Regression for issue #313. The sell-side guard compares an
-    ///      18-dp gross USD estimate to the 6-dp `MIN_USDC_AMOUNT`, so it
+    ///      18-dp gross USD estimate to the 6-dp `minUsdcAmount`, so it
     ///      must normalise scales before comparing. Without normalisation,
     ///      sells whose 18-dp estimate sits between `1e7` (the raw
-    ///      `MIN_USDC_AMOUNT` literal) and `1e19` ($10 in 18dp) bypass the
+    ///      `minUsdcAmount` literal) and `1e19` ($10 in 18dp) bypass the
     ///      guard on mainnet, and the LT then reverts with the undecodable
     ///      `0x05eb05ac` selector instead.
     function test_sell_belowMinAmount_normalisesDecimalScale() public {
@@ -679,11 +778,11 @@ contract ZapTest is DeployHelper {
     // ─── Floor-bump tests (structural-stuck case) ────────────────────────
     // When LT appreciation pushes a near-sellout curve past the USD
     // graduation threshold, the next cap-binding buy can size a sub-
-    // `MIN_USDC_AMOUNT` LT mint. BounceTech LTs reject such mints with
+    // `minUsdcAmount` LT mint. BounceTech LTs reject such mints with
     // `BelowMinTransactionSize` (selector `0x05eb05ac`). Without the
     // Zap floor-bump these tokens would be permanently un-graduatable
     // via `Zap.buy`. The fix bumps `baseToConvert` up to
-    // `MIN_USDC_AMOUNT` and refunds the LT overshoot to `msg.sender`.
+    // `minUsdcAmount` and refunds the LT overshoot to `msg.sender`.
 
     /// @dev Drains the curve via direct `bonding.buy` calls (bypassing
     ///      Zap, fees, and the LT mint floor) to set up a tightly-capped
@@ -814,7 +913,7 @@ contract ZapTest is DeployHelper {
 
         // Drain the curve to leave a tiny gap (5e6 wei LT) below the
         // overflow cap, so the next cap-binding buy sizes `amountInUsed
-        // = 5e6 wei`. With rate `1` and the floor at `MIN_USDC_AMOUNT
+        // = 5e6 wei`. With rate `1` and the floor at `minUsdcAmount
         // = 10e6` wei, the cap-implied `baseToConvert = 5e6` wei is
         // half the floor — squarely in the structural-stuck band.
         uint256 drainHeadroom = 5e6;
@@ -828,10 +927,10 @@ contract ZapTest is DeployHelper {
         assertTrue(bonding.canGraduate(tokenAddr), "Curve should be graduatable post rate pump");
 
         // Activate the BounceTech-style mint floor that mirrors
-        // `Zap.MIN_USDC_AMOUNT`. Without the floor-bump, the closing buy
-        // would call `lt.mint(baseToConvert < MIN_USDC_AMOUNT)` and
+        // `Zap.minUsdcAmount`. Without the floor-bump, the closing buy
+        // would call `lt.mint(baseToConvert < minUsdcAmount)` and
         // revert with `BelowMinTransactionSize`.
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
@@ -855,15 +954,15 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
 
         // Same drain as the success test, but verify the LT excess
-        // matches `ltMinted - amountInUsed`. With base = MIN_USDC_AMOUNT
-        // and rate `1.1`, ltMinted = MIN_USDC_AMOUNT * 1e18 / 1.1e18 ≈
+        // matches `ltMinted - amountInUsed`. With base = minUsdcAmount
+        // and rate `1.1`, ltMinted = minUsdcAmount * 1e18 / 1.1e18 ≈
         // 9.09e6 wei; amountInUsed = 5e6 wei; ltExcess ≈ 4.09e6 wei.
         uint256 drainHeadroom = 5e6;
         _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, drainHeadroom));
 
         uint256 newRate = (LT_EXCHANGE_RATE * 11) / 10;
         lt.setExchangeRate(newRate);
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
@@ -874,7 +973,7 @@ contract ZapTest is DeployHelper {
         zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
-        uint256 ltMinted = (zap.MIN_USDC_AMOUNT() * 1e18) / newRate;
+        uint256 ltMinted = (zap.minUsdcAmount() * 1e18) / newRate;
         uint256 ltExcessExpected = ltMinted - drainHeadroom;
         assertApproxEqAbs(lt.balanceOf(trader) - traderLtBefore, ltExcessExpected, 1, "LT excess refund");
     }
@@ -965,7 +1064,7 @@ contract ZapTest is DeployHelper {
 
     // ─── Graduation cap: floor-bump with supply room (auditor regime) ─────
     // When the threshold-leg binds AND the LT-side cap-implied mint
-    // falls below `MIN_USDC_AMOUNT`, the floor-bump bumps `baseToConvert`
+    // falls below `minUsdcAmount`, the floor-bump bumps `baseToConvert`
     // to the floor. With supply leg slack, `Router._computeBuy`
     // consumes the full floor mint cleanly — no LT refund, threshold
     // overshoots by at most the floor's worth of LT.
@@ -975,16 +1074,16 @@ contract ZapTest is DeployHelper {
 
         // Use 2× rate so the USD leg (1.5× virtual) is well below
         // the supply leg (3× virtual). Stage real-LT-raised so the
-        // gap to threshold is below `MIN_USDC_AMOUNT` in *USDC*
+        // gap to threshold is below `minUsdcAmount` in *USDC*
         // (after the rate conversion: gap-in-LT × rate < floor-USDC).
         lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
         uint256 thresholdLtAtRate2 = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
-        // gap × rate < MIN_USDC_AMOUNT → gap < MIN_USDC_AMOUNT / rate.
+        // gap × rate < minUsdcAmount → gap < minUsdcAmount / rate.
         // With rate = 2e18 and floor = 10e6, that's < 5e6 wei of LT.
         uint256 dustGapLt = 4e6;
         _stageRealLtRaisedTo(tokenAddr, thresholdLtAtRate2 - dustGapLt);
 
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         assertFalse(bonding.canGraduate(tokenAddr), "Pre-buy: cap shy of threshold");
 
@@ -1019,7 +1118,7 @@ contract ZapTest is DeployHelper {
         uint256 thresholdLtAtRate2 = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
         uint256 dustGapLt = 4e6;
         _stageRealLtRaisedTo(tokenAddr, thresholdLtAtRate2 - dustGapLt);
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         uint256 buyAmount = bonding.graduationThresholdUsd();
         usdc.mint(trader, buyAmount);
@@ -1040,10 +1139,10 @@ contract ZapTest is DeployHelper {
         assertGe(ltFromPair, thresholdRealLt, "Graduation only fires once threshold met");
         uint256 overshootLt = ltFromPair - thresholdRealLt;
 
-        // Overshoot is bounded by `MIN_USDC_AMOUNT` worth of LT at
+        // Overshoot is bounded by `minUsdcAmount` worth of LT at
         // the current rate.
-        uint256 floorWorthOfLt = (zap.MIN_USDC_AMOUNT() * 1e18) / lt.exchangeRate();
-        assertLe(overshootLt, floorWorthOfLt, "Overshoot bounded by MIN_USDC_AMOUNT worth of LT");
+        uint256 floorWorthOfLt = (zap.minUsdcAmount() * 1e18) / lt.exchangeRate();
+        assertLe(overshootLt, floorWorthOfLt, "Overshoot bounded by minUsdcAmount worth of LT");
     }
 
     function test_buy_capPath_floorBump_proratesFee() public {
@@ -1053,7 +1152,7 @@ contract ZapTest is DeployHelper {
         _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, drainHeadroom));
 
         lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
@@ -1066,7 +1165,7 @@ contract ZapTest is DeployHelper {
 
         // Floor-bump branch overshoots the mint past what the curve
         // consumes; fee is prorated against LT actually consumed
-        // (sub-MIN_USDC_AMOUNT here), not against the minted amount.
+        // (sub-minUsdcAmount here), not against the minted amount.
         // `feeOnGross` would be (buyAmount * 75) / 10000 ≈ 9e18;
         // actualFee on a few-wei curve consumption is a tiny fraction
         // of that.
@@ -1411,7 +1510,7 @@ contract ZapTest is DeployHelper {
     function testFuzz_roundTrip_neverProfits(
         uint256 usdcAmount
     ) public {
-        // Lower bound clears the `$10` `MIN_USDC_AMOUNT` floor on both the
+        // Lower bound clears the `$10` `minUsdcAmount` floor on both the
         // buy AND the sell side — the round-trip nets ~`$0.50` to fees +
         // slippage, so `$11` in is enough to keep the sell-side gross
         // estimate above the floor.
