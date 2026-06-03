@@ -846,6 +846,7 @@ contract ZapTest is DeployHelper {
                 sawBuy = true;
             } else if (logs[i].topics[0] == referredSig) {
                 uint256 referredUsdc = abi.decode(logs[i].data, (uint256));
+                assertGt(referredUsdc, 0, "Referred.usdcAmount must be positive");
                 assertLt(referredUsdc, usdcSpent, "Referred.usdcAmount must exclude the refunded LT value");
                 sawReferred = true;
             }
