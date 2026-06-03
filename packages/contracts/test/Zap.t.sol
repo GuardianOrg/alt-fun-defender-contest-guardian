@@ -816,7 +816,7 @@ contract ZapTest is DeployHelper {
 
         _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, 5e6));
         lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
-        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+        lt.setMinTransactionSize(zap.minUsdcAmount());
 
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
