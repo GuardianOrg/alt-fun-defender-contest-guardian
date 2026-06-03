@@ -379,33 +379,32 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             IERC20(lt).safeTransfer(msg.sender, ltMinted - amountInUsed);
         }
 
-        // Pro-rate the fee against the LT the curve actually consumed
-        // (`amountInUsed * baseToConvert / ltMinted`). For non-cap and
-        // dust-cap buys `amountInUsed ≈ ltMinted` so the effective spend ≈
-        // `baseToConvert` and behaviour matches the pre-floor-bump formula.
-        // The floor-bump branch overshoots the mint past what the curve
-        // consumes; charging fee on the minted size (rather than the
-        // consumed slice) would over-charge users who hit this dust band.
-        // Round up in favour of protocol+creator, then cap at the gross fee
-        // already withheld so the refund can't underflow and a full-size buy
-        // never charges more than `feeOnGross`.
-        actualFee = Math.mulDiv(
-            usdcAmount * buyFeeBps_, (amountInUsed * baseToConvert) / ltMinted, BPS_DENOM * netUsdc, Math.Rounding.Ceil
-        );
+        // Pro-rate fees against the LT actually consumed by the curve.
+        // For non-cap and dust-cap buys `amountInUsed ≈ ltMinted` so
+        // `effectiveBaseSpent ≈ baseToConvert` and behaviour matches the
+        // pre-floor-bump formula. The floor-bump branch overshoots the
+        // mint past what the curve consumes; charging fee on the minted
+        // size (rather than the consumed slice) would over-charge users
+        // who hit this dust band.
+        uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
+        // Round the prorated fee up in favour of the protocol and creator, then
+        // cap it at the gross fee already withheld so the refund can't underflow
+        // and a full-size buy never charges more than `feeOnGross`.
+        actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
         if (actualFee > feeOnGross) actualFee = feeOnGross;
 
-        // Refund the unconverted principal and the unused (pro-rated) fee.
-        if (netUsdc > baseToConvert) {
-            $.usdc.safeTransfer(msg.sender, netUsdc - baseToConvert);
-        }
-        if (feeOnGross > actualFee) {
-            $.usdc.safeTransfer(msg.sender, feeOnGross - actualFee);
-        }
-
-        // Gross USDC the trade actually consumed: converted principal plus the
-        // retained fee. Equals the submitted amount on every non-capped buy; a
-        // graduation-capped buy refunds the difference above.
+        // USDC the trade actually consumed: converted principal plus the
+        // retained fee. Equals the submitted amount on every non-capped buy.
         grossSpent = baseToConvert + actualFee;
+
+        uint256 feeRefund = feeOnGross - actualFee;
+        uint256 usdcLeft = netUsdc - baseToConvert;
+        if (usdcLeft > 0) {
+            $.usdc.safeTransfer(msg.sender, usdcLeft);
+        }
+        if (feeRefund > 0) {
+            $.usdc.safeTransfer(msg.sender, feeRefund);
+        }
     }
 
     function _sellInternal(
