@@ -221,6 +221,19 @@ export async function fetchTokenMeta(
 }
 
 /**
+ * Whether a token is "valid" for public surfaces — registered in
+ * `public.tokens` AND not moderation-hidden. Backs the recent-trades WS
+ * filter (see `tokenValidity.ts`). Throws on transient API failure so the
+ * caller can decide whether to cache the result.
+ */
+export async function fetchTokenValidity(address: string): Promise<boolean> {
+  const res = await apiFetch<{ valid: boolean }>(
+    `/api/v1/tokens/${address}/valid`,
+  );
+  return res.valid;
+}
+
+/**
  * Register a token in the PostgreSQL `tokens` table after its on-chain
  * launch. Address-only — every other field is read from
  * `Bonding.getTokenInfo` server-side, so no signature is required and

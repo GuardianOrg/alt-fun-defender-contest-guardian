@@ -152,7 +152,16 @@ trades.get("/", async (c) => {
   }
 
   const db = createDb(c.env.DATABASE_URL);
-  const rows = await fetchRouterTrades(db, { limit, offset });
+  // The global feed hides trades for tokens that would 404 on the detail
+  // page — unregistered (no `public.tokens` row) or moderation-hidden
+  // (`is_hidden = true`). The per-token route below intentionally does NOT
+  // pass this: it's only reachable from a token detail page, which is
+  // already gated on the same validity.
+  const rows = await fetchRouterTrades(db, {
+    limit,
+    offset,
+    onlyRegisteredVisible: true,
+  });
 
   if (rows === null) {
     return c.json(

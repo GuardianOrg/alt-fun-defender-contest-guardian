@@ -7,6 +7,7 @@ import {
   prefetchTokenName,
   resolveTokenName,
 } from "./tokenNames";
+import { isTokenValid } from "./tokenValidity";
 import { routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
@@ -44,6 +45,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   let unsubWs: (() => void) | null = null;
   let unsubReconnect: (() => void) | null = null;
   const seenIds = new Set<string>();
+  let cancelled = false;
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
@@ -51,14 +53,23 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       if (!raw.id || seenIds.has(raw.id)) return;
       const trade = formatWsTrade(raw);
       if (!trade) return;
-      seenIds.add(raw.id);
-      cb(trade);
-      // Warm the name cache for subsequent rows.
-      void prefetchTokenName(raw.tokenAddress);
+      // Drop trades for tokens that would 404 on the detail page —
+      // unregistered or moderation-hidden. Validity is verified once per
+      // token address and cached. The broadcast id is added to `seenIds`
+      // only after a positive check, so a not-yet-valid token's row can
+      // still be backfilled by the REST poll (already SQL-filtered to
+      // valid tokens) if it becomes valid.
+      void (async () => {
+        const valid = await isTokenValid(raw.tokenAddress);
+        if (cancelled || !valid || seenIds.has(raw.id)) return;
+        seenIds.add(raw.id);
+        cb(trade);
+        // Warm the name cache for subsequent rows.
+        void prefetchTokenName(raw.tokenAddress);
+      })();
     });
   }
 
-  let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let polling = false;
   // Reconnect-triggered polls wait for the in-flight poll's `finally`.
