@@ -559,6 +559,29 @@ contract BondingTest is DeployHelper {
         vm.stopPrank();
     }
 
+    /// @notice A curve sell on an already-graduatable token is rejected so it
+    ///         can't drag the raised reserve back below the threshold. The
+    ///         user-facing router triggers graduation up front; this guards
+    ///         any router that reaches `sell` without doing so.
+    function test_sell_revertsWhenGraduatable() public {
+        (address tokenAddr,) = _launchToken();
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+
+        // LT appreciation flips `canGraduate` true with no further buy.
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr), "setup: token must be graduatable");
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
+        vm.expectRevert(Bonding.TokenIsGraduating.selector);
+        bonding.sell(tokensOut, tokenAddr, 0, trader);
+        vm.stopPrank();
+
+        // The rejected sell leaves the token on the curve and still ripe.
+        assertTrue(bonding.isTrading(tokenAddr), "token must remain on the curve");
+        assertTrue(bonding.canGraduate(tokenAddr), "token must stay graduatable");
+    }
+
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
     /// @notice With fees moved to Zap, a pure-Bonding round trip
