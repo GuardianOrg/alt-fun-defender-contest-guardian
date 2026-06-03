@@ -27,6 +27,7 @@ import {
   indexerWalletBotPosition,
   indexerWalletPosition,
 } from "../db/indexer-schema.js";
+import { tokens } from "../db/schema.js";
 
 import { describeError } from "./log-error.js";
 
@@ -536,6 +537,16 @@ export async function fetchRouterTrades(
     limit: number;
     offset: number;
     direction?: "asc" | "desc";
+    /**
+     * When set, inner-join `public.tokens` and keep only trades whose token
+     * is registered (a row exists) AND not moderation-hidden
+     * (`is_hidden = false`) — the same two gates the public detail lens
+     * enforces. Used by the global recent-trades feed so unregistered /
+     * hidden tokens never surface there. Filtering in SQL (before
+     * `LIMIT`/`OFFSET`) keeps backward pagination honest — filtering the
+     * page in JS afterwards would return short, drifting pages.
+     */
+    onlyRegisteredVisible?: boolean;
   },
 ): Promise<IndexerRouterTradeRow[] | null> {
   const direction = opts.direction ?? "desc";
@@ -553,27 +564,46 @@ export async function fetchRouterTrades(
       ? [asc(indexerRouterTrade.timestamp), asc(indexerRouterTrade.id)]
       : [desc(indexerRouterTrade.timestamp), desc(indexerRouterTrade.id)];
 
+  const columns = {
+    id: indexerRouterTrade.id,
+    tokenAddress: indexerRouterTrade.tokenAddress,
+    trader: indexerRouterTrade.trader,
+    isBuy: indexerRouterTrade.isBuy,
+    usdcAmount: indexerRouterTrade.usdcAmount,
+    tokenAmount: indexerRouterTrade.tokenAmount,
+    blockNumber: indexerRouterTrade.blockNumber,
+    timestamp: indexerRouterTrade.timestamp,
+  } as const;
+
   try {
     const where = opts.tokenAddress
       ? eq(indexerRouterTrade.tokenAddress, opts.tokenAddress.toLowerCase())
       : undefined;
 
-    const rows = await db
-      .select({
-        id: indexerRouterTrade.id,
-        tokenAddress: indexerRouterTrade.tokenAddress,
-        trader: indexerRouterTrade.trader,
-        isBuy: indexerRouterTrade.isBuy,
-        usdcAmount: indexerRouterTrade.usdcAmount,
-        tokenAmount: indexerRouterTrade.tokenAmount,
-        blockNumber: indexerRouterTrade.blockNumber,
-        timestamp: indexerRouterTrade.timestamp,
-      })
-      .from(indexerRouterTrade)
-      .where(where)
-      .orderBy(...orderBy)
-      .limit(opts.limit)
-      .offset(opts.offset);
+    // `tokens.address` is checksummed; the indexer stores `token_address`
+    // lowercased — compare case-insensitively on the join.
+    const rows = opts.onlyRegisteredVisible
+      ? await db
+          .select(columns)
+          .from(indexerRouterTrade)
+          .innerJoin(
+            tokens,
+            and(
+              sql`lower(${tokens.address}) = ${indexerRouterTrade.tokenAddress}`,
+              eq(tokens.isHidden, false),
+            ),
+          )
+          .where(where)
+          .orderBy(...orderBy)
+          .limit(opts.limit)
+          .offset(opts.offset)
+      : await db
+          .select(columns)
+          .from(indexerRouterTrade)
+          .where(where)
+          .orderBy(...orderBy)
+          .limit(opts.limit)
+          .offset(opts.offset);
 
     return rows.map((r) => ({
       id: r.id,
