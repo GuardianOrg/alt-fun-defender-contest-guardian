@@ -143,14 +143,16 @@ liquidity = min(amount0 · totalSupply / reserve0, amount1 · totalSupply / rese
 
 The `min(...)` arm whose denominator is bigger relative to its numerator wins, and the OTHER arm's "excess" deposit is donated pro-rata to existing LP holders — i.e. to the attacker. Two harms:
 
-- **Wrong opening price.** Post-mint reserves are `(R_attacker + T_a, R_attacker + T_b)`, so the LP opens at `(R_a + T_a) / (R_b + T_b)`, NOT at the curve close `T_a / T_b`. Pentest `IN-02` measured a 454 bps gap with a $15 LT pre-seed at 50% off curve close.
-- **LP capture.** The wasted-side excess goes to the attacker's LP claim. Pentest `F-02` measured 34 bps of LP captured for a `1 wei + 1 LT` pre-seed (~$1 attack budget).
+- **Wrong opening price.** Post-mint reserves are `(R_attacker + T_a, R_attacker + T_b)`, so the LP opens at `(R_a + T_a) / (R_b + T_b)`, NOT at the curve close `T_a / T_b`. A `$15` LT pre-seed at 50% off curve close opens the pool ~454 bps off.
+- **LP capture.** The wasted-side excess goes to the attacker's LP claim. A `1 wei + 1 LT` pre-seed (~`$1` attack budget) captures ~34 bps of LP.
+
+A cheaper variant skips step 3 entirely: `transfer(pair, dust) + pair.sync()` forces the stored reserves to the dust ratio without minting any LP, leaving the pair at `reserves > 0 && totalSupply == 0`. Regime 1 below covers both shapes by keying on supply rather than reserves.
 
 This is the same exploit class as the four.meme Feb 2025 incident (~$183K loss).
 
 ### Options we considered (and rejected)
 
-The pentest's recommended fixes were either ineffective or worse than the disease:
+The obvious fixes were either ineffective or worse than the disease:
 
 1. **Pre-create the pair atomically inside `_deployAndSeed` at launch time.** Doesn't work. A V2 pair is just an empty contract until someone calls `mint()`; pre-creating prevents `factory.createPair` from being callable by an attacker, but the attacker can still `transfer + mint` against the empty pair we created. ~80k extra gas per launch for zero security.
 2. **Detect skewed pre-existing reserves in `_seedUniswapV2Direct` and revert if the ratio diverges by more than N bps.** Re-introduces brick risk: an attacker can grief every graduation with $1 of dust per token. Forces ops to either (a) widen the bound enough that the attack survives, or (b) keep it tight and ship an admin escape hatch. We previously had `_requirePairEmpty` which had this exact problem and we removed it for that reason — `test_brick_resistance_frontRun_dust_seed` exists to prevent regression.
@@ -163,13 +165,13 @@ The pentest's recommended fixes were either ineffective or worse than the diseas
 
 `_seedUniswapV2Direct` branches on the pre-seed shape:
 
-#### Regime 1 — empty pair (~99% of graduations)
+#### Regime 1 — no LP minted yet (~99% of graduations)
 
-Pristine path: `transfer(pair, tokensForLP) + transfer(pair, ltFromPair) + pair.mint(lpLock)`. Pool opens at exactly `ltFromPair / tokensForLP`, zero gap by construction. Bypasses the V2 router entirely. This is the original code; no behavioral change for honest graduations.
+Gated on `pair.totalSupply() == 0`, which covers both a pristine empty pair and a dust pre-seed flipped to non-zero reserves via `transfer + sync()` (no `mint`, so supply is still zero). Pristine path: `transfer(pair, tokensForLP) + transfer(pair, ltFromPair) + pair.mint(lpLock)`. With zero supply V2 mints from our deposit amounts alone, so the pool opens at exactly `ltFromPair / tokensForLP` (zero gap by construction) and any synced dust becomes reserves with no LP claim. Bypasses the V2 router entirely. Keying on supply rather than reserves keeps the dust shape out of the rebalance path, where a tiny seed could otherwise let the deposit land at the attacker's ratio.
 
 #### Regime 2 — pure-donation pre-seed
 
-Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.mint`. Reserves stay at zero; only the pair's balance moved. We call `pair.skim(address(this))` first — V2's `skim` transfers excess balance over reserves to the recipient — so the donation flows back into `Bonding`. Path then collapses to Regime 1, with the empty-pair branch's tail burning any donated TOKEN and `finalizeGraduation`'s `_sweepLTToOwner` post-bookend routing donated LT to the protocol owner. The skim recipient is deliberately NOT `LPLock`: `LPLock` has no withdraw / rescue path in v1, so anything sent there is permanently stuck — auditing-issue #9. `protectedLT` is snapshotted in `finalizeGraduation` BEFORE `_seedUniswapV2Direct` runs, so the donation is correctly classified as rebalance residue rather than concurrent-graduation escrow.
+Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.mint`. Reserves stay at zero; only the pair's balance moved. We call `pair.skim(address(this))` first — V2's `skim` transfers excess balance over reserves to the recipient — so the donation flows back into `Bonding`. Path then collapses to Regime 1, with the empty-pair branch's tail burning any donated TOKEN and `finalizeGraduation`'s `_sweepLTToOwner` post-bookend routing donated LT to the protocol owner. The skim recipient is deliberately NOT `LPLock`: `LPLock` has no withdraw / rescue path in v1, so anything sent there is permanently stuck. `protectedLT` is snapshotted in `finalizeGraduation` BEFORE `_seedUniswapV2Direct` runs, so the donation is correctly classified as rebalance residue rather than concurrent-graduation escrow.
 
 #### Regime 3 — mint pre-seed (the actual exploit)
 
@@ -188,7 +190,7 @@ Why the fourth step matters: **mass conservation prevents fixing both the price 
 
 ### Brick-resistance contract
 
-`_seedUniswapV2Direct` MUST never revert under any pre-seed shape. The brick-resistance contract is the load-bearing security property — auditors prioritise it above the LP-capture defense, because a brick locks every holder in `Graduating` forever. The pre-seed defense is layered to honour this:
+`_seedUniswapV2Direct` MUST never revert under any pre-seed shape. The brick-resistance contract is the load-bearing security property — it ranks above the LP-capture defense, because a brick locks every holder in `Graduating` forever. The pre-seed defense is layered to honour this:
 
 - **Regime 1/2 don't touch the router.** Even if the V2 router is misbehaving, the empty + donation paths run on direct pair calls.
 - **`_pairRebalance` falls back to a direct mint when no swap can run.** `_noFeeSwapInput` may return `s == 0`, or the pair's fee-charging `getAmountOut(s)` may round to zero, against a pre-seed whose swap-output side is dust — `pair.swap` would otherwise revert with `INSUFFICIENT_OUTPUT_AMOUNT`. In either case `_pairRebalance` returns `false`, and `_seedRebalancing` overpowers the dust with a direct `transfer + pair.mint` at the cached `tokensForLP / ltFromPair` ratio (`_seedDirectMint`), opening the pool on-ratio. This is safe specifically because the swap only rounds to zero when the reserves are negligible against this graduation's inventory: the V2 `min()` donation to the attacker's pre-existing LP is then bounded by `max(reserveToken/tokensForLP, reserveLT/ltFromPair)`, which vanishes for any seed that small. Depositing at the un-rebalanced ratio instead would open the pool off curve-close and strand most of one side's inventory — a tiny side reserve (just above V2's `MINIMUM_LIQUIDITY`) is enough to skew it by tens of percent, since the large token-per-LT ratio forces any meaningful mispricing into the swap-rounds-to-zero regime. The ratio-on-open is regression-tested by `test_hostilePreSeed_tokenRichDust_opensAtCachedRatio` / `test_hostilePreSeed_ltRichDust_opensAtCachedRatio` in `test/TwoPhaseGraduation.t.sol`.
@@ -199,7 +201,7 @@ Tested end-to-end by the brick-resistance regression tests in `test/TwoPhaseGrad
 
 ### Attacker P&L outcome
 
-After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder via the pair's K-invariant accounting). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. This property was asserted directly during the original audit cycle but is no longer guarded by an automated test; future protocol changes that touch the rebalance / deposit path should re-derive it manually.
+After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder via the pair's K-invariant accounting). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. This property was previously asserted directly but is no longer guarded by an automated test; future protocol changes that touch the rebalance / deposit path should re-derive it manually.
 
 ### Pool-open precision
 
@@ -214,7 +216,7 @@ That snapshot is plumbed through `_seedUniswapV2Direct` → `_seedRebalancing` �
 Two scenarios this guards against:
 
 - **Concurrent graduations on the same LT.** Two tokens A and B share an LT and both reach `Lifecycle.Graduating` before either finalizes (the keeper takes ~60s and popular LTs see overlap). Without `protectedLT`, A's finalize would treat the full balance as its own and either sweep B's escrow to the owner (bricking B's later finalize) or — for hostile-pre-seed graduations — deposit it into A's locked LP. With it, A only ever sees `ltFromPair_A` and B is preserved.
-- **Cross-token LT residue (audit issue #11).** Old residue or a misdirected transfer sitting in `Bonding` would otherwise be visible to `_routerDepositAndDispose`'s `balanceOf(this)` read and could be silently consumed into a future graduation's locked LP. With `protectedLT`, contamination stays in `Bonding` and the deposit only sees this graduation's earmark.
+- **Cross-token LT residue.** Old residue or a misdirected transfer sitting in `Bonding` would otherwise be visible to `_routerDepositAndDispose`'s `balanceOf(this)` read and could be silently consumed into a future graduation's locked LP. With `protectedLT`, contamination stays in `Bonding` and the deposit only sees this graduation's earmark.
 
 The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. The dedicated regression tests for these edge cases were removed alongside `HostilePreSeed.t.sol`; future changes to `finalizeGraduation` / `_routerDepositAndDispose` / `_sweepLTToOwner` should add targeted coverage if the behaviour is non-obvious from the unit-level tests in `TwoPhaseGraduation.t.sol`.
 
@@ -224,7 +226,7 @@ The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. T
 - `test/TwoPhaseGraduation.t.sol` — brick-resistance + phase-1-fits-in-small-block tests, plus the hostile-pre-seed open-at-cached-ratio tests (`test_hostilePreSeed_*`) covering both the dust direct-mint fallback and the meaningful-reserve swap path, must still pass.
 - `test/GraduationInvariants.t.sol` — zero-gap, supply conservation, parabola cap. Honest-path properties unchanged by the defense.
 
-The dedicated end-to-end hostile-pre-seed integration suite (`test/HostilePreSeed.t.sol`) was removed for runtime reasons after the contracts were audited and deployed — the pentest scenarios `F-02` / `IN-02`, attacker-no-profit, leftover recovery, and concurrent-graduation isolation properties are no longer enforced by automated tests. If you change any of the graduation / rebalance / deposit code paths, consider re-deriving these properties manually and / or adding targeted regressions for whatever you touch.
+The dedicated end-to-end hostile-pre-seed integration suite (`test/HostilePreSeed.t.sol`) was removed for runtime reasons after deployment — the wrong-opening-price / LP-capture scenarios, attacker-no-profit, leftover recovery, and concurrent-graduation isolation properties are no longer enforced by automated tests. If you change any of the graduation / rebalance / deposit code paths, consider re-deriving these properties manually and / or adding targeted regressions for whatever you touch.
 
 These invariants are the security contract — do not loosen the remaining assertions to make a change go green.
 
@@ -234,7 +236,7 @@ Full requirements (buy/sell flows, graduation, events, fee structure): [`docs/co
 
 ## Comment Style
 
-These contracts will be audited and re-read by adversaries. Auditor attention is a finite resource — every paragraph of natspec is one less paragraph of attention on the next finding. Default to no comment, and earn each one.
+These contracts are re-read by adversaries and reviewers. Reviewer attention is a finite resource — every paragraph of natspec is one less paragraph of attention on the next subtlety. Default to no comment, and earn each one.
 
 **Keep:**
 
@@ -243,7 +245,7 @@ These contracts will be audited and re-read by adversaries. Auditor attention is
 - Cross-system constraints that would break if violated (e.g. "must stay in sync with `vanity.ts`", "frontend / API replicate this length cap pre-flight").
 - Numerical-encoding footguns (`uint256` vs `uint128` choices, scaling factors, BPS denominators).
 - Non-obvious storage-layout requirements (see [Storage layout](#storage-layout) below — namespace IDs, slot pinning, append-only struct fields).
-- Anything an auditor would reasonably ask "why this and not the obvious thing?" about.
+- Anything a careful reviewer would reasonably ask "why this and not the obvious thing?" about.
 
 **Cut:**
 

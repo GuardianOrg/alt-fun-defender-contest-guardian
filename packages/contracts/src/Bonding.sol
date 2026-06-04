@@ -1118,9 +1118,14 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     /// @dev LP-seeding into the HyperSwap pair, hardened against hostile
     ///      pre-seeds. Three regimes:
     ///
-    ///        1. **Empty pair (~99% of graduations).** Pristine direct mint
-    ///           at exactly `(tokensForLP, ltFromPair)` — pool opens at the
-    ///           curve-close price. Zero gap by construction.
+    ///        1. **No LP minted yet — `totalSupply == 0` (~99% of
+    ///           graduations).** A pristine empty pair, or a dust pre-seed
+    ///           (`transfer(pair, dust) + sync()` leaves `reserves > 0` but
+    ///           `totalSupply == 0`). Direct mint at exactly
+    ///           `(tokensForLP, ltFromPair)` — V2's first-liquidity branch
+    ///           makes those amounts the sole price input, so the pool opens
+    ///           at the curve-close ratio and any dust becomes reserves with
+    ///           no LP claim.
     ///        2. **Pure-donation pre-seed.** Attacker `transfer`'d to the
     ///           pair without `mint` (balance > 0, reserves == 0).
     ///           `pair.skim(address(this))` pulls the donation into
@@ -1195,9 +1200,14 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // No-op on a freshly-created pair (balance == reserves == 0).
         IUniswapV2Pair(pair).skim(address(this));
 
-        (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
-        // Regime 1 — pristine pair, direct mint at exact curve-close ratio.
-        if (r0 == 0 && r1 == 0) {
+        // Regime 1 — no LP minted yet (`totalSupply == 0`): a pristine empty
+        // pair, or a dust pre-seed from `transfer(pair, dust) + sync()` that
+        // leaves reserves non-zero while supply is still zero. Keying on
+        // supply rather than reserves routes the dust shape here instead of
+        // the rebalance path: with zero supply V2 mints from our amounts
+        // alone, so the pool opens at the cached ratio and any dust becomes
+        // reserves with no LP claim.
+        if (IUniswapV2Pair(pair).totalSupply() == 0) {
             return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
         }
 

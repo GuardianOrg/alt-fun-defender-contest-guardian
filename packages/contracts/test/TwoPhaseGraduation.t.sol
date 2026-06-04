@@ -288,6 +288,130 @@ contract TwoPhaseGraduationTest is DeployHelper {
         assertTrue(lockedLp > 0, "lpLock must hold the protocol LP");
     }
 
+    /// @notice A pre-created pair flipped to `reserves > 0 && totalSupply == 0`
+    ///         via `transfer(pair, 1 wei) + sync()` must still graduate at the
+    ///         cached curve-close ratio, not the attacker's synced 1:1. The
+    ///         `totalSupply() == 0` regime gate routes this shape to the direct
+    ///         mint; the attacker, having minted no LP, holds none.
+    function test_syncDust_preseed_opensAtCurveRatio() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+        assertTrue(tokensForLP > 0 && ltFromPair > 0);
+        assertNotEq(tokensForLP, ltFromPair, "test setup should have non-1:1 target ratio");
+
+        MockHyperswapFactory hsFactory = MockHyperswapFactory(hyperswapRouter.factory());
+        address hyperPair = hsFactory.createPair(tokenAddr, address(lt));
+
+        lt.mintDirect(griefer, 1);
+        deal(tokenAddr, griefer, 1);
+        vm.startPrank(griefer);
+        IERC20(tokenAddr).transfer(hyperPair, 1);
+        lt.transfer(hyperPair, 1);
+        MockHyperswapPair(hyperPair).sync();
+        vm.stopPrank();
+
+        // Sanity-check the attack precondition: reserves non-zero but no
+        // LP minted — the gap the fix closes.
+        (uint112 preR0, uint112 preR1,) = MockHyperswapPair(hyperPair).getReserves();
+        assertGt(uint256(preR0), 0);
+        assertGt(uint256(preR1), 0);
+        assertEq(MockHyperswapPair(hyperPair).totalSupply(), 0);
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        (uint112 r0, uint112 r1,) = MockHyperswapPair(hyperPair).getReserves();
+        bool tokenIs0 = MockHyperswapPair(hyperPair).token0() == tokenAddr;
+        (uint256 reserveToken, uint256 reserveLT) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+
+        // Pool MUST open at the curve-close ratio (`tokensForLP : ltFromPair`),
+        // NOT at the attacker's synced 1:1. The 1-wei dust contributes at most
+        // 1 wei of skew vs. the target reserves, well inside `1e12` (= 1e-6).
+        assertApproxEqRel(
+            reserveToken * ltFromPair,
+            reserveLT * tokensForLP,
+            1e12,
+            "pool must open at curve-close ratio despite sync-dust pre-seed"
+        );
+
+        // Protocol LP is locked.
+        uint256 lockedLp = MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract));
+        assertGt(lockedLp, 0, "lpLock must hold the protocol LP");
+        // Attacker holds no LP — they gifted dust to the locked LP.
+        assertEq(MockHyperswapPair(hyperPair).balanceOf(griefer), 0, "attacker must hold no LP");
+    }
+
+    /// @notice Same `sync()`-dust shape (`reserves > 0 && totalSupply == 0`)
+    ///         but with a meaningfully-sized, off-ratio seed — large enough
+    ///         that the rebalance swap would otherwise fire. The
+    ///         `totalSupply() == 0` gate still direct-mints at the cached
+    ///         ratio; since a realistic seed is negligible against the
+    ///         graduation inventory, the pool opens at the curve-close ratio
+    ///         and the attacker holds no LP.
+    function test_syncDust_meaningfulPreseed_opensAtCurveRatio() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+        assertNotEq(tokensForLP, ltFromPair, "test setup should have non-1:1 target ratio");
+
+        MockHyperswapFactory hsFactory = MockHyperswapFactory(hyperswapRouter.factory());
+        address hyperPair = hsFactory.createPair(tokenAddr, address(lt));
+
+        // 1 LT + 3x the curve-close ratio of TOKEN: meaningfully token-rich,
+        // so the rebalance swap (had we taken it) would fire with a non-trivial
+        // input/output — i.e. this is NOT the swap-rounds-to-zero fallback.
+        uint256 reserveLt = 1 ether;
+        uint256 reserveToken = (3 * reserveLt * tokensForLP) / ltFromPair;
+        deal(tokenAddr, griefer, reserveToken);
+        lt.mintDirect(griefer, reserveLt);
+        vm.startPrank(griefer);
+        IERC20(tokenAddr).transfer(hyperPair, reserveToken);
+        lt.transfer(hyperPair, reserveLt);
+        MockHyperswapPair(hyperPair).sync();
+        vm.stopPrank();
+
+        // Confirm the precondition the gate targets and that the swap path
+        // would otherwise have been taken (the no-fee input is well above 0).
+        (uint112 preR0, uint112 preR1,) = MockHyperswapPair(hyperPair).getReserves();
+        assertGt(uint256(preR0), 0);
+        assertGt(uint256(preR1), 0);
+        assertEq(MockHyperswapPair(hyperPair).totalSupply(), 0, "precondition: zero supply");
+        assertGt(
+            _noFeeSwapInputUncapped(reserveLt, reserveToken, ltFromPair, tokensForLP),
+            0,
+            "setup: seed must be large enough that the rebalance swap would fire"
+        );
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        assertTrue(bonding.isGraduated(tokenAddr));
+        assertEq(bonding.graduatedPair(tokenAddr), hyperPair, "must reuse the front-run pair");
+
+        (uint112 r0, uint112 r1,) = MockHyperswapPair(hyperPair).getReserves();
+        bool tokenIs0 = MockHyperswapPair(hyperPair).token0() == tokenAddr;
+        (uint256 finalToken, uint256 finalLt) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+
+        // Both LP-bound sides land in full; the attacker's seed sits on top as
+        // a donation that backs the locked LP, not the attacker.
+        assertGe(finalToken, tokensForLP, "all tokensForLP must back the LP");
+        assertGe(finalLt, ltFromPair, "all ltFromPair must back the LP");
+
+        // Pool opens at the curve-close ratio, NOT the attacker's 3x-off
+        // synced ratio. The 1-LT seed is negligible against the multi-thousand
+        // LT inventory, so a 1% band comfortably absorbs the residual skew.
+        uint256 priceFinal = (finalLt * 1e18) / finalToken;
+        uint256 priceTarget = (ltFromPair * 1e18) / tokensForLP;
+        assertApproxEqRel(
+            priceFinal, priceTarget, 1e16, "pool must open at curve-close ratio despite meaningful sync-dust"
+        );
+
+        // Attacker minted no LP and gifted the dust to the locked LP holder.
+        assertEq(MockHyperswapPair(hyperPair).balanceOf(griefer), 0, "attacker must hold no LP");
+        assertGt(MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)), 0, "lpLock must hold the protocol LP");
+    }
+
     /// @notice Same hostile mint pre-seed as the dust-seed case, but the pair's
     ///         fee has been moved off the default beforehand. The rebalance leg
     ///         quotes its output from the pair, so finalize must still succeed;
