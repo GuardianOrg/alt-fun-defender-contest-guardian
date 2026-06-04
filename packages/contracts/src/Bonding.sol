@@ -1119,14 +1119,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      pre-seeds. Three regimes:
     ///
     ///        1. **No LP minted yet — `totalSupply == 0` (~99% of
-    ///           graduations).** Covers both the pristine empty pair and the
-    ///           `sync()`-dust shape (`transfer(pair, dust) + pair.sync()`
-    ///           leaves `reserves > 0` but `totalSupply == 0`). Direct mint
-    ///           at exactly `(tokensForLP, ltFromPair)`: V2's first-liquidity
-    ///           branch makes our cached amounts the sole LP-price input, so
-    ///           the pool opens at the curve-close price and any attacker
-    ///           dust becomes pool reserves with no LP claim. Zero gap for a
-    ///           pristine pair; ≤ 0 attacker P&L for any dust seed.
+    ///           graduations).** A pristine empty pair, or a dust pre-seed
+    ///           (`transfer(pair, dust) + sync()` leaves `reserves > 0` but
+    ///           `totalSupply == 0`). Direct mint at exactly
+    ///           `(tokensForLP, ltFromPair)` — V2's first-liquidity branch
+    ///           makes those amounts the sole price input, so the pool opens
+    ///           at the curve-close ratio and any dust becomes reserves with
+    ///           no LP claim.
     ///        2. **Pure-donation pre-seed.** Attacker `transfer`'d to the
     ///           pair without `mint` (balance > 0, reserves == 0).
     ///           `pair.skim(address(this))` pulls the donation into
@@ -1201,40 +1200,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // No-op on a freshly-created pair (balance == reserves == 0).
         IUniswapV2Pair(pair).skim(address(this));
 
-        // Regime 1 — no LP minted yet (`totalSupply == 0`). Covers both the
-        // pristine empty pair (~99% of graduations) and the `sync()`-dust
-        // shape an attacker produces with `transfer(pair, dust) +
-        // pair.sync()`, which leaves `getReserves()` non-zero while
-        // `totalSupply == 0` (nobody ever called `pair.mint`).
-        //
-        // History: the original `r0 == 0 && r1 == 0` gate let the sync-dust
-        // shape fall through to the rebalance path. On the pre-fallback code
-        // a 1-wei seed's swap rounded to zero and the router deposit then
-        // opened the pool at the attacker's synced ratio — the auditor's
-        // graduation-drain finding. The `_pairRebalance`-returns-false →
-        // `_seedDirectMint` fallback (see `_seedRebalancing`) already defuses
-        // that specific 1-wei case. Gating on `totalSupply()` here is the
-        // explicit, defense-in-depth form of the same fix: it routes the
-        // ENTIRE zero-supply regime (any dust size, swap-rounds-to-zero or
-        // not) straight to the cached-ratio direct mint, instead of relying
-        // on the rebalance swap to incidentally round away. It is a strict
-        // superset of the pristine `r0 == 0 && r1 == 0` case, so the common
-        // path is unchanged, and it skips a pointless swap against a pool we
-        // are about to own outright (cheaper, and one fewer edge case).
-        //
-        // Direct-minting against a zero-supply pair is safe for dust of any
-        // size: V2's `mint` takes the first-liquidity branch
-        // (`liquidity = sqrt(amount0 · amount1) − MINIMUM_LIQUIDITY`), so our
-        // cached `(tokensForLP, ltFromPair)` are the only inputs to the LP
-        // price and the attacker's dust becomes pool reserves with NO LP
-        // claim — donated to the locked LP holder, which ends up owning ~100%
-        // of the pool. Realistic dust is negligible against the multi-token
-        // graduation inventory, so the pool opens at the curve-close ratio;
-        // an attacker willing to commit inventory-scale capital only skews
-        // the opening price at the cost of gifting that capital to us (a
-        // short-lived arb gap on price discovery, captured by the locked LP).
-        // Net attacker P&L is ≤ 0 either way. `_seedDirectMint` also burns
-        // any TOKEN skimmed from a pure-donation pre-seed (Regime 2 → 1).
+        // Regime 1 — no LP minted yet (`totalSupply == 0`): a pristine empty
+        // pair, or a dust pre-seed from `transfer(pair, dust) + sync()` that
+        // leaves reserves non-zero while supply is still zero. Keying on
+        // supply rather than reserves routes the dust shape here instead of
+        // the rebalance path: with zero supply V2 mints from our amounts
+        // alone, so the pool opens at the cached ratio and any dust becomes
+        // reserves with no LP claim.
         if (IUniswapV2Pair(pair).totalSupply() == 0) {
             return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
         }

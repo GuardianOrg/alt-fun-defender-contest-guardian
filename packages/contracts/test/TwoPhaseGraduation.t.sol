@@ -288,26 +288,12 @@ contract TwoPhaseGraduationTest is DeployHelper {
         assertTrue(lockedLp > 0, "lpLock must hold the protocol LP");
     }
 
-    /// @notice Regression for the `sync()`-dust pre-seed exploit. Auditor
-    ///         finding: an attacker transfers 1 wei of TOKEN + LT to a
-    ///         pre-created HyperSwap pair and calls `pair.sync()`, leaving the
-    ///         pair in the state `reserves > 0 && totalSupply == 0`. On the
-    ///         original code `_seedUniswapV2Direct` skipped the empty-pair
-    ///         branch (reserves non-zero), entered `_seedRebalancing`, the
-    ///         swap rounded to zero on 1-wei reserves, and `addLiquidity`
-    ///         opened the pool at the attacker's synced 1:1 ratio rather than
-    ///         the curve-close ratio — letting the attacker drain the pool via
-    ///         the resulting arb.
-    ///
-    ///         The `_pairRebalance`-returns-false → `_seedDirectMint` fallback
-    ///         already neutralises this specific 1-wei case; the
-    ///         `totalSupply() == 0` regime gate makes the whole zero-supply
-    ///         shape explicit (it direct-mints at the curve-close ratio
-    ///         regardless of reserve state, since no LP claim can exist when
-    ///         no LP shares were ever minted). This test pins the security
-    ///         property — pool opens at the cached ratio and the attacker
-    ///         holds no LP — so a regression in EITHER path is caught.
-    function test_audit_syncDust_preseed_opensAtCurveRatio() public {
+    /// @notice A pre-created pair flipped to `reserves > 0 && totalSupply == 0`
+    ///         via `transfer(pair, 1 wei) + sync()` must still graduate at the
+    ///         cached curve-close ratio, not the attacker's synced 1:1. The
+    ///         `totalSupply() == 0` regime gate routes this shape to the direct
+    ///         mint; the attacker, having minted no LP, holds none.
+    function test_syncDust_preseed_opensAtCurveRatio() public {
         (address tokenAddr,) = _launchToken();
         _enterGraduating(tokenAddr);
 
@@ -356,17 +342,14 @@ contract TwoPhaseGraduationTest is DeployHelper {
         assertEq(MockHyperswapPair(hyperPair).balanceOf(griefer), 0, "attacker must hold no LP");
     }
 
-    /// @notice Companion to the 1-wei sync-dust regression, but with a
-    ///         meaningfully-sized, off-ratio `sync()`-dust pre-seed (no
-    ///         `pair.mint`, so `reserves > 0 && totalSupply == 0`). This is
-    ///         the case the `totalSupply() == 0` gate owns that the 1-wei
-    ///         test does not: the rebalance swap would NOT round to zero here,
-    ///         so without the gate the seed would take the swap+router path.
-    ///         The gate instead direct-mints at the cached ratio. Because a
-    ///         realistic seed is negligible against the graduation inventory,
-    ///         the pool still opens at the curve-close ratio; the attacker's
-    ///         capital is donated to the locked LP with no LP claim.
-    function test_audit_syncDust_meaningfulPreseed_opensAtCurveRatio() public {
+    /// @notice Same `sync()`-dust shape (`reserves > 0 && totalSupply == 0`)
+    ///         but with a meaningfully-sized, off-ratio seed — large enough
+    ///         that the rebalance swap would otherwise fire. The
+    ///         `totalSupply() == 0` gate still direct-mints at the cached
+    ///         ratio; since a realistic seed is negligible against the
+    ///         graduation inventory, the pool opens at the curve-close ratio
+    ///         and the attacker holds no LP.
+    function test_syncDust_meaningfulPreseed_opensAtCurveRatio() public {
         (address tokenAddr,) = _launchToken();
         _enterGraduating(tokenAddr);
 
@@ -426,9 +409,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
         // Attacker minted no LP and gifted the dust to the locked LP holder.
         assertEq(MockHyperswapPair(hyperPair).balanceOf(griefer), 0, "attacker must hold no LP");
-        assertGt(
-            MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)), 0, "lpLock must hold the protocol LP"
-        );
+        assertGt(MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)), 0, "lpLock must hold the protocol LP");
     }
 
     /// @notice Same hostile mint pre-seed as the dust-seed case, but the pair's

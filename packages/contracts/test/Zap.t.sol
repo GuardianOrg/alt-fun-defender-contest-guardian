@@ -1181,7 +1181,7 @@ contract ZapTest is DeployHelper {
         assertLt(usdcSpent, thresholdUsdc + thresholdUsdc / 10, "Spend close to threshold-crossing USDC");
     }
 
-    // ─── Graduation cap: floor-bump with supply room (auditor regime) ─────
+    // ─── Graduation cap: floor-bump with supply room (threshold-binds regime) ─────
     // When the threshold-leg binds AND the LT-side cap-implied mint
     // falls below `minUsdcAmount`, the floor-bump bumps `baseToConvert`
     // to the floor. With supply leg slack, `Router._computeBuy`
@@ -1218,8 +1218,8 @@ contract ZapTest is DeployHelper {
         assertTrue(bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "Floor-bump arms graduation");
 
         // KEY ASSERTION: no LT refund — supply absorbed the full
-        // floor-bumped mint cleanly, just as the auditor described
-        // for the threshold-binds-with-supply-room regime.
+        // floor-bumped mint cleanly, as expected for the
+        // threshold-binds-with-supply-room regime.
         assertEq(
             lt.balanceOf(trader) - traderLtBefore,
             0,

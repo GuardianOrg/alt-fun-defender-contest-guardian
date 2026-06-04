@@ -156,10 +156,9 @@ contract MockHyperswapPair is ERC20 {
     }
 
     /// @dev Standard UniswapV2 `sync`: force reserves to match balances.
-    ///      Permissionless on a real V2 pair, so an attacker can flip a
-    ///      pair into the `reserves > 0 && totalSupply == 0` state by
-    ///      depositing dust and calling sync — see the regression test
-    ///      `test_audit_syncDust_preseed_opensAtCurveRatio`.
+    ///      Permissionless on a real V2 pair, so dust can flip a pair into
+    ///      the `reserves > 0 && totalSupply == 0` state — see
+    ///      `test_syncDust_preseed_opensAtCurveRatio`.
     function sync() external {
         _reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
         _reserve1 = uint112(IERC20(token1).balanceOf(address(this)));
