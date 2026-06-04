@@ -252,9 +252,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
-        uint256 amountInUsed;
+        uint256 grossSpent;
         uint256 actualFee;
-        (tokensOut, amountInUsed, actualFee) = _executeBuy(tokenAddress, usdcAmount);
+        (tokensOut, grossSpent, actualFee) = _executeBuy(tokenAddress, usdcAmount);
 
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
@@ -262,10 +262,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             _accrueFee(tokenAddress, bonding_.creatorOf(tokenAddress), actualFee, true);
         }
 
-        emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
+        // Report the USDC actually spent, not the submitted `usdcAmount`. A
+        // graduation-capped buy refunds the unused principal and fee, so the
+        // two diverge there; for every other buy they're equal.
+        emit Buy(tokenAddress, msg.sender, grossSpent, tokensOut);
 
         if (referrer != address(0) && referrer != msg.sender) {
-            emit Referred(tokenAddress, msg.sender, referrer, usdcAmount);
+            emit Referred(tokenAddress, msg.sender, referrer, grossSpent);
         }
     }
 
@@ -389,6 +392,15 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // and a full-size buy never charges more than `feeOnGross`.
         actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
         if (actualFee > feeOnGross) actualFee = feeOnGross;
+
+        // `amountInUsed` (the curve-consumed LT) is not read by the caller, so
+        // repurpose this return to report the USDC the trade actually spent on
+        // the launched token: the curve-consumed slice plus the retained fee.
+        // Using `effectiveBaseSpent` (not `baseToConvert`) excludes any LT
+        // refunded to the buyer in the floor-bump branch, so the amount tracks
+        // `tokensOut`. Equals the submitted amount on every non-capped buy.
+        amountInUsed = effectiveBaseSpent + actualFee;
+
         uint256 feeRefund = feeOnGross - actualFee;
 
         uint256 usdcLeft = netUsdc - baseToConvert;
