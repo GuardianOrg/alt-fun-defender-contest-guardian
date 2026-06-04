@@ -8,7 +8,6 @@ alwaysApply: true
 
 ## Structure
 - `AGENTS.md` (root) — product spec: what Alt Fun is, parameters, fees, BounceTech interface
-- `TODO.md` (root) — single source of truth for open tasks. Check before starting work, remove completed items, add new items when discovered.
 - `apps/*/AGENTS.md` and `packages/*/AGENTS.md` — scope-specific context
 - `docs/contracts-scope.md` — smart contract functional requirements
 - `docs/backend-scope.md` — API endpoints, WebSocket events, data indexing

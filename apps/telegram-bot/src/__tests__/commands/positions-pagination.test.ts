@@ -31,7 +31,9 @@ const mockApi = (
     if (url.includes("/api/v1/bot/positions-v2/")) {
       return new Response(
         JSON.stringify({
+          status: "success",
           data: { open: openItems, realised: realisedItems },
+          error: null,
         }),
         { status: 200 },
       );
@@ -287,6 +289,7 @@ describe("pp callback (positions pagination)", () => {
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               open: [
                 {
@@ -310,6 +313,7 @@ describe("pp callback (positions pagination)", () => {
                 },
               ],
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -360,6 +364,7 @@ describe("pp callback (positions pagination)", () => {
       if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               open: Array.from({ length: 47 }, (_, i) => ({
                 token: `0x${i.toString(16).padStart(40, "0")}`,
@@ -372,6 +377,7 @@ describe("pp callback (positions pagination)", () => {
               })),
               realised: [],
             },
+            error: null,
           }),
           { status: 200 },
         );

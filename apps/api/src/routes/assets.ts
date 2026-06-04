@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import {
+  getAssetDisplayName,
   getHyperliquidDex,
   HYPERLIQUID_INFO_API,
   HYPERLIQUID_XYZ_DEX,
@@ -122,7 +123,9 @@ function detectedSupportedUnderlyings(
   lts: readonly { targetAsset: string }[],
 ): string[] {
   const detected = new Set(lts.map((lt) => lt.targetAsset));
-  return SUPPORTED_UNDERLYING_ASSETS.filter((symbol) => detected.has(symbol));
+  return SUPPORTED_UNDERLYING_ASSETS.filter((symbol) => detected.has(symbol)).sort(
+    (a, b) => getAssetDisplayName(a).localeCompare(getAssetDisplayName(b)),
+  );
 }
 
 async function readCachedSupportedDirectory(databaseUrl: string): Promise<{

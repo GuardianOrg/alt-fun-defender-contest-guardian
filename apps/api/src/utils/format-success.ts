@@ -1,6 +1,9 @@
-export type DataSource = "live" | "degraded";
+import type { ApiDataSource, ApiSuccessResponse } from "@launchpad/shared";
 
-const formatSuccess = <T>(data: T, dataSource?: DataSource) => {
+const formatSuccess = <T>(
+  data: T,
+  dataSource?: ApiDataSource,
+): ApiSuccessResponse<T> => {
   return {
     status: "success",
     data,

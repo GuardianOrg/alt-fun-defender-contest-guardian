@@ -13,10 +13,14 @@ import ETH from "../../assets/Logos/ETH.svg";
 import fartcoin from "../../assets/Logos/fartcoin.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
 import kPepe from "../../assets/Logos/kPEPE.svg";
+import lit from "../../assets/Logos/lit.svg";
+import near from "../../assets/Logos/near.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
+import spcx from "../../assets/Logos/spcx.svg";
 import tesla from "../../assets/Logos/tesla.svg";
+import xyz_BB from "../../assets/Logos/xyz_BB.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
 import cbrs from "../../assets/Logos/xyz_CBRS.svg";
 import xyz_CL from "../../assets/Logos/xyz_CL.svg";
@@ -35,6 +39,8 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   ZEC: zec,
   kPEPE: kPepe,
   FARTCOIN: fartcoin,
+  NEAR: near,
+  LIT: lit,
   "xyz:CBRS": cbrs,
   "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,
@@ -43,27 +49,19 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:NVDA": nvidia,
   "xyz:TSLA": tesla,
   "xyz:SP500": SP500,
+  "xyz:SPCX": spcx,
   "xyz:XYZ100": xyz_XYZ100,
+  "xyz:BB": xyz_BB,
 };
 
 interface Props {
   asset: string;
   size: number;
   className?: string;
-  /**
-   * Adapt monogram font sizing for tiny icons. Defaults to ~52% of `size`,
-   * which reads well from ~14px upwards.
-   */
+  /** Monogram font size as a ratio of icon size. */
   monogramRatio?: number;
 }
 
-/**
- * Render a circular icon for an underlying asset. Uses a bundled SVG logo
- * when available; otherwise falls back to a circular monogram (first 1–2
- * characters of the display name, with the `xyz:` prefix stripped).
- *
- * The fallback exists so rows with unknown assets still render legibly.
- */
 export default function AssetIcon({
   asset,
   size,
@@ -71,10 +69,7 @@ export default function AssetIcon({
   monogramRatio = 0.52,
 }: Props) {
   const [imgError, setImgError] = useState(false);
-  // Reset the error flag when the asset prop changes so a previous logo
-  // failure doesn't permanently force the new asset onto the monogram
-  // fallback (matters when the same `<AssetIcon>` instance is reused
-  // across rows / list virtualisation).
+  // Reset logo failures when the same instance is reused for a different asset.
   useEffect(() => setImgError(false), [asset]);
   const logo = isSupportedUnderlying(asset) ? ASSET_LOGOS[asset] : undefined;
   const display = getAssetDisplayName(asset);
@@ -92,9 +87,7 @@ export default function AssetIcon({
     );
   }
 
-  // Two-letter monograms read better than a single letter for assets like
-  // `kPEPE` and `XYZ100`; uppercase keeps the optical weight consistent
-  // alongside the polished SVGs.
+  // Two-letter monograms read better for assets like `kPEPE` and `XYZ100`.
   const monogram = display.length > 1 ? display.slice(0, 2) : display;
   return (
     <span

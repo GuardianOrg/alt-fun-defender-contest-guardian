@@ -67,12 +67,12 @@ real user EOA). Seed buys via `createToken` attribute to the creator.
 
 ## Anti-snipe Launch Gate (Read This Before Touching `launch` or `buy`)
 
-Issue #310. Two cooperating knobs eliminate the standard pump.fun-class first-block snipe:
+Two cooperating knobs eliminate the standard pump.fun-class first-block snipe:
 
-- `Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp) — `Zap.createToken` reverts with `BelowMinSeed` for any smaller seed. Mandatory; the seed buy is no longer optional.
+- `Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp) — `Zap.createToken` reverts with `BelowMinSeed` for any smaller seed. Mandatory; the seed buy is no longer optional. The floor is on the gross seed (pre-fee); the buy fee is skimmed in `_executeBuy`, so net curve liquidity is `$20 − buyFee`.
 - `Bonding.LAUNCH_TRADING_DELAY_BLOCKS = 3` — `Bonding.buy` reverts with `TradingNotOpen` until `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The seed buy bypasses the gate via a transient-storage slot (`_SEED_BUY_BYPASS_SLOT`, EIP-1153 TLOAD/TSTORE) set in `launch()` and consumed on first match in `buy()`. Bypass is consume-once and naturally cleared at end-of-tx — separate-tx sniper buys at the same block see a cleared slot and revert.
 
-Combined: the creator's seed absorbs the cheap end of the curve, and no public buy can land before `launchBlock + 4`. **No upper bound on the seed.** A cap would be trivially bypassable via a second wallet at `launchBlock + 4` and would block legitimate seed-and-burn patterns; the floor is the only side that protects retail. This is a deliberate design choice — see `Zap.MIN_SEED_USDC` natspec and `Bonding._enforceLaunchDelay`.
+Combined: the seed lands ahead of the gate and no public buy can land before `launchBlock + 4`. The gate is buy-only — sells are not delayed, so a creator can withdraw the seed from the bonding curve within the window; this is accepted for the same reason the seed is uncapped (a creator controls their own open regardless). **No upper bound on the seed.** A cap would be trivially bypassable via a second wallet at `launchBlock + 4` and would block legitimate seed-and-burn patterns; the floor is the only side that protects retail. This is a deliberate design choice — see `Zap.MIN_SEED_USDC` natspec and `Bonding._enforceLaunchDelay`.
 
 If you change either knob, update the threat-model writeup in the root [`AGENTS.md`](../../AGENTS.md#anti-snipe-design) and the frontend mirror (`MIN_USDC_BUY_AMOUNT` in [`packages/shared/src/constants/bouncetech.ts`](../shared/src/constants/bouncetech.ts) plus the disable check in [`apps/web/src/components/create/CreateView.tsx`](../../apps/web/src/components/create/CreateView.tsx)). Coverage: `test_buy_blockedDuringLaunchDelay`, `test_buy_blockedAtLastDelayBlock`, `test_buy_succeedsOnceDelayElapses`, `test_createToken_revertsBelowMinSeed`, `test_createToken_revertsZeroSeed`, `test_launchBlock_recorded` in `test/Zap.t.sol`.
 
@@ -82,15 +82,15 @@ This is the most bespoke piece of the protocol. Full rationale + invariants live
 
 - **Two-phase split.** Graduation is split across two transactions to fit HyperEVM's small-block (~2M gas) ceiling.
   - **Phase 1: `_enterGraduating`**, fired inline by the threshold-crossing buy (~150-200k of additional gas on top of the buy). Drains the curve, computes the LP-bound amounts, caches them in `pendingGraduation[token]`, flips `lifecycle: Curve → Graduating`, freezes trading. Emits `TokenGraduating`.
-  - **Phase 2: `finalizeGraduation`**, **permissionless** big-block tx (~2.5M gas). Creates the HyperSwap pair if needed, mints LP via direct `pair.mint(lpLock)` (router-bypass), locks LP, flips `lifecycle: Graduating → Graduated`. Emits `TokenGraduated`. A Cloudflare Worker keeper handles the happy path; anyone can call to rescue a stuck token.
-- **Brick resistance.** The phase-2 LP-seeding path bypasses the HyperSwap V2 router entirely (`pair.mint(lpLock)` directly). This makes the contract **immune to a front-runner pre-creating + dust-seeding the pair between phases** — under the previous `_requirePairEmpty` design that scenario was a permanent brick. Tested by `test_brick_resistance_frontRun_dust_seed` in [`test/TwoPhaseGraduation.t.sol`](test/TwoPhaseGraduation.t.sol).
+  - **Phase 2: `finalizeGraduation`**, **permissionless** big-block tx (~2.5M gas). Creates the HyperSwap pair if needed, seeds liquidity across the empty, donation, and hostile mint-pre-seed regimes, locks LP, flips `lifecycle: Graduating → Graduated`. Emits `TokenGraduated`. A Cloudflare Worker keeper handles the happy path; anyone can call to rescue a stuck token.
+- **Brick resistance.** Phase 2 must never revert under any pre-seed shape. Empty/donation pairs use direct pair calls; hostile mint pre-seeds use direct `pair.swap` for rebalance plus router `addLiquidity` for the canonical quote-based deposit. Tested by `test_brick_resistance_frontRun_dust_seed` in [`test/TwoPhaseGraduation.t.sol`](test/TwoPhaseGraduation.t.sol).
 - **Virtual token reserve.** At launch, `Pair.reserve0 = totalSupply (1B)` while only `curveSupply = 75%` (750M) of real tokens are transferred to the pair. The other 250M (`LP_RESERVE`) sit in `Bonding` for graduation. This extends the curve beyond the sellable supply, which is what makes dynamic LP seeding work cleanly.
 - **Dual trigger.** Phase 1 fires on whichever hits first: `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $9K` (USD, for LT pumps) or `IPair.tokenBalance() == 0` (supply, for flat/bear markets). The USD trigger reads STORED reserves so direct LT donations to the pair don't count toward the threshold; the launch-time `virtualLtReserve` is recovered on-the-fly as `Pair.k() / Token.TOTAL_SUPPLY()` (K is set once at mint and never modified by `Pair.swap`). The supply trigger reads live `tokenBalance()`, which is donation-resistant in the opposite direction: token donations only INCREASE the balance and can never satisfy `== 0`, and any donated tokens are unconditionally burned by `_prepareGraduationLiquidity`.
 - **Zero-gap LP seeding.** `_prepareGraduationLiquidity` computes `ltFromPair = storedAssetReserve - virtualLtReserve` (the real LT raised by the curve, donation-immune; `virtualLtReserve` is derived from `Pair.k() / Token.TOTAL_SUPPLY()`) and `tokensForLP = ltFromPair × storedTokenReserve / storedAssetReserve` at end-of-phase-1, caching the result. Phase 2 uses the cached value verbatim, so the curve→LP price match is invariant under the tx split. Donated LT stays in the curve pair under the trust assumption that `BONDING_ROLE` is only ever held by `Bonding` and `Bonding` won't call `Router.graduate` again post-graduation.
 - **Parabola invariant.** With `V_t_init = totalSupply` and `curveSupply = 75%`, the function `tokensForLP(sold) = sold·(S−sold)/S` peaks at `S/4 = LP_RESERVE`. The cap in `_prepareGraduationLiquidity` is defensive — it can never bind in normal operation.
-- **Overflow buy cap.** `Router.buy` caps `tokensOut` at the pair's real balance and back-calculates the LT consumed, so the last buy cannot exceed remaining supply. `Zap.buy` refunds the unused LT as USDC (or LT on fallback). `Bonding.buy` returns `(tokensOut, amountInUsed)` for this reason.
+- **Overflow buy cap.** `Router.buy` caps `tokensOut` at the pair's real balance and back-calculates the LT consumed, so the last buy cannot exceed remaining supply. `Zap.buy` returns the unused LT (`ltMinted - amountInUsed`) directly as LT — not redeemed, to avoid re-incurring the LT redemption fee on dust — while unconverted USDC and the fee over-charge are refunded in USDC. `Bonding.buy` returns `(tokensOut, amountInUsed)` for this reason.
 
-**If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedUniswapV2Direct` (or any of its `_seedRebalancingViaRouter` / `_routerRebalance` / `_routerDepositAndDispose` / `_noFeeSwapInput` helpers), `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol`, `test/TwoPhaseGraduation.t.sol`, and `test/NoFeeSwapInput.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance regression test must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
+**If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedUniswapV2Direct` (or any of its `_seedRebalancing` / `_pairRebalance` / `_routerDepositAndDispose` / `_noFeeSwapInput` helpers), `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol`, `test/TwoPhaseGraduation.t.sol`, and `test/NoFeeSwapInput.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance regression test must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
 
 ## HyperSwap Router non-standard ABI (Read This Before Adding Any Router Call)
 
@@ -102,9 +102,9 @@ HyperSwap's mainnet V2 router (`0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A`) is 
 | `0xb4822be3` | `swapExactETHForTokensSupportingFeeOnTransferTokens(uint,address[],address,address,uint)` | `swapExactETHForTokens(...)` (`0x7ff36ab5`) |
 | `0x52aa4c22` | `swapExactTokensForETHSupportingFeeOnTransferTokens(uint,uint,address[],address,address,uint)` | `swapExactTokensForETH(...)` (`0x18cbafe5`) |
 
-**Calling the canonical selector reverts with no data** (selector not in the dispatch table → fallback). This was the root cause of issue #343's near-miss — the original PR called `router.swapExactTokensForTokens(...)` and would have bricked every hostile-pre-seed defense path on day one of mainnet.
+**Calling the canonical selector reverts with no data** (selector not in the dispatch table → fallback). A router swap call in the hostile-pre-seed defense would brick affected graduations on mainnet.
 
-**The protocol's rule: never call a swap function on the V2 router.** Both `Bonding._pairRebalance` (the hostile-pre-seed rebalance) and `Zap._swapOnUniswapV2` (post-grad user trades) go direct to the pair via `pair.swap(amount0Out, amount1Out, to, "")`. We compute the V2 fee-charging amount-out ourselves; the pair's K-invariant check enforces correctness. This is independent of HyperSwap's router quirks and works on any V2 fork.
+**The protocol's rule: never call a swap function on the V2 router.** Both `Bonding._pairRebalance` (the hostile-pre-seed rebalance) and `Zap._swapOnUniswapV2` (post-grad user trades) go direct to the pair via `pair.swap(amount0Out, amount1Out, to, "")`. We read the output from the pair's own fee-aware `getAmountOut` quote; the pair's K-invariant check enforces correctness. This is independent of HyperSwap's router quirks and works on any V2 fork.
 
 What IS canonical on the HyperSwap router and safe to call:
 
@@ -112,7 +112,7 @@ What IS canonical on the HyperSwap router and safe to call:
 - `addLiquidity(address,address,uint256,uint256,uint256,uint256,address,uint256)` (`0xe8e33700`) — canonical V2 signature. Used by `Bonding._routerDepositAndDispose` for the hostile-pre-seed defense's deposit leg, because the router's `quote()`-based optimal-split logic is non-trivial to reimplement and the function is verified canonical.
 - `WETH()`, `quote()`, `getAmountsOut()`, `removeLiquidity*` family — all canonical, but the protocol doesn't currently use them.
 
-The full deployed-router selector list (16 functions total) and the verification methodology (bytecode `PUSH4-EQ` extraction + `eth_call` empirical tests) is preserved in the issue #343 review history. To re-verify in the future:
+To re-verify the deployed-router selector list in the future:
 
 ```bash
 R=0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A
@@ -125,7 +125,7 @@ cast code --rpc-url "$HYPEREVM_RPC_URL" $R | grep -oiE '63[0-9a-f]{8}14' | sort 
 
 ## HyperSwap Pre-Seed Defense (Read This Before Touching `_seedUniswapV2Direct`)
 
-Issue #308. The whole sub-system inside `_seedUniswapV2Direct` exists to defuse one specific attack class. It's the most subtle code in the package. Read this before touching any of the helpers (`_seedRebalancingViaRouter`, `_routerRebalance`, `_routerDepositAndDispose`, `_noFeeSwapInput`).
+The whole sub-system inside `_seedUniswapV2Direct` exists to defuse one specific attack class. It's the most subtle code in the package. Read this before touching any of the helpers (`_seedRebalancing`, `_pairRebalance`, `_routerDepositAndDispose`, `_noFeeSwapInput`).
 
 ### The exploit
 
@@ -176,7 +176,7 @@ Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.min
 Attacker called `pair.mint(attacker)` against a self-funded dust seed. Reserves are non-zero at a hostile ratio. We:
 
 1. **Compute the swap input** that would drive the pool ratio back to the curve-close ratio under the no-fee constant-product model: `s = sqrt(reserveIn · reserveOut · targetN / targetD) − reserveIn`, capped at our per-side budget. Implementation in `_noFeeSwapInput`. Closed-form via OZ `Math.sqrt + Math.mulDiv`; no binary search, no convergence loop.
-2. **Execute the swap directly on the pair** via `pair.swap(amount0Out, amount1Out, address(this), "")`. We compute the V2 fee-charging amount-out ourselves and pass it as the output. **Bypasses the router** — HyperSwap's V2 router has no canonical `swapExactTokensForTokens` (see "HyperSwap Router non-standard ABI" above). Same direct-to-pair pattern Zap uses for post-grad user swaps. Implementation in `_pairRebalance`.
+2. **Execute the swap directly on the pair** via `pair.swap(amount0Out, amount1Out, address(this), "")`. We read the output from the pair's own fee-aware `getAmountOut` quote and pass it as the output. **Bypasses the router** — HyperSwap's V2 router has no canonical `swapExactTokensForTokens` (see "HyperSwap Router non-standard ABI" above). Same direct-to-pair pattern Zap uses for post-grad user swaps. Implementation in `_pairRebalance`.
 3. **Deposit the remaining inventory** via `router.addLiquidity(rest, 1, 1, lpLock, ...)`. The router's `quote()`-based optimal split deposits only the matched-ratio subset; neither side becomes a `min()` donation. Off-ratio remainder stays in `Bonding`. The router's `addLiquidity` IS canonical V2 on HyperSwap (verified selector `0xe8e33700`), so this leg is safe to keep on the router and gets the `quote()` math for free.
 4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side auto-swept to the protocol owner by `finalizeGraduation`'s post-sweep — emits `LTRescued(lt, owner, amount)` for observability. See "Per-graduation LT isolation" below.
 
@@ -184,13 +184,15 @@ Why the **asymmetric router usage** (pair for swap, router for addLiquidity): th
 
 Why the fourth step matters: **mass conservation prevents fixing both the price and the deposit.** If the pool starts off-target and our inventory is on-target, we cannot end with both at-target reserves AND a fully-deposited inventory — something has to absorb the imbalance. Step 4 is where it goes.
 
+**Dust pre-seeds skip steps 1–4 for a direct mint.** When the swap-output side of the pre-seed is small enough that the rebalance swap rounds to zero (`s == 0` or `getAmountOut(s) == 0`), no swap can move the ratio. The reserves are then negligible against `(tokensForLP, ltFromPair)`, so `_pairRebalance` returns `false` and `_seedRebalancing` falls back to `_seedDirectMint` — the same `transfer + pair.mint` as Regime 1 — opening at the cached ratio and depositing both sides in full (nothing burned or swept). The attacker's dust LP captures `max(reserveToken/tokensForLP, reserveLT/ltFromPair)` of the pool, which vanishes. This is strictly preferable to depositing at the dust ratio via the router, which would open the pool off curve-close.
+
 ### Brick-resistance contract
 
 `_seedUniswapV2Direct` MUST never revert under any pre-seed shape. The brick-resistance contract is the load-bearing security property — auditors prioritise it above the LP-capture defense, because a brick locks every holder in `Graduating` forever. The pre-seed defense is layered to honour this:
 
 - **Regime 1/2 don't touch the router.** Even if the V2 router is misbehaving, the empty + donation paths run on direct pair calls.
-- **`_pairRebalance` precondition-checks the swap.** `_noFeeSwapInput` may return a tiny `s` against an extremely imbalanced pool where V2's fee-charging `getAmountOut` rounds down to zero, which would revert `pair.swap` with `INSUFFICIENT_OUTPUT_AMOUNT`. We mirror V2's `(s · 997 · rOut) / (rIn · 1000 + s · 997)` formula and skip the swap if it would round to zero. Skipping is safe — the subsequent `addLiquidity` still defuses the LP-capture attack via `quote()`-based split, just opens at the (sub-bp) residual skew the swap would have closed.
-- **`_routerDepositAndDispose` uses `min0=1, min1=1`.** Slippage protection on `addLiquidity` exists to defend against a third party moving the pool ratio between quote and execution; here we set the ratio ourselves in `_routerRebalance` in the same atomic tx, so there's no third party to defend against. The `=1` (rather than `=0`) trips V2's degenerate-ratio guard so the call can't silently land at near-zero.
+- **`_pairRebalance` falls back to a direct mint when no swap can run.** `_noFeeSwapInput` may return `s == 0`, or the pair's fee-charging `getAmountOut(s)` may round to zero, against a pre-seed whose swap-output side is dust — `pair.swap` would otherwise revert with `INSUFFICIENT_OUTPUT_AMOUNT`. In either case `_pairRebalance` returns `false`, and `_seedRebalancing` overpowers the dust with a direct `transfer + pair.mint` at the cached `tokensForLP / ltFromPair` ratio (`_seedDirectMint`), opening the pool on-ratio. This is safe specifically because the swap only rounds to zero when the reserves are negligible against this graduation's inventory: the V2 `min()` donation to the attacker's pre-existing LP is then bounded by `max(reserveToken/tokensForLP, reserveLT/ltFromPair)`, which vanishes for any seed that small. Depositing at the un-rebalanced ratio instead would open the pool off curve-close and strand most of one side's inventory — a tiny side reserve (just above V2's `MINIMUM_LIQUIDITY`) is enough to skew it by tens of percent, since the large token-per-LT ratio forces any meaningful mispricing into the swap-rounds-to-zero regime. The ratio-on-open is regression-tested by `test_hostilePreSeed_tokenRichDust_opensAtCachedRatio` / `test_hostilePreSeed_ltRichDust_opensAtCachedRatio` in `test/TwoPhaseGraduation.t.sol`.
+- **`_routerDepositAndDispose` uses `min0=1, min1=1`.** Slippage protection on `addLiquidity` exists to defend against a third party moving the pool ratio between quote and execution; here we set the ratio ourselves in `_pairRebalance` in the same atomic tx, so there's no third party to defend against. The `=1` (rather than `=0`) trips V2's degenerate-ratio guard so the call can't silently land at near-zero.
 - **No external dependency on the router slot being correct post-deploy.** `uniswapV2Router` is set at `initialize` time alongside `uniswapV2Factory` and is rejected if zero. There's no live setter — rotation requires a UUPS upgrade so the change is visible on-chain ahead of any in-flight graduation.
 
 Tested end-to-end by the brick-resistance regression tests in `test/TwoPhaseGraduation.t.sol` (notably `test_brick_resistance_frontRun_dust_seed`).
@@ -201,7 +203,7 @@ After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-bac
 
 ### Pool-open precision
 
-Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Hostile-pre-seed graduations open within ~50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value.
+Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Dust mint pre-seeds also open at ~0 bps — they take the `_seedDirectMint` fallback, which deposits at the cached ratio with only a vanishing skew from the dust reserves. Larger mint pre-seeds (where the rebalance swap fires) open within ~50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value.
 
 ### Per-graduation LT isolation
 
@@ -216,19 +218,10 @@ Two scenarios this guards against:
 
 The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. The dedicated regression tests for these edge cases were removed alongside `HostilePreSeed.t.sol`; future changes to `finalizeGraduation` / `_routerDepositAndDispose` / `_sweepLTToOwner` should add targeted coverage if the behaviour is non-obvious from the unit-level tests in `TwoPhaseGraduation.t.sol`.
 
-### Mock-suite changes worth knowing
-
-The defense exposed latent inaccuracies in `test/mocks/MockHyperswapRouter.sol` that were silently masked under the previous direct-mint code path. Fixed:
-
-- `MockHyperswapPair.mint` enforces V2's `MINIMUM_LIQUIDITY = 1000` on first mint (locked to a `0xdead` sentinel since OZ ERC20 v5 rejects `_mint(address(0))`). Matches canonical V2.
-- `MockHyperswapPair.skim` implemented (was missing entirely).
-- `MockHyperswapRouter` rewritten to mirror the deployed HyperSwap surface specifically (see "HyperSwap Router non-standard ABI" above) — canonical `addLiquidity` + the FoT-with-`referrer` token-token variant; canonical `swapExactTokensForTokens` and `getAmountsOut` removed because the real router doesn't expose them. This means any test code that accidentally calls a canonical swap signature fails at compile time / "function not found" — the original PR #343 review caught a related bug because the mock had been faking canonical swap behaviour.
-- `MockHyperswapPair`'s `setRouter` / `mintRaw` / `routerTransfer` / `setReserves` helpers removed — they only existed to support the now-deleted canonical-`swapExactTokensForTokens` mock implementation.
-
 ### Tests you MUST re-run if you change any of this
 
 - `test/NoFeeSwapInput.t.sol` — 9 deterministic + 2 fuzz tests on the load-bearing math (degenerate inputs, monotonicity, cap-at-budget, closed-form correctness, overflow safety, the round-down-to-zero input shape that motivated the precheck).
-- `test/TwoPhaseGraduation.t.sol` — brick-resistance + phase-1-fits-in-small-block tests must still pass.
+- `test/TwoPhaseGraduation.t.sol` — brick-resistance + phase-1-fits-in-small-block tests, plus the hostile-pre-seed open-at-cached-ratio tests (`test_hostilePreSeed_*`) covering both the dust direct-mint fallback and the meaningful-reserve swap path, must still pass.
 - `test/GraduationInvariants.t.sol` — zero-gap, supply conservation, parabola cap. Honest-path properties unchanged by the defense.
 
 The dedicated end-to-end hostile-pre-seed integration suite (`test/HostilePreSeed.t.sol`) was removed for runtime reasons after the contracts were audited and deployed — the pentest scenarios `F-02` / `IN-02`, attacker-no-profit, leftover recovery, and concurrent-graduation isolation properties are no longer enforced by automated tests. If you change any of the graduation / rebalance / deposit code paths, consider re-deriving these properties manually and / or adding targeted regressions for whatever you touch.

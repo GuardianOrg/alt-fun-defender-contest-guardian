@@ -5,7 +5,6 @@ interface Props {
   step: number;
   title: string;
   subtitle: string;
-  total?: number;
   active?: boolean;
 }
 
@@ -13,7 +12,6 @@ export default function StepHeader({
   step,
   title,
   subtitle,
-  total = 3,
   active = true,
 }: Props) {
   return (
@@ -27,7 +25,7 @@ export default function StepHeader({
         >
           {step}
         </div>
-        {step < total && <div className={styles.connector} />}
+        <div className={styles.connector} />
       </div>
       <div className={styles.content}>
         <div className={styles.title}>{title}</div>

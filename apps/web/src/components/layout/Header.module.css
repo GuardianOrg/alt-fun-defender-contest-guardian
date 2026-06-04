@@ -1,11 +1,28 @@
 .header {
   display: flex;
   align-items: center;
-  background: var(--bg-1);
   flex-shrink: 0;
   position: relative;
   padding-top: 1.2rem;
   padding-bottom: 1.2rem;
+}
+
+.header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 0;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--bg-1);
+  pointer-events: none;
+}
+
+.header > * {
+  position: relative;
+  z-index: 1;
 }
 
 .logo {

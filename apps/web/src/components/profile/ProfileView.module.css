@@ -55,12 +55,62 @@
   background: transparent;
   color: var(--txt);
   overflow: hidden;
+  position: relative;
+  isolation: isolate;
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
 
 .avatar:hover {
   border-color: var(--mint-hover);
+}
+
+.avatar::before,
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.avatar::before {
+  z-index: 1;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.12) 0,
+      rgba(255, 255, 255, 0.12) 1px,
+      rgba(0, 0, 0, 0.2) 2px,
+      rgba(0, 0, 0, 0.2) 4px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 0, 64, 0.08),
+      rgba(77, 232, 180, 0.05),
+      rgba(64, 128, 255, 0.08)
+    );
+  mix-blend-mode: screen;
+  opacity: 0.42;
+}
+
+.avatar::after {
+  z-index: 2;
+  background:
+    radial-gradient(
+      circle at center,
+      transparent 45%,
+      rgba(0, 0, 0, 0.28) 100%
+    ),
+    linear-gradient(
+      rgba(255, 255, 255, 0.16),
+      transparent 22%,
+      transparent 72%,
+      rgba(0, 0, 0, 0.18)
+    );
+  box-shadow:
+    inset 0 0 calc(var(--avatar-size) * 0.18) rgba(77, 232, 180, 0.24),
+    inset 0 0 calc(var(--avatar-size) * 0.08) rgba(255, 255, 255, 0.16);
 }
 
 .avatar:focus-visible {
@@ -77,6 +127,12 @@
   line-height: 1;
   user-select: none;
   white-space: nowrap;
+  position: relative;
+  z-index: 0;
+  text-shadow:
+    -1px 0 rgba(255, 0, 64, 0.45),
+    1px 0 rgba(77, 232, 180, 0.45),
+    0 0 calc(var(--avatar-size) * 0.08) rgba(255, 255, 255, 0.35);
 }
 
 .identity {
@@ -87,20 +143,13 @@
 }
 
 .label {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
-/* Address row hosts the shortened address text + an inline copy
- * `IconButton` + an explorer link out to hyperevmscan. Flex with a
- * 0.4rem gap so the controls sit next to the last character without
- * crowding it; aligning to the baseline keeps the glyph optically
- * lined up with the monospace digits regardless of intrinsic
- * heights. `flex-wrap` allows the explorer link to drop to a second
- * row on narrow viewports rather than overflowing the panel. */
+/* Address row hosts the shortened address text plus inline copy and
+ * explorer icon controls. Flex with a 0.4rem gap keeps the controls
+ * next to the last character without crowding it; `flex-wrap` allows
+ * the explorer link to drop to a second row on narrow viewports. */
 .addressRow {
   display: flex;
   align-items: center;
@@ -109,30 +158,33 @@
   min-width: 0;
 }
 
-/* Inline explorer link — same visual family as `BottomTabs.txnLink`
- * so every "view this on hyperevmscan" affordance across the app
- * reads as a sibling. Plain text + a faint external-link glyph at
- * rest; both go mint on hover. Margin-left adds optical breathing
- * room between the copy button and the link so they don't read as
- * a single compound control. */
 .explorerLink {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-left: 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 12px;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
   color: var(--txt-3);
-  letter-spacing: 0.04em;
-  text-decoration: none;
   cursor: pointer;
+  flex-shrink: 0;
+  text-decoration: none;
   transition:
     color 0.15s ease,
+    background-color 0.15s ease,
     border-color 0.15s ease;
+}
+
+.explorerLink > svg {
+  display: block;
 }
 
 .explorerLink:hover {
   color: var(--mint);
+  border-color: var(--border-2);
+  background: var(--mint-bg);
 }
 
 .explorerLink:focus-visible {
@@ -140,25 +192,22 @@
   outline-offset: 2px;
 }
 
-.explorerLinkIcon {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: opacity 0.15s ease;
-}
-
-.explorerLink:hover .explorerLinkIcon {
-  opacity: 1;
-}
-
 /* Sizing override for the shared `Button` primitive when used as the
  * profile hero's Disconnect affordance. `margin-left: auto` pushes
  * the button to the right edge of the hero so it doesn't crowd the
  * cluster of address + copy + explorer-link controls on the left.
  * `flex-shrink: 0` keeps the button at its natural width even when
- * the address row wraps on narrow viewports. */
+ * the address row wraps on narrow viewports. The doubled class below
+ * intentionally outranks the shared secondary-button hover rule. */
 .disconnectBtn {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.disconnectBtn.disconnectBtn:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-bg);
 }
 
 .address {
@@ -259,11 +308,7 @@
 }
 
 .balanceSummaryLabel {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
 .balanceSummaryValue {
@@ -313,11 +358,6 @@
   min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
   background: var(--bg-2);
 }
 
@@ -464,7 +504,7 @@
 
 .balanceAddressText {
   font-size: 12px;
-  color: var(--txt-3);
+  color: var(--txt);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   overflow: hidden;
@@ -484,11 +524,6 @@
   font-size: 13px;
   color: var(--txt);
   font-weight: 600;
-}
-
-.balanceAmountTicker {
-  font-size: 11px;
-  color: var(--txt-3);
 }
 
 .balanceChange {
@@ -552,11 +587,7 @@
 }
 
 .rewardsLabel {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
 /* Hero claimable figure — bigger than the secondary stats below so
@@ -658,11 +689,6 @@
   min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--txt-3);
   background: var(--bg-2);
 }
 
@@ -699,16 +725,14 @@
 /* Standing disclaimer beneath the populated rewards table. Mirrors the
  * footer chrome in `layout/EarningsPanel.module.css` so the same copy
  * (`CREATOR_FEE_SHARE_PCT`% of fees go to creators…`) reads identically
- * across the floating earnings panel and the profile page. Top border +
- * mono small-caps body matches the panel's other low-contrast strips so
- * the disclaimer reads as chrome rather than primary content. */
+ * across the floating earnings panel and the profile page. */
 .rewardsFooter {
   padding: 1.2rem 1.6rem;
   border-top: 1px solid var(--border);
 }
 
 .rewardsFooterText {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 12px;
   line-height: 1.6;
   color: var(--txt-3);
@@ -738,11 +762,8 @@
   }
 }
 
-/* Empty-state surface shared by both profile tabs while real balances
- * / rewards data isn't wired yet. Centered vertical stack with a
- * small uppercase mono title, body copy, and a sized-down CTA.
- * Spacing lands on the doubling scale; tokens only — no shadows,
- * no rounded card. */
+/* Empty-state surface shared by profile tabs. Centered vertical stack with
+ * a small uppercase title, body copy, and a sized-down CTA. */
 .emptyState {
   display: flex;
   flex-direction: column;
@@ -755,7 +776,7 @@
 }
 
 .emptyTitle {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -764,7 +785,7 @@
 }
 
 .emptyBody {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 13px;
   line-height: 1.6;
   color: var(--txt-3);

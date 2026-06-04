@@ -8,4 +8,8 @@ pragma solidity 0.8.24;
 interface IBounceGlobalStorage {
     /// @notice Current BounceTech `Factory` address.
     function factory() external view returns (address);
+
+    /// @notice Minimum base-asset (USDC, 6dp) amount accepted by LT
+    ///         `mint`/`redeem`. Owner-settable on the BounceTech side.
+    function minTransactionSize() external view returns (uint256);
 }

@@ -142,6 +142,40 @@ contract LPLockTest is Test {
         lpLock.recordLock(tokenAddr, pairAddr, 200 ether);
     }
 
+    function test_recordLock_revertsOnZeroAmount() public {
+        vm.prank(bonding);
+        vm.expectRevert(LPLock.ZeroAmount.selector);
+        lpLock.recordLock(tokenAddr, pairAddr, 0);
+    }
+
+    function test_recordLock_revertsOnZeroPair() public {
+        vm.prank(bonding);
+        vm.expectRevert(LPLock.ZeroAddress.selector);
+        lpLock.recordLock(tokenAddr, address(0), 100 ether);
+    }
+
+    // A zero-amount call can never seed a re-writable slot: it reverts before
+    // touching storage, so a later call for the same token still hits the
+    // `AlreadyLocked` guard once a real lock exists.
+    function test_recordLock_zeroAmountCannotBypassOneShotGuard() public {
+        vm.prank(bonding);
+        vm.expectRevert(LPLock.ZeroAmount.selector);
+        lpLock.recordLock(tokenAddr, pairAddr, 0);
+
+        (address lp, uint256 amount, uint256 lockedAt) = lpLock.getLock(tokenAddr);
+        assertEq(lp, address(0));
+        assertEq(amount, 0);
+        assertEq(lockedAt, 0);
+
+        lpToken.mint(address(lpLock), 300 ether);
+        vm.prank(bonding);
+        lpLock.recordLock(tokenAddr, pairAddr, 100 ether);
+
+        vm.prank(bonding);
+        vm.expectRevert(LPLock.AlreadyLocked.selector);
+        lpLock.recordLock(tokenAddr, pairAddr, 200 ether);
+    }
+
     // ─── getLock ──────────────────────────────────────────────────────────
 
     function test_getLock_returnsZeroForUnlockedToken() public {
@@ -189,6 +223,7 @@ contract LPLockTest is Test {
     function testFuzz_recordLock_arbitraryAmounts(
         uint256 amount
     ) public {
+        amount = bound(amount, 1, type(uint256).max);
         lpToken.mint(address(lpLock), amount);
 
         vm.prank(bonding);

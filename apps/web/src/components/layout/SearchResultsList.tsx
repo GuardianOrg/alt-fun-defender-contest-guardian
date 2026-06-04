@@ -1,7 +1,9 @@
-import type { KeyboardEvent } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
+
+import { Link } from "react-router";
 
 import styles from "./SearchModal.module.css";
+import { CREATE_PATH } from "../../app/routes";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import {
   cn,
@@ -9,19 +11,21 @@ import {
   formatPercentOrDash,
 } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
-import { tierFor } from "../../utils/vanityTier";
-import VanityEffect from "../effects/VanityEffect";
 
 import type { Token } from "../../services/types";
 
 export default function SearchResultsList({
   results,
+  query,
   onSelect,
+  onCreate,
   highlightedIndex,
   onHighlight,
 }: {
   results: Token[];
+  query: string;
   onSelect: (address: string) => void;
+  onCreate: () => void;
   highlightedIndex: number;
   onHighlight: (index: number) => void;
 }) {
@@ -55,9 +59,9 @@ export default function SearchResultsList({
           };
           const stats = getStats(t.address);
           const up = (stats.change24h ?? 0) >= 0;
-          const vanityTier = tierFor(t.address);
-          const row = (
+          return (
             <div
+              key={t.address}
               data-result-index={i}
               className={cn(
                 styles.resultRow,
@@ -104,20 +108,18 @@ export default function SearchResultsList({
               </div>
             </div>
           );
-          if (vanityTier.id === "none") return row;
-          return (
-            <VanityEffect
-              key={t.address}
-              tier={vanityTier}
-              size="row"
-              as="block"
-            >
-              {row}
-            </VanityEffect>
-          );
         })
       ) : (
-        <div className={styles.noResults}>No tokens found</div>
+        <div className={styles.noResults}>
+          {query} token not found,{" "}
+          <Link
+            to={CREATE_PATH}
+            className={styles.noResultsLink}
+            onClick={onCreate}
+          >
+            create now
+          </Link>
+        </div>
       )}
     </div>
   );

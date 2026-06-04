@@ -10,8 +10,7 @@ interface Props {
   format: (n: number) => string;
   /** Tween length in ms. */
   durationMs?: number;
-  /** Glow accent — `"up"` mints when value increases, `"down"` reds when it
-   *  decreases, `"neutral"` skips the colour cue. Defaults to `"up"`. */
+  /** Glow accent for positive direction; `"neutral"` skips colour. */
   trend?: "up" | "down" | "neutral";
   /** Sentinel for null / undefined. Defaults to `—`. */
   dashFallback?: string;
@@ -22,11 +21,6 @@ interface Props {
 
 const DEFAULT_DURATION_MS = 700;
 
-/**
- * easeOutCubic — fast-start, gentle settle. Picked over linear so the
- * digits visibly decelerate as they approach the target (the "rolling
- * to a stop" feel) instead of snapping to the new value at constant speed.
- */
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -35,23 +29,7 @@ function resolveValue(value: number | null | undefined): number | null {
   return value === null || value === undefined ? null : value;
 }
 
-/**
- * Animated counter primitive used by the token-detail mcap overlay.
- *
- * Tweens the underlying number from the previous value to the new one
- * using `requestAnimationFrame` and re-runs the supplied formatter each
- * frame, so the rendered string ticks through plausible intermediate
- * states (e.g. `$25.0K → $25.4K → $25.8K → $26.2K → …`). On the first
- * mount we skip the tween entirely and snap to the initial value — the
- * roll only kicks in for *changes*, so the page doesn't open with every
- * mcap counting up from zero.
- *
- * The wrapper picks up a transient `.flashUp` / `.flashDown` class for
- * the duration of the animation, which the stylesheet uses to drive a
- * brief mint / red glow + scale pulse. `prefers-reduced-motion` is
- * honoured by the CSS (no glow, no scale) and by skipping the tween in
- * JS (we snap directly to the new value).
- */
+/** Animated counter primitive used by token-detail metrics. */
 export default function RollingNumber({
   value,
   format,
@@ -61,36 +39,21 @@ export default function RollingNumber({
   className,
   "aria-label": ariaLabel,
 }: Props) {
-  // Currently-displayed numeric value. Updated 60×/s during a tween via
-  // `setDisplayed` — React batches these into individual frames so the
-  // cost is similar to driving the value through a ref + forceRender,
-  // and keeping it as state means we can read it in render without
-  // tripping the project's `react-hooks/refs` lint rule.
+  // State keeps the rendered value lint-friendly during the rAF tween.
   const [displayed, setDisplayed] = useState<number | null>(() =>
     resolveValue(value),
   );
-  // Drives the flashUp/flashDown className for the duration of the
-  // tween. Cleared on the final frame so the CSS animation re-runs on
-  // the next change rather than persisting.
   const [flash, setFlash] = useState<"up" | "down" | null>(null);
 
-  // Animation control state. Refs because they're only ever touched
-  // inside the effect / cleanup and never feed render output, which
-  // also keeps the rAF loop from causing extra renders on cancellation.
   const rafRef = useRef<number | null>(null);
-  // Last *target* value the effect committed to. Used to short-circuit
-  // when the incoming `value` matches what we're already animating to,
-  // and as the `prev` baseline for picking the flash direction. Kept
-  // out of state so updating it doesn't itself schedule a render.
+  // Last committed target, kept out of render state.
   const targetRef = useRef<number | null>(resolveValue(value));
 
   useEffect(() => {
     const next = resolveValue(value);
     const prev = targetRef.current;
 
-    // Null transitions snap — there's nothing meaningful to tween
-    // through (e.g. loading → loaded) and the count would have to
-    // start from an arbitrary baseline.
+    // Null transitions snap because there is no meaningful tween baseline.
     if (next === null || prev === null) {
       targetRef.current = next;
       setDisplayed(next);
@@ -104,19 +67,7 @@ export default function RollingNumber({
 
     if (next === prev) return;
 
-    // Skip the tween + flash when the **formatted** value isn't going
-    // to change. Upstream sources frequently deliver sub-display
-    // jitter (e.g. the live mcap is recomputed from a slightly-
-    // shifted LT exchange rate on every 30s `/market-data` refetch,
-    // so a row whose mcap reads `$1.0K` to the user might tick from
-    // `$1004.21 → $1004.87 → $1003.95 → …` underneath) — without
-    // this guard every refetch would fire a "value changed" pulse
-    // even though the digits the user sees are identical. We still
-    // bring the internal `displayed` / `targetRef` in line with the
-    // new numeric value so subsequent comparisons measure against
-    // the freshest baseline (otherwise a slow drift could
-    // accumulate until a single refetch crossed the rounding
-    // boundary and looked like a multi-cent jump).
+    // Ignore sub-display jitter while still refreshing the numeric baseline.
     if (format(next) === format(prev)) {
       targetRef.current = next;
       setDisplayed(next);
@@ -128,9 +79,7 @@ export default function RollingNumber({
       return;
     }
 
-    // Honour the OS reduced-motion preference: snap to the new value
-    // and skip the glow. Cheap to read on every change and avoids
-    // burning frames the user doesn't want.
+    // Honour reduced-motion with a snap instead of a tween/glow.
     const reducedMotion =
       typeof window !== "undefined" &&
       typeof window.matchMedia === "function" &&
@@ -145,10 +94,7 @@ export default function RollingNumber({
 
     targetRef.current = next;
     setFlash(next > prev ? "up" : "down");
-    // Tween from whatever is currently rendered (mid-tween it's a
-    // partial value; otherwise it equals `prev`). Falls back to `prev`
-    // if `displayed` is somehow null at this point — defensive, but
-    // the null branch above should keep that case from arising.
+    // Continue from the currently rendered value if a tween is already mid-flight.
     const fromValue = displayed ?? prev;
     let startTime: number | null = null;
 
@@ -164,9 +110,7 @@ export default function RollingNumber({
         setDisplayed(current);
         rafRef.current = requestAnimationFrame(tick);
       } else {
-        // Snap to the exact target on the final frame so a long tween
-        // tail can't leave a sub-pixel residue (e.g. `$24999.7` when
-        // the target is `$25000`).
+        // Snap to the exact target on the final frame.
         setDisplayed(next);
         setFlash(null);
         rafRef.current = null;
@@ -174,14 +118,7 @@ export default function RollingNumber({
     };
 
     rafRef.current = requestAnimationFrame(tick);
-    // `displayed` intentionally omitted — including it would restart
-    // the tween every frame as the displayed value updates. We read it
-    // synchronously above as the *starting* point and the `targetRef`
-    // short-circuit covers the intended re-trigger condition. `format`
-    // IS included because the formatted-value short-circuit above
-    // reads it; in practice callers pass module-level pure functions
-    // (`formatMcapUsd`, etc.) so the reference is stable and this
-    // doesn't cause re-runs.
+    // `displayed` would restart the tween every frame; `targetRef` guards re-triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, durationMs, format]);
 
@@ -191,10 +128,6 @@ export default function RollingNumber({
     };
   }, []);
 
-  // Pick the flash colour. `trend` says which direction is "good" for
-  // this metric (mcap goes up → mint), and the flash direction is the
-  // actual delta — so a matching pair gets the positive `flashUp`
-  // class and a mismatch gets the negative `flashDown`.
   let flashClass: string | null = null;
   if (flash !== null && trend !== "neutral") {
     flashClass = flash === trend ? styles.flashUp : styles.flashDown;

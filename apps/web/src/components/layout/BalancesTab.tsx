@@ -38,10 +38,12 @@ export default function BalancesTab({
     return (
       <div aria-busy="true" aria-label="Loading balances">
         <div className={styles.totalValueWrap}>
-          <div className={styles.totalValueLabel}>total value</div>
+          <div className={cn(styles.totalValueLabel, "ui-subheading")}>
+            total value
+          </div>
           <Skeleton width="6rem" height="1.5rem" />
         </div>
-        <div className={styles.listHeader}>
+        <div className={cn(styles.listHeader, "ui-subheading")}>
           <span className={styles.listHeaderLeft}>Coins</span>
           <span className={styles.listHeaderRight}>Value</span>
         </div>
@@ -92,11 +94,13 @@ export default function BalancesTab({
   return (
     <>
       <div className={styles.totalValueWrap}>
-        <div className={styles.totalValueLabel}>total value</div>
+        <div className={cn(styles.totalValueLabel, "ui-subheading")}>
+          total value
+        </div>
         <div className={styles.totalValueAmount}>{formatUsd(totalValue)}</div>
       </div>
 
-      <div className={styles.listHeader}>
+      <div className={cn(styles.listHeader, "ui-subheading")}>
         <span className={styles.listHeaderLeft}>Coins</span>
         <span className={styles.listHeaderRight}>Value</span>
       </div>

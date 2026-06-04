@@ -139,7 +139,7 @@ contract BotFeeRouter is ReentrancyGuard {
 
         // Sweep user-owed refunds back to the caller. `Zap._executeBuy`'s
         // floor-bump dust-cap branch (a near-graduation buy where the curve
-        // can only absorb `MIN_USDC_AMOUNT` worth of LT) refunds the unused
+        // can only absorb `Zap.minUsdcAmount()` worth of LT) refunds the unused
         // USDC + LT chunk to `msg.sender` — which is THIS router. Without
         // this sweep those funds would sit in the router forever. The
         // router never holds USDC / LT between trades by design, so any

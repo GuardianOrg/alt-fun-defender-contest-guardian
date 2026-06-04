@@ -9,10 +9,10 @@ import {
   findLT,
   getAssetDisplayName,
   getHyperliquidDex,
+  getLeverageOptions,
   HYPERLIQUID_XYZ_DEX,
   isSupportedUnderlying,
   SUPPORTED_UNDERLYING_ASSETS,
-  SUPPORTED_LEVERAGES,
 } from "../constants/bouncetech.js";
 
 function makeLiveLT(
@@ -85,18 +85,25 @@ describe("filterSupportedLTs", () => {
     expect(result[0].targetAsset).toBe("HYPE");
   });
 
-  it("removes LTs with unsupported leverages", () => {
+  it("keeps contract-reported leverage values", () => {
     const lts = [
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 2 }),
       makeLiveLT({ targetAsset: "ETH", targetLeverage: 10 }),
-      // HYPE 1x Short ships in the BounceTech directory but Alt Fun caps at
-      // 2x/3x/5x — make sure 1x leverage still filters out even though the
-      // asset is supported.
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 1 }),
     ];
     const result = filterSupportedLTs(lts);
+    expect(result).toHaveLength(3);
+    expect(result.map((lt) => lt.targetLeverage)).toEqual([2, 10, 1]);
+  });
+
+  it("removes invalid contract leverage values", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "HYPE", targetLeverage: 2 }),
+      makeLiveLT({ targetAsset: "ETH", targetLeverage: 0 }),
+      makeLiveLT({ targetAsset: "BTC", targetLeverage: 1.5 }),
+    ];
+    const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(1);
-    expect(result[0].targetAsset).toBe("HYPE");
     expect(result[0].targetLeverage).toBe(2);
   });
 
@@ -110,16 +117,16 @@ describe("filterSupportedLTs", () => {
     expect(filterSupportedLTs([])).toHaveLength(0);
   });
 
-  it("filters by both asset and leverage simultaneously", () => {
+  it("filters by supported asset and valid contract leverage simultaneously", () => {
     const lts = [
-      makeLiveLT({ targetAsset: "HYPE", targetLeverage: 10 }), // bad leverage
+      makeLiveLT({ targetAsset: "HYPE", targetLeverage: 10 }), // contract-backed leverage
       makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 2 }), // bad asset
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 3 }), // good
     ];
     const result = filterSupportedLTs(lts);
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
     expect(result[0].targetAsset).toBe("HYPE");
-    expect(result[0].targetLeverage).toBe(3);
+    expect(result.map((lt) => lt.targetLeverage)).toEqual([10, 3]);
   });
 });
 
@@ -176,6 +183,8 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "ZEC",
       "kPEPE",
       "FARTCOIN",
+      "NEAR",
+      "LIT",
       "xyz:CBRS",
       "xyz:CL",
       "xyz:BRENTOIL",
@@ -184,7 +193,9 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:NVDA",
       "xyz:TSLA",
       "xyz:SP500",
+      "xyz:SPCX",
       "xyz:XYZ100",
+      "xyz:BB",
     ]);
   });
 });
@@ -201,9 +212,26 @@ describe("isSupportedUnderlying", () => {
   });
 });
 
-describe("SUPPORTED_LEVERAGES", () => {
-  it("contains exactly 2, 3, 5", () => {
-    expect([...SUPPORTED_LEVERAGES]).toEqual([2, 3, 5]);
+describe("getLeverageOptions", () => {
+  const lts: LeveragedTokenInfo[] = [
+    makeLTInfo({ targetAsset: "HYPE", targetLeverage: 5, isLong: true }),
+    makeLTInfo({ targetAsset: "HYPE", targetLeverage: 2, isLong: true }),
+    makeLTInfo({ targetAsset: "HYPE", targetLeverage: 2, isLong: false }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 3, isLong: true }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 2, isLong: true }),
+    makeLTInfo({ targetAsset: "xyz:SPCX", targetLeverage: 0, isLong: true }),
+  ];
+
+  it("derives sorted unique leverage options from LT records", () => {
+    expect(getLeverageOptions(lts)).toEqual([2, 3, 5]);
+  });
+
+  it("can derive options for one asset", () => {
+    expect(getLeverageOptions(lts, "xyz:SPCX")).toEqual([2, 3]);
+  });
+
+  it("can derive options for one asset and direction", () => {
+    expect(getLeverageOptions(lts, "HYPE", false)).toEqual([2]);
   });
 });
 
@@ -212,11 +240,13 @@ describe("getAssetDisplayName", () => {
     expect(getAssetDisplayName("xyz:SP500")).toBe("SP500");
     expect(getAssetDisplayName("xyz:NVDA")).toBe("NVDA");
     expect(getAssetDisplayName("xyz:BRENTOIL")).toBe("BRENTOIL");
+    expect(getAssetDisplayName("xyz:SPCX")).toBe("SPCX");
   });
 
   it("leaves crypto assets untouched", () => {
     expect(getAssetDisplayName("HYPE")).toBe("HYPE");
     expect(getAssetDisplayName("kPEPE")).toBe("kPEPE");
+    expect(getAssetDisplayName("NEAR")).toBe("NEAR");
   });
 });
 
@@ -224,11 +254,13 @@ describe("getHyperliquidDex", () => {
   it("returns the xyz dex marker for equity / commodity assets", () => {
     expect(getHyperliquidDex("xyz:SP500")).toBe(HYPERLIQUID_XYZ_DEX);
     expect(getHyperliquidDex("xyz:GOLD")).toBe(HYPERLIQUID_XYZ_DEX);
+    expect(getHyperliquidDex("xyz:SPCX")).toBe(HYPERLIQUID_XYZ_DEX);
   });
 
   it("returns null (default feed) for crypto assets", () => {
     expect(getHyperliquidDex("HYPE")).toBeNull();
     expect(getHyperliquidDex("BTC")).toBeNull();
     expect(getHyperliquidDex("kPEPE")).toBeNull();
+    expect(getHyperliquidDex("NEAR")).toBeNull();
   });
 });

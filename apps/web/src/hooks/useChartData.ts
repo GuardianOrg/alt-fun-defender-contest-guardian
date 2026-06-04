@@ -10,28 +10,8 @@ import type { ChartMode, ChartUnit } from "../services/api";
 import type { CandlestickData, Time } from "lightweight-charts";
 
 /**
- * Pure helper: fold a live OHLC tick value into the in-progress candle,
- * rolling over into a new bucket at interval boundaries. Exported for unit
- * testing. The `value` is whatever scale the candles are stored at —
- * either market cap (price × supply) or per-token USD price; the helper is
- * unit-agnostic.
- *
- * Bucket-boundary carry-forward: when this call opens a new bucket, the
- * new candle's `open` is anchored to the previous bucket's `close` (the
- * most recent known price), NOT to the incoming `value`. This mirrors
- * the synthetic boundary-tick logic that `buildPriceTimeline` emits on
- * the API side (see `apps/api/src/routes/chart.ts` and PRs #662 / #664).
- * Without the carry-forward, a trade WS event whose block timestamp
- * crosses a bucket boundary BEFORE the next LtTicker WS tick lands —
- * which happens whenever the trade callback fires first in the
- * JS event loop, common on 5 s / 15 s / 30 s candles — would set
- * `open = post-trade price`. The previous candle's close still sits at
- * the pre-trade price, so the chart renders the new bucket as a tiny
- * horizontal line "jumping" with no body and no visible link back to
- * the previous candle's tail. The carry-forward bridges that gap so a
- * live trade produces the same green/red body the historical
- * backfill draws. Refreshing the page used to "fix" the gap because
- * the snapshot pass is already boundary-corrected on the server.
+ * Fold a live OHLC value into the current candle. New buckets carry forward
+ * the prior close so live candles match the API's boundary-corrected history.
  */
 export function mergePriceIntoCandles(
   prev: CandlestickData[],
@@ -58,13 +38,7 @@ export function mergePriceIntoCandles(
   const lastTime = last.time as number;
 
   if (bucketTs > lastTime) {
-    // Carry-forward the previous bucket's close as the new bucket's open
-    // so a trade that crosses the boundary doesn't produce a flat doji
-    // at the post-trade price with a vertical gap back to the previous
-    // candle (the "small horizontal lines instead of full candles" bug
-    // from issues #599 / #662 / #664 — fixed on the API for backfilled
-    // history, but the live aggregator was still anchoring `open` to
-    // the incoming tick value).
+    // Carry-forward prevents boundary-crossing live trades from drawing gap dojis.
     const carry = last.close as number;
     return [
       ...prev,
@@ -95,19 +69,7 @@ interface UseChartDataResult {
   currentMcap: number;
   /** Percent change over the chart window (first open → last close) */
   changePercent: number;
-  /**
-   * Live USD market cap derived from the latest WS-driven candle close
-   * (raw per-token price × {@link TOKEN_SUPPLY}). Updates on every trade
-   * WS event and every 1s LT exchange-rate tick — i.e. with the same
-   * cadence as the chart's price line — so consumers that drive a
-   * rolling-number overlay can match the chart's responsiveness instead
-   * of lagging on the 30s `/market-data` poll cycle.
-   *
-   * Unit-agnostic: returned in mcap dollars regardless of the chart's
-   * `unit` toggle (the toggle only affects the y-axis scale of `candles`).
-   * `null` until the first candle lands so consumers can fall back to a
-   * polled value during the initial REST round-trip.
-   */
+  /** Live USD mcap from the latest raw candle; independent of chart unit toggle. */
   liveMcapUsd: number | null;
 }
 
@@ -120,80 +82,42 @@ interface TradeWsPayload {
 
 interface PriceWsPayload {
   ltAddress?: string;
-  /** BounceTech stores exchange_rate as 1e18-scaled integer; the LtTicker
-   *  broadcasts the raw string. Parsed on receipt. */
+  /** Raw 1e18-scaled exchange rate broadcast by LtTicker. */
   exchangeRate?: string | number;
 }
 
-/**
- * Chart data hook. Owns the hybrid flow:
- *
- *   1. Fetches a REST snapshot of historical candles plus the live anchor
- *      inputs (`currentRatio`, `currentExchangeRate`).
- *   2. Subscribes to the `trade` WS channel (token-scoped) to update the live
- *      ratio as trades land on-chain.
- *   3. Subscribes to the `price` WS channel (LT-scoped) to update the live
- *      exchange rate from the `LtTicker` DO's 1s cadence.
- *   4. Recomputes `price = ratio × exchangeRate` on each input change and
- *      folds the result into the in-progress candle. Opens a new candle at
- *      bucket boundaries so time keeps moving even without new inputs.
- *   5. On WS reconnect, refetches the REST snapshot to resync.
- *
- * `mode` selects either a fixed timeframe (with per-timeframe default candle
- * width) or a user-picked candle interval (with an auto-sized window). The
- * candle bucket used for live-tick bucketing follows `mode` so a 1m interval
- * rolls candles every minute even though nothing else changes.
- */
+/** Hybrid chart data: REST snapshot plus token trade and LT price WS ticks. */
 export function useChartData(
   address: string,
   ltAddress: string | null | undefined,
   mode: ChartMode,
   unit: ChartUnit = "mcap",
 ): UseChartDataResult {
-  // Internal candles are always stored in raw per-token USD price scale —
-  // the unit multiplier is applied at the output boundary (`candles` below).
-  // This decouples unit toggling from the network: switching MC ⇄ Price is a
-  // pure local remap, doesn't refetch history, and can't blank the chart on
-  // a transient API failure (CodeRabbit feedback on PR #468).
+  // Store raw per-token price; mcap/price toggles are local output remaps.
   const [priceCandles, setPriceCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
 
   const ratioRef = useRef(0);
   const exchangeRateRef = useRef(0);
-  // Tracks the address the live refs were last anchored to. When `address`
-  // changes (user navigates A → B) we must fully reset; for same-token
-  // refetches (mode change, WS reconnect) the WS-driven refs are typically
-  // newer than the snapshot's currentRatio/currentExchangeRate and must be
-  // preserved. See the regression note inside the fetch effect for why.
+  // Reset live refs on token change; preserve them for same-token refetches.
   const refsAnchoredAddressRef = useRef<string | null>(null);
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
   const unitMultiplier = unit === "mcap" ? TOKEN_SUPPLY : 1;
 
-  // Hold the latest `mode` in a ref so the fetch effect can depend on the
-  // stable `modeKey` string (which uniquely identifies the mode) rather than
-  // the mode object itself — passing a fresh object each render must not
-  // trigger a refetch, but a real mode change must.
+  // Use stable `modeKey` for fetch deps while retaining latest mode object.
   const modeRef = useRef(mode);
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
 
-  // Bump to force a resync (initial mount, mode change, WS reconnect).
   const [syncEpoch, setSyncEpoch] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
-    // Address change: clear cross-token state SYNCHRONOUSLY, before the
-    // network round-trip starts. The WS subscription effect re-runs on the
-    // same dependency change and may receive a tick for the new token (or
-    // its LT) while `fetchChart` is still in flight. If we left the old
-    // refs in place until the `.then()` ran, an early WS tick could merge
-    // the new token's ratio against the previous token's `exchangeRate`
-    // (or vice versa) and produce a junk mcap; later, the snapshot resolve
-    // would clobber that fresher WS value back to its own.
+    // Clear cross-token state synchronously before any new WS tick can merge against old refs.
     const isAddressChange = refsAnchoredAddressRef.current !== address;
     if (isAddressChange) {
       refsAnchoredAddressRef.current = address;
@@ -206,19 +130,7 @@ export function useChartData(
       .then((snapshot) => {
         if (cancelled) return;
 
-        // Only adopt the snapshot's ratio/exchangeRate when we don't yet
-        // have a live value (refs at 0). For same-token refetches (mode
-        // change, WS reconnect) the WS keeps these refs current.
-        // Overwriting them with the snapshot's values is unsafe because
-        // the API reads from the indexer, which can lag the chain by a
-        // couple of seconds — long enough to clobber a freshly-pumped
-        // ratio with a pre-buy value. That regression is exactly what
-        // made buy candles "disappear" after a few seconds: the
-        // in-progress big green body collapsed back to its open as
-        // subsequent live ticks recomputed `mcap = staleRatio × rate`.
-        // On address change the synchronous reset above already zeroed
-        // the refs, so this branch fires for the new token too unless
-        // a WS tick has already raced ahead of the snapshot.
+        // Do not let a lagging indexer snapshot clobber fresher same-token WS refs.
         if (ratioRef.current <= 0) {
           ratioRef.current = snapshot.currentRatio;
         }
@@ -234,15 +146,7 @@ export function useChartData(
           close: c.close,
         }));
 
-        // Overlay the latest live price onto the snapshot's tail before we
-        // hand the array to the chart. Without this, even with the refs
-        // preserved above, the in-progress live candle would be replaced
-        // by the snapshot's stale last-candle close until the next WS
-        // tick lands — which on a quiet token can be many seconds and is
-        // exactly when the user notices the candle "vanishing" (issue
-        // #445). Storage is per-token USD price (unit toggle is applied
-        // at the output boundary, see `candles` below), so the overlay
-        // value is `ratio × rate` — no `× TOKEN_SUPPLY`.
+        // Overlay the latest live price onto the snapshot tail to avoid stale-candle flashes.
         let nextCandles = mapped;
         const ratio = ratioRef.current;
         const rate = exchangeRateRef.current;
@@ -271,9 +175,7 @@ export function useChartData(
     const ws = getWebSocketClient();
     if (!ws) return;
 
-    // Emit the current price into the in-progress candle, rolling over into a
-    // new bucket at interval boundaries. Uses `series.update()` semantics on
-    // the consumer side — open stays fixed, high/low widen, close tracks.
+    // Emit current price into the in-progress candle, rolling buckets at interval boundaries.
     const applyLivePrice = () => {
       const ratio = ratioRef.current;
       const rate = exchangeRateRef.current;
@@ -308,17 +210,13 @@ export function useChartData(
             applyLivePrice();
           }
         } catch {
-          // Malformed bigint strings — ignore this trade.
+          // Malformed bigint strings.
         }
       },
       address.toLowerCase(),
     );
 
-    // The LT-scoped `price` channel needs `ltAddress` from the token metadata.
-    // When the chart is mounted in parallel with `useToken` we may not have it
-    // yet — skip the subscription until the token resolves and this effect
-    // re-runs with a real address. Historical candles + trade-derived live
-    // ticks still flow without the LT exchange-rate stream.
+    // Subscribe to LT price once token metadata has resolved.
     const unsubPrice = ltAddress
       ? ws.subscribe(
           "price",
@@ -351,12 +249,7 @@ export function useChartData(
     };
   }, [address, ltAddress, candleSec]);
 
-  // Unit conversion happens at the output boundary so toggling MC ⇄ Price is
-  // a pure local remap (no refetch, no `loading` flash). The identity case
-  // (`unitMultiplier === 1`) returns `priceCandles` directly to keep the
-  // reference stable, which lets `useChart` short-circuit its live-tick
-  // detection (see `lastCandlesRef` in `useChart`) when the user hasn't
-  // toggled units.
+  // Convert units at the output boundary; identity path preserves reference stability.
   const candles = useMemo(() => {
     if (unitMultiplier === 1) return priceCandles;
     return priceCandles.map((c) => ({
@@ -379,11 +272,7 @@ export function useChartData(
         100
       : 0;
 
-  // Always derive from the raw `priceCandles` (per-token USD price)
-  // rather than the unit-converted `candles` — the latter would collapse
-  // to per-token price when the user toggles the y-axis to `price`, but
-  // the mcap overlay always renders in dollars. `null` while no candle
-  // has landed yet lets consumers fall back to a polled value cleanly.
+  // The mcap overlay always uses raw price candles, regardless of y-axis unit.
   const liveMcapUsd =
     priceCandles.length > 0
       ? (priceCandles[priceCandles.length - 1].close as number) * TOKEN_SUPPLY

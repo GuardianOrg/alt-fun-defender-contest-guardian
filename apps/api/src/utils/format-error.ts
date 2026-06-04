@@ -1,4 +1,6 @@
-const formatError = (error: string) => {
+import type { ApiErrorResponse } from "@launchpad/shared";
+
+const formatError = (error: string): ApiErrorResponse => {
   return {
     status: "error",
     error,

@@ -451,7 +451,8 @@ const rewardsWalletWarning = (lang: Language): string =>
 /**
  * Well-known burn / null addresses. `0x0` is the EVM null sink;
  * `0xdEaD…dEaD` is the de-facto community burn (used by countless
- * token deployers including Uniswap's `MINIMUM_LIQUIDITY` lock).
+ * token deployers including Uniswap's `MINIMUM_LIQUIDITY` lock);
+ * `0xfE…fE` is another common sentinel sink.
  * USDC sent to either is unrecoverable forever — surface a warning
  * before persisting so a fat-finger doesn't silently torch every
  * future referral cut. Lowercased for comparison.
@@ -460,6 +461,7 @@ const KNOWN_BURN_ADDRESSES: ReadonlySet<string> = new Set([
   "0x0000000000000000000000000000000000000000",
   "0x000000000000000000000000000000000000dead",
   "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+  "0xfefefefefefefefefefefefefefefefefefefefe",
 ]);
 
 const isKnownBurnAddress = (addr: string): boolean =>

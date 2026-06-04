@@ -139,7 +139,7 @@
   background: transparent;
   border: 0;
   outline: none;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   /* 16px is the iOS Safari floor — anything smaller triggers an
    * auto-zoom on focus that yanks the viewport when a user taps
    * into the field. The root sets `font-size: 12px` (so 1rem = 12px
@@ -175,6 +175,7 @@
 }
 
 .sectionLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -191,6 +192,7 @@
 }
 
 .recentLabel {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -286,4 +288,13 @@
   padding-bottom: 1.2rem;
   font-size: 13px;
   color: var(--txt-3);
+}
+
+.noResultsLink {
+  color: var(--mint);
+  text-decoration: none;
+}
+
+.noResultsLink:hover {
+  text-decoration: underline;
 }

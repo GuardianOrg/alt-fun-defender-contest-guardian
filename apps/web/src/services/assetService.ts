@@ -1,5 +1,6 @@
 import {
   HYPERLIQUID_INFO_API,
+  getAssetDisplayName,
   getHyperliquidDex,
   isSupportedUnderlying,
 } from "@launchpad/shared";
@@ -47,6 +48,18 @@ let cached24hPrices: { data: Record<string, AssetChange>; ts: number } | null =
   null;
 const CHANGE_CACHE_TTL = 60_000;
 
+function compareAssetTickers(a: string, b: string): number {
+  return getAssetDisplayName(a).localeCompare(getAssetDisplayName(b));
+}
+
+function sortAssetsByTicker<T extends { name: string }>(
+  assets: readonly T[],
+): T[] {
+  return [...assets].sort((a, b) =>
+    compareAssetTickers(a.name, b.name),
+  );
+}
+
 interface CachedAssetsPayload {
   ts: number;
   assets: Asset[];
@@ -75,7 +88,7 @@ export function readCachedAssets(): Asset[] | undefined {
     if (Date.now() - parsed.ts > ASSET_CACHE_MAX_AGE_MS) return undefined;
     if (!Array.isArray(parsed.assets)) return undefined;
     const assets = parsed.assets.filter(isCachedAsset);
-    return assets.length > 0 ? assets : undefined;
+    return assets.length > 0 ? sortAssetsByTicker(assets) : undefined;
   } catch {
     return undefined;
   }
@@ -94,9 +107,15 @@ function writeCachedAssets(assets: readonly Asset[]): void {
   }
 }
 
+/** `true` for AbortSignal-driven cancellations; cancellation must propagate. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 async function fetch24hChanges(
   currentMids: Record<string, string>,
   trackedAssets: readonly string[],
+  signal?: AbortSignal,
 ): Promise<Record<string, AssetChange>> {
   if (cached24hPrices && Date.now() - cached24hPrices.ts < CHANGE_CACHE_TTL) {
     return cached24hPrices.data;
@@ -121,6 +140,7 @@ async function fetch24hChanges(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "candleSnapshot", req }),
+        signal,
       });
       const candles = (await res.json()) as CandleObject[];
       if (candles.length > 0) {
@@ -134,7 +154,11 @@ async function fetch24hChanges(
           };
         }
       }
-    } catch {
+    } catch (err) {
+      // Cancellations must bubble so the outer `Promise.all` rejects and
+      // React Query sees the queryFn as aborted rather than as a successful
+      // refresh that happens to return zeroed-out 24h deltas.
+      if (isAbortError(err)) throw err;
       changes[coin] = { percent: 0, dollar: 0 };
     }
   });
@@ -170,22 +194,22 @@ export async function fetchAssetCandles(
 }
 
 export interface IAssetService {
-  getAssets(): Promise<Asset[]>;
+  getAssets(signal?: AbortSignal): Promise<Asset[]>;
   getPairFilters(): Promise<PairFilter[]>;
 }
 
 const liveAssetService: IAssetService = {
-  async getAssets() {
+  async getAssets(signal?: AbortSignal) {
     try {
-      const apiAssets = await fetchAssets();
+      const apiAssets = await fetchAssets(signal);
       const trackedAssets = apiAssets
         .map((asset) => asset.symbol)
         .filter(isSupportedUnderlying);
       const mids = Object.fromEntries(
         apiAssets.map((asset) => [asset.symbol, asset.price ?? ""]),
       );
-      const changes = await fetch24hChanges(mids, trackedAssets);
-      const assets = trackedAssets.map((name) => {
+      const changes = await fetch24hChanges(mids, trackedAssets, signal);
+      const assets = [...trackedAssets].sort(compareAssetTickers).map((name) => {
         const mid = parseFloat(mids[name] ?? "");
         const ch = changes[name];
         return {
@@ -200,7 +224,11 @@ const liveAssetService: IAssetService = {
       });
       writeCachedAssets(assets);
       return assets;
-    } catch {
+    } catch (err) {
+      // Cancellation isn't a "degraded backend" — propagate it so React
+      // Query treats the queryFn as aborted and doesn't poison `dataUpdatedAt`
+      // / `staleTime` with a cache-shaped fallback.
+      if (isAbortError(err)) throw err;
       return readCachedAssets() ?? [];
     }
   },
@@ -210,9 +238,8 @@ const liveAssetService: IAssetService = {
       const tokens = await fetchTokens(200);
       const countMap = new Map<string, number>();
       for (const t of tokens) {
-        const dir = t.ltDirection === "short" ? "short" : "long";
-        const existing = countMap.get(dir) ?? 0;
-        countMap.set(dir, existing + 1);
+        const existing = countMap.get(t.ltDirection) ?? 0;
+        countMap.set(t.ltDirection, existing + 1);
       }
 
       return [

@@ -12,9 +12,7 @@ interface SubjectSubscription {
 const PING_INTERVAL_MS = 30_000;
 const INITIAL_RECONNECT_MS = 1_000;
 const MAX_RECONNECT_MS = 30_000;
-// Short verification window for the post-wake probe ping. The regular 30 s
-// ping interval also detects a missed pong, but on wake we want to detect
-// a wedged connection without waiting up to a full ping cycle.
+// Short verification window for post-wake probe pings.
 const PROBE_TIMEOUT_MS = 5_000;
 const ALL_TOKENS_KEY = "__all__";
 const GLOBAL_CHANNELS = new Set(["newToken", "stats"]);
@@ -25,31 +23,7 @@ function subjectKey(channel: string, token: string | undefined): string {
   return `${channel}:${token.toLowerCase()}`;
 }
 
-/**
- * Unthrottled keep-alive ticker.
- *
- * Browsers throttle main-thread `setInterval` / `setTimeout` in background
- * tabs (Chrome's "intensive throttling" caps them at one tick per minute
- * after ~5 minutes hidden). A 30 s WS ping built on `setInterval` therefore
- * silently misses its cadence in a backgrounded Alt Fun tab — the connection
- * goes idle, the CF edge / NAT / server eventually drops it, and the user
- * comes back to a frozen chart that may take a long retry-backoff cycle to
- * recover (or never, if the close event was lost to an OS-level half-open).
- *
- * Web Workers run their own event loop and are **not** subject to background
- * tab throttling, so a tiny dedicated worker can tick at the intended 30 s
- * cadence regardless of tab visibility. The main thread receives each tick
- * via `postMessage` and fans it out to every active subscriber, which is
- * enough to keep the per-`SubjectSocket` ping/pong handshake honest.
- *
- * If the Worker constructor is unavailable (test runners with no DOM, very
- * old browsers, restrictive CSPs forbidding `blob:` workers) we fall back
- * to a main-thread `setInterval`. The fallback is throttled in background
- * tabs but is still the correct behaviour in foreground / on test runners,
- * and the visibility-change watcher (`installVisibilityWatcher`) catches
- * any wedged connections on return-to-foreground as a second line of
- * defence.
- */
+/** Worker-backed keep-alive ticker that avoids background-tab timer throttling. */
 class KeepAliveTicker {
   private readonly listeners: Set<TickerListener> = new Set();
   private worker: Worker | null = null;
@@ -72,9 +46,7 @@ class KeepAliveTicker {
 
     if (typeof Worker !== "undefined" && typeof Blob !== "undefined") {
       try {
-        // Inline-blob worker keeps the keep-alive infrastructure
-        // self-contained — no separate file to bundle, no extra HTTP
-        // request, and no import-meta.url plumbing through Vite.
+        // Inline blob avoids a separate bundle entry and HTTP request.
         const code = [
           "let id = null;",
           'self.addEventListener("message", (e) => {',
@@ -92,8 +64,7 @@ class KeepAliveTicker {
         const worker = new Worker(this.workerObjectUrl);
         worker.onmessage = () => this.tick();
         worker.onerror = () => {
-          // Worker died for some reason (CSP, runtime fault). Fall back to
-          // the main-thread timer so the keep-alive cadence isn't lost.
+          // Fall back if the blob worker dies or CSP blocks it.
           this.teardownWorker();
           if (!this.fallbackTimer) {
             this.fallbackTimer = setInterval(
@@ -106,7 +77,6 @@ class KeepAliveTicker {
         this.worker = worker;
         return;
       } catch {
-        // Worker construction failed (blocked blob: schemes, OOM, …).
         // Fall through to the setInterval path.
         this.teardownWorker();
       }
@@ -137,16 +107,14 @@ class KeepAliveTicker {
       try {
         URL.revokeObjectURL(this.workerObjectUrl);
       } catch {
-        // some environments don't implement revokeObjectURL — safe to ignore
+        // safe to ignore
       }
       this.workerObjectUrl = null;
     }
   }
 
   private tick(): void {
-    // Snapshot the listener set so a listener mutating the set (e.g.
-    // unsubscribing because its socket just force-closed on a missed pong)
-    // doesn't break the iteration mid-fan-out.
+    // Snapshot so listeners can unsubscribe during fan-out.
     const snapshot = Array.from(this.listeners);
     for (const listener of snapshot) {
       try {
@@ -160,31 +128,14 @@ class KeepAliveTicker {
 
 const pingTicker = new KeepAliveTicker(PING_INTERVAL_MS);
 
-/**
- * Per-subject WebSocket holder.
- *
- * Owns the lifecycle of a single WS that receives events for one
- * `(channel, token?)` subject — mirroring the API's subject-sharded
- * `WebSocketDO` (issue #395). Reconnect with exponential backoff is
- * scoped to this subject only, so a flap on one shard doesn't cascade
- * across every subscription a client holds.
- */
+/** Owns one subject-sharded WebSocket and its reconnect lifecycle. */
 class SubjectSocket {
   private ws: WebSocket | null = null;
   private reconnectMs = INITIAL_RECONNECT_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private tickerUnsub: (() => void) | null = null;
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
-  // Two independent "awaiting pong" flags keep the 30 s regular ping cycle
-  // and the short post-wake probe from clobbering each other. A wake-up
-  // probe lands at an arbitrary point in the 30 s cycle; if it shared
-  // `awaitingPong` with the regular cycle, the next regular tick (which
-  // could land anywhere from a few ms to the full PING_INTERVAL_MS away,
-  // since the ticker phase is shared across all sockets) would interpret
-  // the probe's set flag as a missed pong from the previous regular cycle
-  // and force-close a perfectly healthy connection. Splitting the state
-  // gives each cycle its own grace window — 30 s for regular pings,
-  // PROBE_TIMEOUT_MS for probes — while a server pong clears both.
+  // Separate regular/probe pong flags so wake probes don't trip the 30s cycle.
   private awaitingPong = false;
   private awaitingProbe = false;
   private disposed = false;
@@ -223,9 +174,7 @@ class SubjectSocket {
     this.ws.onopen = () => {
       this.reconnectMs = INITIAL_RECONNECT_MS;
       this.startPing();
-      // Only fire reconnection handlers on *re*opens. The subject shard
-      // implicitly subscribes the connection on accept, so there's no
-      // explicit subscribe message to send.
+      // Only fire reconnection handlers on reopens.
       if (this.hasOpenedOnce) {
         try {
           this.onReopen();
@@ -295,26 +244,7 @@ class SubjectSocket {
     this.handlers.clear();
   }
 
-  /**
-   * Bring this subject back to a healthy state after a tab returns to the
-   * foreground (`visibilitychange`) or the network comes back (`online`).
-   *
-   * The chart's keep-alive pings are driven by a Web Worker so they survive
-   * background-tab throttling, but a hostile network path (NAT idle eviction
-   * mid-background, captive-portal MITM, hung intermediate proxy) can still
-   * silently kill a connection while the browser thinks `readyState` is
-   * still `OPEN`. Without an explicit nudge on wake we'd wait up to a full
-   * ping cycle for the next 30 s tick to notice the wedged socket. This
-   * does that nudge:
-   *
-   *   - `OPEN` → send a probe ping with a short verification window. If
-   *     the pong doesn't land within `PROBE_TIMEOUT_MS`, force-close so
-   *     the existing onclose → scheduleReconnect path runs.
-   *   - `CLOSING` / `CLOSED` / `null` → cancel any throttled reconnect
-   *     timer (the browser may have queued it minutes deep) and reconnect
-   *     immediately, resetting the backoff so the first attempt is snappy.
-   *   - `CONNECTING` → leave it alone, a connect is already in flight.
-   */
+  /** Probe or reconnect this subject after foreground/network wake. */
   wake(): void {
     if (this.disposed) return;
 
@@ -359,11 +289,7 @@ class SubjectSocket {
   private onPingTick(): void {
     if (this.ws?.readyState !== WebSocket.OPEN) return;
 
-    // No pong arrived since the last ping — the socket is wedged
-    // (NAT idle eviction, captive-portal MITM, hung intermediate proxy).
-    // Force-close so the existing onclose → scheduleReconnect path runs;
-    // browsers otherwise keep readyState=OPEN until the OS-level TCP
-    // timeout, which can be 5+ minutes on long-lived sockets.
+    // Force-close wedged sockets so the normal reconnect path runs.
     if (this.awaitingPong) {
       try {
         this.ws.close();
@@ -391,9 +317,7 @@ class SubjectSocket {
       return;
     }
     if (this.probeTimer) clearTimeout(this.probeTimer);
-    // Pong arrival cancels the probe timer (`onPongReceived`); if it
-    // doesn't land we force-close inside the timeout so the reconnect
-    // path runs without waiting for the next 30 s ping tick.
+    // Force-close quickly if the probe pong doesn't land.
     this.probeTimer = setTimeout(() => {
       this.probeTimer = null;
       if (this.disposed) return;
@@ -408,10 +332,7 @@ class SubjectSocket {
   }
 
   private onPongReceived(): void {
-    // A single server pong clears both the regular-cycle and probe-cycle
-    // outstanding flags. The wire protocol carries no sequence number so
-    // we can't attribute the pong to a specific ping — and we don't need
-    // to: any pong means the round-trip just succeeded.
+    // Pongs are unsequenced; any pong proves the round-trip succeeded.
     this.awaitingPong = false;
     this.awaitingProbe = false;
     if (this.probeTimer) {
@@ -422,10 +343,7 @@ class SubjectSocket {
 
   private scheduleReconnect(): void {
     if (this.disposed || this.reconnectTimer) return;
-    // Capture the current backoff for *this* timer, then advance the
-    // multiplier only after the reconnect has been attempted. Without
-    // this snapshot the first reconnect would use `INITIAL_RECONNECT_MS *
-    // 2 = 2000ms` instead of the intended `1000ms`.
+    // Snapshot this timer's delay before advancing the next backoff.
     const delay = this.reconnectMs;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -458,21 +376,7 @@ class SubjectSocket {
   }
 }
 
-/**
- * Multiplexing WebSocket client.
- *
- * Maintains one underlying WebSocket per `(channel, token)` subject — each
- * connection lands on its own shard of the API's subject-sharded
- * `WebSocketDO` (issue #395). The public surface (`subscribe`, `onReconnect`)
- * is unchanged, so callers see no difference from the previous single-WS
- * implementation.
- *
- * Lifetime rules:
- *   - First subscriber for a subject opens its WS.
- *   - Last subscriber for a subject closes its WS.
- *   - `onReconnect` fires on *re*opens of any subject WS — downstream
- *     hooks use it to refetch their REST snapshot.
- */
+/** Multiplexes callers across one WebSocket per `(channel, token)` subject. */
 class WebSocketClient {
   private url: string;
   private subjects: Map<string, SubjectSocket> = new Map();
@@ -486,11 +390,7 @@ class WebSocketClient {
     this.url = url;
   }
 
-  /**
-   * Best-effort indicator that *some* subject is connected. Mirrors the
-   * old `isConnected` semantics for callers that gate poll cadence on it.
-   * Returns `false` when no subject is currently subscribed.
-   */
+  /** Best-effort indicator that some subject is connected. */
   get isConnected(): boolean {
     if (this.subjects.size === 0) return false;
     for (const s of this.subjects.values()) {
@@ -553,10 +453,7 @@ class WebSocketClient {
     };
   }
 
-  /**
-   * Subscribe to reconnect events. Fires only on *re*opens (not the first
-   * connect) of any subject socket. Returns an unsubscribe function.
-   */
+  /** Subscribe to subject reopens. */
   onReconnect(handler: OpenHandler): () => void {
     this.openHandlers.add(handler);
     return () => {
@@ -571,13 +468,7 @@ class WebSocketClient {
     };
   }
 
-  /**
-   * Probe every active subject socket — used by the document-level
-   * `visibilitychange` / `online` listeners installed in
-   * `installLifecycleWatchers`. Snapshots the subject set so a wake-driven
-   * dispose (e.g. a force-close synchronously closing the socket from a
-   * concurrent unsubscribe path) can't break the iteration.
-   */
+  /** Probe every active subject socket after document/network wake. */
   wakeAll(): void {
     if (this.disposed) return;
     const snapshot = Array.from(this.subjects.values());
@@ -613,25 +504,7 @@ class WebSocketClient {
 let instance: WebSocketClient | null = null;
 let lifecycleWatchersInstalled = false;
 
-/**
- * Wire `visibilitychange` and `online` events to `WebSocketClient.wakeAll`.
- *
- * Installed once per page load, the first time `getWebSocketClient()` is
- * called in a browser context. Idempotent — the `lifecycleWatchersInstalled`
- * guard makes repeated calls (e.g. HMR re-imports during dev) a no-op.
- *
- * Why both events:
- *   - `visibilitychange`: catches the "user tabs away → comes back" case
- *     where background-tab throttling has stretched timers far enough
- *     that the connection may have died silently. The Web Worker keep-
- *     alive ticker prevents this in normal operation, but the wake probe
- *     is the second line of defence for hostile network paths
- *     (NAT idle eviction, captive-portal MITM, hung intermediate proxy).
- *   - `online`: catches the "WiFi dropped → came back" case. Browsers
- *     fire `online` when the network stack reattaches; without this we'd
- *     wait for the OS-level TCP timeout (5+ minutes) to learn the existing
- *     socket is dead.
- */
+/** Wire foreground/network wake events to WebSocket probes. */
 function installLifecycleWatchers(client: WebSocketClient): void {
   if (lifecycleWatchersInstalled) return;
   if (typeof document === "undefined" && typeof window === "undefined") return;

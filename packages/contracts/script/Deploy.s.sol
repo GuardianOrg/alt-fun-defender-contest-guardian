@@ -30,7 +30,7 @@ contract Deploy is Script {
     uint256 constant SELL_FEE_BPS = 75;
     uint256 constant CREATOR_FEE_BPS = 3333;
 
-    /// @dev USD-denominated (18-dp) graduation trigger seeded into the
+    /// @dev USDC-denominated (18-dp) graduation trigger seeded into the
     ///      Bonding proxy at `initialize`. Immutable for the life of the
     ///      proxy — changing it requires a UUPS upgrade with a
     ///      `reinitializer`. Pairs with

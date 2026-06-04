@@ -40,91 +40,42 @@ import type { Token } from "../../services/types";
 
 const rpcUrl =
   import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-// `batch: true` mirrors `config/wagmi.ts` — `loadBalance` fires 3
-// independent reads (`getBalance`, USDC `balanceOf`, token `balanceOf`)
-// on every wallet/mode/token flip; batching collapses the two
-// `readContract` legs into one HTTP POST.
+// Batch the balance reads fired on every wallet/mode/token flip.
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
   transport: http(rpcUrl, { batch: true }),
 });
 
-// "Low balance" thresholds for the contextual bridge / get-gas CTAs.
-// USDC: anything below the platform-wide minimum buy means the user can't
-// place any meaningful trade without bridging more in, so we surface the
-// bridge button proactively (not just on `insufficientUsdc` for a typed
-// amount).
-// HYPE: 0.005 HYPE (~$0.25 at $50/HYPE) covers ~20 trade-flow txs at
-// typical HyperEVM gas prices (~0.5 gwei × ~500k gas per Zap.buy with
-// approval). Below that we nudge the user to top up gas before their
-// next signed tx fails with "insufficient funds for intrinsic gas".
+// Thresholds for the contextual bridge/get-gas CTAs.
 const LOW_USDC_THRESHOLD = MIN_USDC_BUY_AMOUNT;
 const LOW_HYPE_THRESHOLD_WEI = parseUnits("0.005", 18);
 
 interface Props {
   token: Token;
-  /**
-   * Drop the outer `.panel` chrome (background / border / fixed width /
-   * shadow) so the panel can be embedded inside another container that
-   * already owns those — specifically the mobile trade modal, which uses
-   * `shared/Modal` for the surface and would otherwise double up borders.
-   * The internal toggle / form / CTA layout is unchanged.
-   */
+  /** Drop outer chrome when embedded inside the mobile modal. */
   chromeless?: boolean;
 }
 
 export default function TradePanel({ token, chromeless = false }: Props) {
-  // While BounceTech has paused minting on the backing LT every `Zap.buy`
-  // for this token reverts (Zap mints LT from USDC on every buy). Drives
-  // the disabled-buy state plus the explainer banner below; sells continue
-  // to work through `redeem`, which is what makes a sell-only market
-  // preferable to freezing both sides — see AGENTS.md → "Mint-pause is
-  // asymmetric (accepted)" for the contract-side rationale.
+  // Mint-paused LTs make buys revert, while sells can still redeem.
   const isMintPaused = useIsMintPaused(token.ltAddress);
-  // Admin-hidden token (issue #712). Same buy-disabled / sell-open shape
-  // as `isMintPaused`: the token has been pulled from the public
-  // listings, but holders still need a way to exit their position. The
-  // detail endpoint only serves a hidden row to a wallet that's already
-  // proven (on-chain `balanceOf`) it holds the token, so the only way
-  // to reach this branch is as a holder selling out.
+  // Hidden tokens are sell-only so holders can exit.
   const isPolicyHidden = token.isHidden;
-  // CDN-derived geo gate. Mirrors `isMintPaused` semantics — buys are
-  // blocked, sells stay open so users in restricted regions can always
-  // exit. Fail-open while the trace fetch is in flight (the hook returns
-  // `false` until it resolves), so the form is never blocked on a slow
-  // edge response.
+  // Geo gate blocks buys but leaves sells open; hook fails open while loading.
   const { isGeoBlocked } = useIsGeoBlocked();
-  // Admin-hidden tokens are sell-only by policy — start the form in sell
-  // mode rather than blanking out a buy-mode panel with an explainer
-  // and a disabled CTA. Mirrors the auto-switch effect for `isMintPaused`
-  // below.
   const [mode, setMode] = useState<"buy" | "sell">(
     isPolicyHidden ? "sell" : "buy",
   );
-  // Auto-swap to sell mode the first time we learn the LT is paused — and
-  // only when the user hasn't typed anything yet, so we never clobber an
-  // in-progress buy attempt. Tracked in a ref so toggling back to "buy"
-  // manually doesn't trigger a second swap on the next refetch.
+  // One-shot auto-switch avoids clobbering an in-progress buy.
   const autoSwitchedToSellRef = useRef(false);
   const [amount, setAmount] = useState("");
-  // Slippage is persisted across page loads and shared across tabs — see
-  // `useSlippage` for the storage shape. Defaulting via the hook keeps the
-  // chip-highlight logic in `SettingsPopup` stable on first render (no
-  // post-mount jump from 2% → persisted value).
   const [slippage, setSlippage] = useSlippage();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxBalance, setMaxBalance] = useState<string | null>(null);
   const [maxBalanceWei, setMaxBalanceWei] = useState<bigint | null>(null);
-  // USDC balance is tracked independently of `maxBalance` because the latter
-  // swaps to the token balance in sell mode. We always want to know the
-  // user's USDC balance so the buy-side insufficient-funds check works
-  // regardless of which mode the panel is currently in.
+  // `maxBalance` points at token balance in sell mode; USDC stays separate for buy validation.
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
-  // Native HYPE balance — drives the contextual "GET GAS" CTA. Stored as
-  // wei so the threshold compare is an exact bigint < bigint check (no
-  // float drift on tiny balances). `null` while the read is in flight or
-  // the user is disconnected, which suppresses the CTA until we have a
-  // real number to compare against.
+  // Native HYPE balance drives GET GAS; keep wei for exact threshold compares.
   const [hypeBalanceWei, setHypeBalanceWei] = useState<bigint | null>(null);
 
   const { address } = useAccount();
@@ -133,10 +84,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const { step, txHash, error, executeBuy, executeSell, reset } =
     useTradeRouter();
   const { pushToast } = useToast();
-  // Snapshot of the trade-side amounts at submit time, consumed once when
-  // the tx confirms. Held in a ref so the captured values don't get clobbered
-  // by the post-confirm reset (`setAmount("")`, quote teardown) before the
-  // toast effect runs.
+  // Submit-time snapshot for the confirmation toast, immune to post-confirm resets.
   const pendingTradeRef = useRef<{
     mode: "buy" | "sell";
     tokenAmount: number;
@@ -146,10 +94,6 @@ export default function TradePanel({ token, chromeless = false }: Props) {
 
   const amtNum = parseFloat(amount) || 0;
 
-  // Live-refreshing quote: debounced on user input, throttled re-quote on
-  // `trade` / `price` WS ticks so the "You receive ≈ …" estimate stays in
-  // sync with the chart / mcap / price as other users trade and the LT
-  // exchange rate drifts. See `useLiveTradeQuote` for the cadence model.
   const { buyQuote, sellQuote } = useLiveTradeQuote({
     token,
     mode,
@@ -172,9 +116,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     mode === "sell" &&
     sellQuote != null &&
     sellQuote.exceedsBuffer;
-  // Insufficient USDC for buys. Only flag once the balance has loaded so we
-  // don't disable the button during the initial fetch (or for users who
-  // haven't connected — the wallet-connect CTA path takes priority).
+  // Only flag after balance load; disconnected users should see the connect CTA.
   const usdcBalanceNum = usdcBalance !== null ? parseFloat(usdcBalance) : null;
   const insufficientUsdc =
     isConnected &&
@@ -182,14 +124,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     amtNum > 0 &&
     usdcBalanceNum !== null &&
     amtNum > usdcBalanceNum;
-  // Insufficient token balance for sells. Mirrors `insufficientUsdc` — the
-  // tx would revert against the ERC20 `transferFrom` inside `Zap.sell`
-  // anyway, so we surface a clean error in the form rather than letting
-  // the user pay gas to learn that. Bigint compare via `parseUnits` so an
-  // 18-decimal token balance at the extreme end doesn't lose precision.
-  // `parseUnits` throws on malformed numeric strings; in that case we
-  // fall through to the existing input validation rather than spuriously
-  // flagging "insufficient".
+  // Use bigint sell-balance compare so 18-decimal token amounts stay exact.
   const insufficientToken = (() => {
     if (
       !isConnected ||
@@ -206,23 +141,14 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     }
   })();
 
-  // Bridge-USDC CTA: surfaced in buy mode whenever the wallet either can't
-  // meet the platform minimum buy at all, or can't cover the amount the
-  // user just typed. Suppressed in sell mode (no USDC needed to exit) and
-  // while balances are still loading. The link points at relay.link with
-  // HyperEVM as the destination chain and USDC as the receive currency, so
-  // a user can bridge in from any source chain in a single hop.
+  // Bridge USDC when the wallet cannot cover either the minimum buy or typed buy.
   const showBridgeUsdc =
     isConnected &&
     mode === "buy" &&
     usdcBalanceNum !== null &&
     (usdcBalanceNum < LOW_USDC_THRESHOLD || insufficientUsdc);
 
-  // Get-Gas CTA: surfaced (in either trade mode) when the wallet's native
-  // HYPE balance is below the gas-floor threshold. Hidden whenever the
-  // bridge-USDC CTA is showing — they share the same vertical slot above
-  // the BUY/SELL button and the USDC ask is the more pressing of the two
-  // (no point topping up gas to send a buy you can't fund).
+  // GET GAS shares the CTA slot with BRIDGE USDC; funding the trade takes priority.
   const showGetGas =
     isConnected &&
     hypeBalanceWei !== null &&
@@ -235,19 +161,12 @@ export default function TradePanel({ token, chromeless = false }: Props) {
       setHypeBalanceWei(null);
       return;
     }
-    // Native HYPE — fed into the "GET GAS" CTA. Fired in parallel with the
-    // USDC read (no `await` join needed here since each call updates its
-    // own state slice independently). Wallet-side gas estimation will catch
-    // a truly empty balance at signing time; this read just lets us prompt
-    // the user to top up *before* they hit that wall.
+    // Fire gas and USDC reads independently; each updates its own UI slice.
     hyperEvmClient
       .getBalance({ address })
       .then((wei) => setHypeBalanceWei(wei))
       .catch(() => setHypeBalanceWei(null));
-    // Always fetch USDC balance — the insufficient-funds guard must work in
-    // both modes regardless of which balance `maxBalance` is currently
-    // pointing at. In buy mode `maxBalance` IS the USDC balance, so we
-    // reuse the same read for both.
+    // Always fetch USDC; sell mode still needs it for buy-side validation after toggles.
     try {
       const usdcRaw = (await hyperEvmClient.readContract({
         address: ADDRESSES.usdc,
@@ -292,13 +211,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   }, [isConnected, loadBalance]);
 
   useEffect(() => {
-    // Auto-swap to sell mode the first time we learn either:
-    //   1. The backing LT has been mint-paused by BounceTech, OR
-    //   2. The token has been admin-hidden (policy violation).
-    // Both render the panel as sell-only — the user can still toggle BUY
-    // back to read the disabled state, but landing in sell mode skips
-    // the click. Auto-switch is one-shot (the ref) and only fires while
-    // the input is empty, so we never clobber an in-progress buy attempt.
+    // Land sell-only states in SELL mode, but never clobber typed input.
     if (
       (isMintPaused || isPolicyHidden) &&
       !autoSwitchedToSellRef.current &&
@@ -316,17 +229,9 @@ export default function TradePanel({ token, chromeless = false }: Props) {
       return;
     }
     if (!amtNum) return;
-    // Belt-and-braces: the BUY button is disabled while paused, but if
-    // the user somehow lands here (race between paused-state polling and
-    // a click) the tx would revert against BounceTech anyway, so bail out
-    // cleanly without surfacing a wallet popup.
+    // Guard stale renders between disabled-state polling and a click.
     if (isMintPaused && mode === "buy") return;
-    // Same belt-and-braces for the geo gate — the button is disabled, but
-    // a stale render between a country flip and the click shouldn't be
-    // able to slip a tx through.
     if (isGeoBlocked && mode === "buy") return;
-    // And again for the admin-hidden gate — buys are policy-blocked, so
-    // refuse to broadcast even if a stale render leaks through.
     if (isPolicyHidden && mode === "buy") return;
 
     if (mode === "buy") {
@@ -382,26 +287,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const buyDisabledByPolicy = isPolicyHidden && mode === "buy";
   const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
-  // Only one error/warning is rendered at a time so the form never stacks
-  // a stale router error (e.g. "Transaction was rejected in your wallet")
-  // on top of a fresh input-validation message. Priority, highest first:
-  //   1. geoBlock     — hard CDN gate, supersedes everything
-  //   2. insufficientToken — sell-side wallet balance. Above `exceedsBuffer`
-  //      because the buffer message is misleading when the user couldn't
-  //      submit the sell in the first place (the quote is computed off the
-  //      typed amount, not the actual balance).
-  //   3. exceedsBuffer — sell-side liquidity ceiling (rich warning box)
-  //   4. insufficientUsdc — buy-side wallet balance
-  //   5. belowMinimum / sellBelowMinimum — per-mode minimums
-  //   6. router error — last-attempt failure; lowest because it's the
-  //      stalest signal and is cleared on the next amount edit anyway.
-  //
-  // Suppressed entirely while a tx is in flight or has just confirmed:
-  // input-validation guards are pre-submission constraints, so showing them
-  // mid-tx is noise. In particular, the post-confirm `loadBalance()` debits
-  // USDC before `amount` is cleared, which would otherwise flash a stale
-  // "Insufficient USDC" banner directly above the "Transaction confirmed"
-  // box for the 3s lifetime of the success state.
+  // Render one validation surface at a time, with stale router errors lowest priority.
   type ActiveError =
     | { kind: "geoBlock" }
     | { kind: "exceedsBuffer" }
@@ -423,11 +309,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     return null;
   })();
 
-  // Clear the router error as soon as the user edits the amount, so a
-  // rejected/cancelled tx from a previous attempt doesn't linger while
-  // the user is dialing in a new amount. Wrapped here (instead of an
-  // effect on `amount`) so we only fire on actual user input — mode
-  // toggles already call `reset()` themselves and shouldn't double-fire.
+  // Clear last-attempt router errors on actual amount edits.
   const handleAmountChange = useCallback(
     (next: string) => {
       setAmount(next);
@@ -436,13 +318,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     [step, reset],
   );
 
-  // The label is intentionally minimal: anything that has a dedicated
-  // error/status surface above the button (paused banner, minimum-amount
-  // / insufficient-funds / buffer / geo-block error boxes) is *not*
-  // duplicated here — the button just renders disabled with the default
-  // BUY/SELL label so the same message isn't shown twice on screen. Only
-  // labels with no above-the-button equivalent stay (the connect CTA and
-  // the live tx-progress states).
+  // Keep labels minimal; dedicated banners/errors carry disabled-state detail.
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
     if (step === "signing") return "SIGN IN WALLET…";
@@ -457,12 +333,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const ticker = token.ticker;
   const panelClass = cn(styles.panel, chromeless && styles.panelChromeless);
 
-  // Token is in the contract-frozen graduating window (phase 1 of the
-  // two-phase graduation has fired; awaiting the keeper's `finalizeGraduation`
-  // call). Both `Zap.buy` and `Zap.sell` would revert with `TokenIsGraduating`
-  // here, so render a read-only overlay instead of the form. The token-detail
-  // hook polls/subscribes to the API's `graduation` WS channel, so this
-  // automatically transitions to the post-grad UI when phase 2 lands.
+  // Contract-frozen graduation window: both buy and sell would revert.
   if (token.status === "graduating") {
     return (
       <div className={panelClass}>
@@ -490,6 +361,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             fluid
             tone="mint"
             active={mode === "buy"}
+            fullWidthIndicator
             disabled={isMintPaused || isPolicyHidden}
             onClick={() => {
               setMode("buy");
@@ -510,6 +382,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             fluid
             tone="red"
             active={mode === "sell"}
+            fullWidthIndicator
             onClick={() => {
               setMode("sell");
               setAmount("");
@@ -520,37 +393,6 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           </SegmentedButton>
         </div>
 
-        <div className={styles.gearWrap}>
-          <IconButton
-            active={settingsOpen}
-            onClick={() => setSettingsOpen(!settingsOpen)}
-            aria-label="Trade settings"
-            aria-expanded={settingsOpen}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </IconButton>
-
-          {settingsOpen && (
-            <SettingsPopup
-              slippage={slippage}
-              onSlippageChange={setSlippage}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
-        </div>
       </div>
 
       <div className={styles.formBody}>
@@ -568,10 +410,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             </div>
           </div>
         )}
-        {/* `isPolicyHidden` takes precedence over `isMintPaused` because
-         *  the policy ban is the more severe state — the token won't
-         *  come back even if BounceTech unfreezes minting. Sells stay
-         *  open in both cases. */}
+        {/* Policy-hidden beats mint-paused because it is permanent; sells stay open in both cases. */}
         {!isPolicyHidden && isMintPaused && (
           <div className={styles.pausedBanner} role="status">
             <div className={styles.pausedBannerTitle}>Buys paused</div>
@@ -599,11 +438,46 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           maxBalanceWei={maxBalanceWei}
           sellQuote={sellQuote}
           token={token}
+          headerAction={
+            <div className={styles.gearWrap}>
+              <IconButton
+                active={settingsOpen}
+                onClick={() => setSettingsOpen(!settingsOpen)}
+                aria-label="Max slippage"
+                aria-expanded={settingsOpen}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </IconButton>
+
+              {settingsOpen && (
+                <SettingsPopup
+                  slippage={slippage}
+                  onSlippageChange={setSlippage}
+                  onClose={() => setSettingsOpen(false)}
+                />
+              )}
+            </div>
+          }
         />
 
         {isConnected && mode === "buy" && (
           <div className={styles.balanceRow}>
-            <span className={styles.balanceLabel}>USDC balance</span>
+            <span className={`${styles.balanceLabel} ui-subheading`}>
+              USDC balance
+            </span>
             <span className={styles.balanceValue}>
               {usdcBalance !== null
                 ? `$${parseFloat(usdcBalance).toLocaleString(undefined, {
@@ -617,7 +491,9 @@ export default function TradePanel({ token, chromeless = false }: Props) {
 
         {isConnected && mode === "sell" && (
           <div className={styles.balanceRow}>
-            <span className={styles.balanceLabel}>{ticker} balance</span>
+            <span className={`${styles.balanceLabel} ui-subheading`}>
+              {ticker} balance
+            </span>
             <span className={styles.balanceValue}>
               {maxBalance !== null
                 ? `${formatTokenAmount(parseFloat(maxBalance))} ${ticker}`
@@ -635,10 +511,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           />
         )}
 
-        {/* Single error/warning slot — priority resolved in `activeError`
-            above. Stacking multiple messages here (e.g. a stale router
-            error alongside a fresh "below minimum") was confusing and
-            duplicated the disable rationale for the CTA button. */}
+        {/* Single error/warning slot; priority is resolved in `activeError`. */}
         {activeError?.kind === "exceedsBuffer" && sellQuote && (
           <TradePanelBufferWarning sellQuote={sellQuote} ticker={ticker} />
         )}
@@ -713,13 +586,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           </div>
         )}
 
-        {/* Bridge / get-gas CTA. Sits directly above the BUY/SELL primary
-            so the actionable next step is immediately adjacent to the
-            (now-disabled) trade button. Suppressed mid-tx and right after
-            a confirm so the success box / busy state isn't visually
-            competing with a "go bridge instead" prompt. The two cases are
-            mutually exclusive (`showGetGas` requires `!showBridgeUsdc`),
-            so at most one renders. */}
+        {/* Funding CTA shares the primary button area and is hidden during tx/success states. */}
         {!isBusy && step !== "confirmed" && showBridgeUsdc && (
           <Button
             variant="secondary"

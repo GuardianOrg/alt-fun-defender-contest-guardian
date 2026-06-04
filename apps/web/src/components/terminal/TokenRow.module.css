@@ -5,7 +5,6 @@
   align-items: center;
   padding: 0.8rem 0.8rem;
   cursor: pointer;
-  border-bottom: 1px solid var(--border);
 }
 
 .graduatingLong {
@@ -252,4 +251,121 @@
   font-weight: 600;
   color: var(--txt);
   font-variant-numeric: tabular-nums;
+}
+
+.cardRow {
+  --token-card-label-gap: 0.45rem;
+  --token-card-row-gap: 0.85rem;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--token-card-row-gap) 1rem;
+  justify-content: stretch;
+  align-items: stretch;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.cardRow.graduatingLong {
+  background: rgba(77, 232, 180, 0.04);
+}
+
+.cardRow.graduatingShort {
+  background: rgba(240, 80, 80, 0.035);
+}
+
+.cardRow.normalRow:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.cardRow .tokenCell,
+.cardRow .underlyingCell,
+.cardRow .changeCell,
+.cardRow .progressCell,
+.cardRow .mcapCell {
+  width: auto;
+  min-width: 0;
+}
+
+.cardRow .tokenCell {
+  order: 1;
+  grid-column: 1 / -1;
+}
+
+.cardRow .iconWrap,
+.cardRow .tokenImage {
+  width: 4.25rem;
+  height: 4.25rem;
+}
+
+.cardRow .tokenTicker,
+.cardRow .changeValue,
+.cardRow .mcapValue {
+  font-size: 14px;
+}
+
+.cardRow .underlyingCell,
+.cardRow .progressCell {
+  grid-column: 1 / -1;
+}
+
+.cardRow .underlyingCell {
+  order: 2;
+  flex-wrap: wrap;
+  row-gap: var(--token-card-label-gap);
+  column-gap: 0.7rem;
+}
+
+.cardRow .changeCell,
+.cardRow .mcapCell,
+.cardRow .progressCell {
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--token-card-label-gap);
+}
+
+.cardRow .changeCell {
+  order: 4;
+}
+
+.cardRow .mcapCell {
+  order: 3;
+}
+
+.cardRow .progressCell {
+  order: 5;
+}
+
+.cardRow .underlyingCell::before,
+.cardRow .changeCell::before,
+.cardRow .progressCell::before,
+.cardRow .mcapCell::before {
+  content: "";
+  width: 100%;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--txt-2);
+}
+
+.cardRow .underlyingCell::before {
+  content: "Underlying";
+}
+
+.cardRow .changeCell::before {
+  content: "24h Change";
+}
+
+.cardRow .progressCell::before {
+  content: "Progress";
+}
+
+.cardRow .mcapCell::before {
+  content: "Mcap";
 }

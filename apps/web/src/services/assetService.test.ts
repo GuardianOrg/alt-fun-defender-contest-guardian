@@ -68,7 +68,7 @@ describe("liveAssetService.getAssets", () => {
         data: {
           underlying: [
             { symbol: "HYPE", price: "42" },
-            { symbol: "xyz:CBRS", price: "9.87" },
+            { symbol: "xyz:GOLD", price: "9.87" },
           ],
           leveragedTokens: [],
         },
@@ -125,9 +125,9 @@ describe("liveAssetService.getAssets", () => {
     const { assetService } = await import("./assetService");
     const assets = await assetService.getAssets();
 
-    expect(assets.map((a) => a.name)).toEqual(["HYPE", "xyz:CBRS"]);
+    expect(assets.map((a) => a.name)).toEqual(["xyz:GOLD", "HYPE"]);
     expect(assets.find((a) => a.name === "HYPE")?.priceUsd).toBe("$42.00");
-    expect(assets.find((a) => a.name === "xyz:CBRS")?.priceUsd).toBe("$9.87");
+    expect(assets.find((a) => a.name === "xyz:GOLD")?.priceUsd).toBe("$9.87");
     expect(
       fetchMock.mock.calls.some(([url]) =>
         String(url).includes("/api/v1/assets"),
@@ -163,6 +163,6 @@ describe("liveAssetService.getAssets", () => {
     );
     const cached = await assetService.getAssets();
 
-    expect(cached.map((a) => a.name)).toEqual(["HYPE", "xyz:CBRS"]);
+    expect(cached.map((a) => a.name)).toEqual(["xyz:GOLD", "HYPE"]);
   });
 });

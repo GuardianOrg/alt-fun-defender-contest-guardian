@@ -14,6 +14,7 @@ import {
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
 import Button from "../shared/Button";
 import Skeleton from "../shared/Skeleton";
 
@@ -104,7 +105,9 @@ export default function ManageWalletTab() {
     <div>
       <NetworkStrip />
 
-      <div className={styles.sectionHeader}>Assets needed for trading</div>
+      <div className={cn(styles.sectionHeader, "ui-subheading")}>
+        Assets needed for trading
+      </div>
 
       <div className={styles.assetList}>
         <AssetRow
@@ -168,12 +171,16 @@ function NetworkStrip() {
     <div className={styles.networkStrip}>
       <div className={styles.networkLeft}>
         <div className={styles.networkMeta}>
-          <span className={styles.networkLabel}>Network</span>
+          <span className={cn(styles.networkLabel, "ui-subheading")}>
+            Network
+          </span>
           <span className={styles.networkName}>HyperEVM</span>
         </div>
       </div>
       <div className={styles.networkRight}>
-        <span className={styles.networkLabel}>Chain ID</span>
+        <span className={cn(styles.networkLabel, "ui-subheading")}>
+          Chain ID
+        </span>
         <span className={styles.networkChainId}>{hyperEVM.id}</span>
       </div>
     </div>

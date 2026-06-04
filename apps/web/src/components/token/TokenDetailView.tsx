@@ -18,7 +18,8 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { useTokenLiveFeed } from "../../hooks/useTokenLiveFeed";
-import { formatUsd, formatUsdOrDash } from "../../utils/format";
+import { cn, formatUsd, formatUsdOrDash } from "../../utils/format";
+import NotFound from "../layout/NotFound";
 import Button from "../shared/Button";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Modal from "../shared/Modal";
@@ -33,35 +34,18 @@ export default function TokenDetailView() {
     isFetched,
     isCachedFallback,
   } = useToken(address);
-  // Mobile (≤768px) collapses the side-by-side layout: the left panel
-  // takes the full viewport and the trade panel is folded behind a
-  // sticky CTA that opens it as a modal. Tracked in JS (rather than
-  // pure CSS) so we can mount the trade panel exactly once — either
-  // inline on desktop or inside the modal on mobile — and avoid
-  // duplicate WS subscriptions / form state from rendering it twice.
+  // Track mobile in JS so the trade panel mounts only once: inline or in the modal.
   const isMobile = useIsMobile();
   const [tradeModalOpen, setTradeModalOpen] = useState(false);
-  // Auto-close the modal whenever the viewport crosses back to desktop
-  // (e.g. a tablet rotating, devtools resize) so we never strand an
-  // open mobile-only popup over the desktop layout.
+  // Do not strand the mobile modal after resizing back to desktop.
   useEffect(() => {
     if (!isMobile && tradeModalOpen) setTradeModalOpen(false);
   }, [isMobile, tradeModalOpen]);
   useTrackRecentlyViewed(token?.address);
-  // Auto-transition Curve → Graduating → Graduated when the indexer fires
-  // a `graduation` WS event for this token.
   useGraduationFeed(address);
-  // Keep the curve strip (progress + raised USD) and the rest of the
-  // token-detail metadata (mcap, price, 24h change/volume) live as
-  // trades land on-chain — throttled invalidation of the `useToken`
-  // query off the `trade` WS channel. See issue #643.
   useTokenLiveFeed(address);
 
-  // Unreachable under normal routing — the `:address` route param is
-  // mandatory, so React Router would 404 before ever rendering this view
-  // without one. Kept as a defensive fallback that surfaces a clear
-  // not-found message (no `role="status"` / `aria-live`; nothing is
-  // loading here).
+  // Defensive fallback; normal routing requires `:address`.
   if (!address) {
     return (
       <div className={styles.wrapper}>
@@ -70,25 +54,11 @@ export default function TokenDetailView() {
     );
   }
 
-  if (!token && isFetched && !isError) {
-    return (
-      <div className={styles.wrapper}>
-        <div className={styles.loading}>Token not found</div>
-      </div>
-    );
+  if (!token && isFetched) {
+    return <NotFound title="Token not found" />;
   }
 
-  // Progress bar split between organic USDC buys and LT price appreciation.
-  // The API pre-clamps both buckets so they sum to `curveFilled` and never
-  // go negative (a dropping LT shows as all-organic, no boost). When the
-  // indexer/BounceTech is degraded `organicFilled` is null — fall back to
-  // a single solid fill so we don't imply "all boost, no organic".
-  // A null `curveFilled` (degraded) renders as an empty bar; numeric
-  // display sites use `formatCurveFilled` to show `—` instead of `0%`.
-  //
-  // Graduated tokens collapse to a single solid 100% fill (no organic/boost
-  // split — per apps/web/AGENTS.md "hide the split entirely") so the bar
-  // visually reads as "complete" alongside the `graduated` badge below.
+  // API pre-clamps organic/boost buckets; degraded or graduated states collapse to a simple fill.
   const isGraduated = token?.status === "graduated";
   const isUsingCachedFallback = !!isCachedFallback || (isError && !!token);
   const filled = isGraduated ? 100 : (token?.curveFilled ?? 0);
@@ -96,25 +66,14 @@ export default function TokenDetailView() {
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
 
-  // Keep a single, stable render tree across loading → loaded so the Chart
-  // fiber (and its in-flight `fetchChart` request) is preserved when
-  // `useToken` resolves. Sections that depend on token metadata render a
-  // placeholder until `token` is available; the chart only needs `address`
-  // (the `:address` route param) and mounts immediately so its fetch runs
-  // in parallel with the metadata request rather than sequentially after.
-  //
-  // `aria-busy` flips off as soon as `useToken` resolves. Screen readers
-  // pause polite announcements while the wrapper is busy, so the swap
-  // from skeleton → real content lands as one settled update rather than
-  // a series of half-formed reads of each section as it materialises.
+  // Keep Chart mounted while metadata resolves so its fetch runs in parallel.
   return (
-    <div className={styles.wrapper} aria-busy={token ? undefined : true}>
+    <div
+      className={styles.tokenDetailViewWrapper}
+      aria-busy={token ? undefined : true}
+    >
       <div className={styles.leftPanel}>
-        {/* Hidden-token disclaimer (issue #712). The detail endpoint
-            already gates on a server-side `balanceOf`, so reaching this
-            view with `isHidden: true` means the connected wallet holds
-            the token — frame the message as a sell-out notice. The
-            `TradePanel` further down disables the buy path to match. */}
+        {/* Hidden tokens are visible here only to holders, so frame this as a sell-out notice. */}
         {token?.isHidden && (
           <div
             className={styles.hiddenBanner}
@@ -136,12 +95,7 @@ export default function TokenDetailView() {
 
         {token && (
           <ErrorBoundary
-            // Moderation surface is non-essential — render-time errors here
-            // (e.g. session-signature flow misbehaving) must not blow up
-            // the entire token detail page for admins. Pinned directly
-            // under `HeroSection` (issue #607) so allowlisted wallets can
-            // hide a token without scrolling past the chart / info strip /
-            // bottom tabs to reach the moderation controls.
+            // Admin moderation must not take down the token detail page.
             fallback={null}
           >
             <AdminPanel token={token} />
@@ -156,89 +110,94 @@ export default function TokenDetailView() {
           <Chart address={address} token={token ?? null} />
         </ErrorBoundary>
 
-        {token && !isUsingCachedFallback && (
-          <div className={styles.curveStrip}>
-            <span className={styles.curveLabel}>curve</span>
-            {/* `curveRaisedUsd` is `null` post-graduation by API contract
-             *  (the on-chain curve no longer holds the LT reserve that
-             *  drives the figure — see `apps/api/AGENTS.md`). Rendering
-             *  `formatUsdOrDash(null)` would leave a stray `—` floating
-             *  to the left of the bar; the right side already drops the
-             *  `$threshold` for the `graduated` badge in the same
-             *  branch, so we mirror that on the left and hide the
-             *  raised figure entirely once the token has graduated. */}
-            {!isGraduated && (
-              <span className={styles.curveRaised}>
-                {formatUsdOrDash(token.curveRaisedUsd)}
+        <div className={styles.metadataStack}>
+          {token && !isUsingCachedFallback && (
+            <div className={styles.curveStrip}>
+              <span className={cn(styles.curveLabel, "ui-subheading")}>
+                Curve
               </span>
-            )}
-            <div className={styles.progressWrapper}>
-              <ProgressBar
-                buyPercent={buyW}
-                leveragePercent={levW}
-                isShort={token.direction === "short"}
-                isGraduating={token.status === "graduating"}
-                isGraduated={isGraduated}
-                size="sm"
-              />
-            </div>
-            {isGraduated ? (
-              <span className={styles.graduatedBadge}>graduated</span>
-            ) : (
-              <>
-                <span className={styles.curveThreshold}>
-                  {formatUsd(DEFAULT_GRADUATION_THRESHOLD_USD)}
-                </span>
-                {token.status === "graduating" && (
-                  <span className={styles.graduatingBadge}>graduating</span>
+              <div className={styles.curveBody}>
+                {/* Hide raised USD after graduation; the curve reserve no longer exists. */}
+                {!isGraduated && (
+                  <span className={styles.curveRaised}>
+                    {formatUsdOrDash(token.curveRaisedUsd)}
+                  </span>
                 )}
-              </>
-            )}
-          </div>
-        )}
-        {token && isUsingCachedFallback && (
-          <div className={styles.curveStrip}>
-            <span className={styles.curveLabel}>curve</span>
-            {isGraduated ? (
-              <>
                 <div className={styles.progressWrapper}>
                   <ProgressBar
-                    buyPercent={100}
-                    leveragePercent={0}
+                    buyPercent={buyW}
+                    leveragePercent={levW}
                     isShort={token.direction === "short"}
-                    isGraduated
+                    isGraduating={token.status === "graduating"}
+                    isGraduated={isGraduated}
                     size="sm"
                   />
                 </div>
-                <span className={styles.graduatedBadge}>graduated</span>
-              </>
-            ) : (
-              <>
-                <Skeleton width="4.5rem" height="1rem" />
-                <div className={styles.progressWrapper}>
-                  <Skeleton shape="block" width="100%" height="0.5rem" />
-                </div>
-                <Skeleton width="4rem" height="1rem" />
-              </>
-            )}
-          </div>
-        )}
+                {isGraduated ? (
+                  <span className={styles.graduatedBadge}>graduated</span>
+                ) : (
+                  <>
+                    <span className={styles.curveThreshold}>
+                      {formatUsd(DEFAULT_GRADUATION_THRESHOLD_USD)}
+                    </span>
+                    {token.status === "graduating" && (
+                      <span className={styles.graduatingBadge}>graduating</span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {token && isUsingCachedFallback && (
+            <div className={styles.curveStrip}>
+              <span className={cn(styles.curveLabel, "ui-subheading")}>
+                Curve
+              </span>
+              <div className={styles.curveBody}>
+                {isGraduated ? (
+                  <>
+                    <div className={styles.progressWrapper}>
+                      <ProgressBar
+                        buyPercent={100}
+                        leveragePercent={0}
+                        isShort={token.direction === "short"}
+                        isGraduated
+                        size="sm"
+                      />
+                    </div>
+                    <span className={styles.graduatedBadge}>graduated</span>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton width="4.5rem" height="1rem" />
+                    <div className={styles.progressWrapper}>
+                      <Skeleton shape="block" width="100%" height="0.5rem" />
+                    </div>
+                    <Skeleton width="4rem" height="1rem" />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
-        {token?.description && (
-          <section className={styles.descriptionSection}>
-            <span className={styles.descriptionLabel}>Description</span>
-            <p className={styles.description}>{token.description}</p>
-          </section>
-        )}
+          {token?.description && (
+            <section className={styles.descriptionSection}>
+              <span className={cn(styles.descriptionLabel, "ui-subheading")}>
+                Description
+              </span>
+              <p className={styles.description}>{token.description}</p>
+            </section>
+          )}
 
-        {token ? (
-          <TokenInfoStrip
-            token={token}
-            liveDataPending={isUsingCachedFallback}
-          />
-        ) : (
-          <TokenInfoStripSkeleton />
-        )}
+          {token ? (
+            <TokenInfoStrip
+              token={token}
+              liveDataPending={isUsingCachedFallback}
+            />
+          ) : (
+            <TokenInfoStripSkeleton />
+          )}
+        </div>
 
         {token && (
           <ErrorBoundary
@@ -253,12 +212,7 @@ export default function TokenDetailView() {
         )}
       </div>
 
-      {/* Desktop: trade panel (or its skeleton while metadata loads)
-          sits inline as the right column. Mobile: we suppress the
-          inline slot entirely — there's no right-hand column on a
-          stacked layout — and surface the panel via the sticky CTA +
-          modal below. Mounting in both places would duplicate WS
-          subscriptions and trade-form state. */}
+      {/* Render the trade panel in exactly one place to avoid duplicate subscriptions/form state. */}
       {!isMobile &&
         (token ? (
           <ErrorBoundary
@@ -274,10 +228,7 @@ export default function TokenDetailView() {
           <TradePanelSkeleton />
         ))}
 
-      {/* Mobile sticky CTA. Only rendered once the token has resolved so
-          we have a real ticker to surface — there's no inline trade
-          surface to fall back to on mobile, so a half-loaded label
-          ("Trade —") would be more noisy than just waiting. */}
+      {/* Wait for metadata so the mobile CTA can show the real ticker. */}
       {isMobile && token && (
         <div className={styles.mobileTradeBar}>
           <Button

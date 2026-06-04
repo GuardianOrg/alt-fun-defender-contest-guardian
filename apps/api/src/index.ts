@@ -6,6 +6,7 @@ import { swaggerUI } from "@hono/swagger-ui";
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
 import { runAutoGraduationBuyer } from "./lib/auto-graduation-buyer.js";
+import { runBuybackBurnKeeper } from "./lib/buyback-burn-keeper.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
 import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
@@ -18,6 +19,7 @@ import { imagesPublic, imagesPrivate } from "./routes/images.js";
 import balancesV2Route from "./routes/balances-v2.js";
 import portfolio from "./routes/portfolio.js";
 import stats from "./routes/stats.js";
+import analytics from "./routes/analytics.js";
 import assets from "./routes/assets.js";
 import referralsV2 from "./routes/referrals-v2.js";
 import botPositionsV2 from "./routes/bot/positions-v2.js";
@@ -162,6 +164,7 @@ app.route("/images", imagesPublic);
 app.route("/api/v1/balances-v2", balancesV2Route);
 app.route("/api/v1/portfolio", portfolio);
 app.route("/api/v1/stats", stats);
+app.route("/api/v1/analytics", analytics);
 app.route("/api/v1/assets", assets);
 app.route("/api/v1/referrals-v2", referralsV2);
 app.route("/api/v1/bot/positions-v2", botPositionsV2);
@@ -337,7 +340,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Six jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Seven jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -371,6 +374,13 @@ export default {
    *      token (closed-tab create flow, or front-end-bypass spam).
    *      Skips a 24h grace window so in-flight create flows are safe.
    *      See `lib/orphaned-images-cleanup.ts`.
+   *   7. Test HYPE buyback-and-burn keeper. Reads the deployer's
+   *      `creatorBalance` on `FeeVault`, gates against an HMAC-randomised
+   *      `[$20, $30)` threshold (so the trigger isn't front-runnable),
+   *      and on a hit runs `claim → buy(testHype) → transfer(0xdEaD)`
+   *      sequentially with receipt awaits. Self-gating + threshold
+   *      randomisation means the cron is free to run every tick — most
+   *      ticks return immediately. See `lib/buyback-burn-keeper.ts`.
    */
   async scheduled(
     _controller: ScheduledController,
@@ -486,6 +496,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "orphaned_images_cleanup_uncaught",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runBuybackBurnKeeper(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "buyback_burn_keeper_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

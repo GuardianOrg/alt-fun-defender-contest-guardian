@@ -305,6 +305,9 @@ export const indexerGraduation = ponderSchema.table(
     tokenAddress: text("token_address").primaryKey(),
     pairAddress: text("pair_address").notNull(),
     liquidity: numeric("liquidity").notNull(),
+    // Phase-1 LP-seed target, not necessarily the exact tokens deposited when
+    // the pair was pre-seeded with live reserves. Prefer `liquidity` / live
+    // reserves for actuals. See the indexer `ponder.schema.ts` `tokensInLP`.
     tokensInLP: numeric("tokens_in_lp").notNull(),
     lpBurned: numeric("lp_burned").notNull(),
     unsoldBurned: numeric("unsold_burned").notNull(),

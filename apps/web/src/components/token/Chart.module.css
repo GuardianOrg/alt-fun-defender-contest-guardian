@@ -18,6 +18,10 @@
   gap: 1px;
 }
 
+.unitButton.unitButton {
+  font-family: var(--font-display);
+}
+
 .intervalBtn {
   padding: 0.2rem 0.6rem;
   border-radius: 0;
@@ -116,35 +120,6 @@
   background: rgba(77, 232, 180, 0.12);
 }
 
-.liveIndicator {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.liveDot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  background: var(--mint);
-  animation: livep 2s ease-in-out infinite;
-}
-
-.liveIndicatorReconnecting .liveDot {
-  background: var(--amber);
-}
-
-.liveText {
-  font-size: 11px;
-  color: var(--txt-4);
-  font-family: var(--font-mono);
-}
-
-.liveIndicatorReconnecting .liveText {
-  color: var(--amber);
-}
-
 /* The chart shares vertical space inside `.leftPanel` with the bottom-tab
  * content (`BottomTabs.tabContent`). Both are flex children of the same
  * column, so we give the chart a 3:1 flex weight against the tabs to keep
@@ -195,10 +170,7 @@
 }
 
 .mcapLabel {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--txt-3);
+  display: inline-block;
 }
 
 .mcapValue {
@@ -219,21 +191,6 @@
 
 .mcapChangeDown {
   color: var(--red);
-}
-
-.axisLabel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 3;
-  pointer-events: none;
-  padding: 0.3rem 0.6rem 0.4rem;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--txt-3);
-  background: var(--bg-1);
 }
 
 .loadingState {

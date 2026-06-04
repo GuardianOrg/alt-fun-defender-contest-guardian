@@ -5,32 +5,29 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./TableFilters.module.css";
-import { LEVERAGE_OPTIONS } from "../../config/constants";
 import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
+import { useLeverageOptions } from "../../hooks/useLeveragedTokens";
 import {
   clearTokenFilters,
   selectActiveFilter,
   selectTokenFilters,
   selectTokenSort,
+  selectTokenViewMode,
   setTokenDirectionFilter,
   setTokenLeverageFilter,
   setTokenSort,
   setTokenUnderlyingFilter,
+  setTokenViewMode,
 } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
+import SegmentedButton from "../shared/SegmentedButton";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { TokenSort } from "../../services/tokenService";
 import type { Direction } from "../../services/types";
 
-/**
- * Tracks which filter trigger has an open popover. Exactly one popover is
- * visible at a time — opening one closes another, the same way the search
- * + earnings panels in `uiSlice` work. Local state (not Redux) because the
- * open-popover is transient UI: nothing else in the app cares which one is
- * showing, and there's no value in keeping it across remounts.
- */
+/** Exactly one transient filter popover can be open at a time. */
 type OpenPopover = null | "sort" | "market" | "leverage" | "direction";
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
@@ -71,42 +68,65 @@ const CheckIcon = () => (
   </svg>
 );
 
+const GridIcon = () => (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="2" y="2" width="4.5" height="4.5" />
+    <rect x="9.5" y="2" width="4.5" height="4.5" />
+    <rect x="2" y="9.5" width="4.5" height="4.5" />
+    <rect x="9.5" y="9.5" width="4.5" height="4.5" />
+  </svg>
+);
+
+const ListIcon = () => (
+  <svg
+    aria-hidden="true"
+    focusable="false"
+    width="13"
+    height="13"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <line x1="5.5" y1="4" x2="14" y2="4" />
+    <line x1="5.5" y1="8" x2="14" y2="8" />
+    <line x1="5.5" y1="12" x2="14" y2="12" />
+    <circle cx="2.5" cy="4" r="0.7" fill="currentColor" stroke="none" />
+    <circle cx="2.5" cy="8" r="0.7" fill="currentColor" stroke="none" />
+    <circle cx="2.5" cy="12" r="0.7" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 interface PopoverProps {
-  /** Wrapper that contains both the trigger button and this popover. */
+  /** Wrapper containing both the trigger button and popover. */
   anchorRef: RefObject<HTMLDivElement | null>;
   onClose: () => void;
   align?: "left" | "right";
   children: ReactNode;
 }
 
-/** Gap between the anchor's bottom edge and the popover's top edge, in px.
- *  Mirrors the legacy `top: calc(100% + 0.4rem)` rule that lived in the
- *  CSS module when the popover was still absolutely positioned. */
+/** Gap between anchor and popover, in px. */
 const POPOVER_OFFSET_PX = 4;
 
-/** Minimum gutter between the popover's outer edge and the viewport
- *  edge it grows toward. Keeps the popover from sitting flush against
- *  the screen on narrow viewports when the trigger is near a corner. */
+/** Minimum gutter between popover and viewport edge. */
 const VIEWPORT_GUTTER_PX = 8;
 
 /**
- * Anchored popover used by all three filter triggers. Mirrors the
- * lightweight pattern from `DocsMenu` / `SettingsPopup`: outside-click +
- * Esc closes, parent owns open state, no scrim or focus trap. We ignore
- * clicks inside the trigger wrapper so a second click on the same trigger
- * cleanly closes the popover (without racing the document `mousedown`
- * that would otherwise re-open it on the trailing click event).
- *
- * Positioning is `position: fixed` driven by the anchor's
- * `getBoundingClientRect()`, NOT `position: absolute` against the
- * trigger wrap. The absolutely-positioned version got vertically
- * clipped whenever the rail scrolled sideways on narrow viewports:
- * the rail's `overflow-x: auto` forces `overflow-y` to compute to
- * `auto` too (CSS spec rule — the two axes can't disagree on
- * visibility), so anything dropping below the rail's bottom edge
- * gets cut off. Fixed positioning escapes the rail's overflow box
- * via the viewport, and a scroll-capture listener keeps the popover
- * glued to the trigger as the rail or the page scrolls.
+ * Lightweight anchored popover: parent owns open state, outside-click/Esc close.
+ * Fixed positioning keeps it out of the horizontally-scrollable rail's overflow box.
  */
 function FilterPopover({
   anchorRef,
@@ -117,24 +137,13 @@ function FilterPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<CSSProperties | null>(null);
 
-  // `useLayoutEffect` so the first paint already has correct coords —
-  // a one-frame jump from (0, 0) to the anchor's location otherwise
-  // shows up as a visible flicker on open. Capture-phase `scroll`
-  // listener catches scrolls on any element in the document
-  // (including the rail's own overflow scroll on narrow viewports),
-  // not just the window — so the popover follows the trigger when
-  // the user side-scrolls the filter rail under it.
+  // Measure before paint and listen to capture-phase scroll so the popover tracks rail/page scrolling.
   useLayoutEffect(() => {
     const update = () => {
       const anchor = anchorRef.current;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
-      // Cap the popover's width at the space available between the
-      // anchored edge and the opposite side of the viewport (minus a
-      // small gutter). Without this, a right-aligned popover whose
-      // `min-width` exceeds the distance from the trigger's right
-      // edge to the viewport's left edge would overflow past the
-      // outer container on narrow screens.
+      // Cap width to the space available from the anchored edge to the viewport gutter.
       if (align === "right") {
         setPosition({
           position: "fixed",
@@ -166,14 +175,6 @@ function FilterPopover({
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
-      // Two-way contain check: the popover is now `position: fixed`
-      // and lives outside the trigger's clipping box, but it's still
-      // a DOM descendant of the same `.triggerWrap` (since we don't
-      // portal). The `anchor.contains` check already covers clicks
-      // on the popover via the trigger-wrap relationship, but the
-      // `popoverRef` check is kept as a defensive belt — if a future
-      // refactor portals this out of the trigger wrap, the popover-
-      // click path still won't accidentally close itself.
       const anchor = anchorRef.current;
       const popover = popoverRef.current;
       if (anchor?.contains(target)) return;
@@ -191,9 +192,7 @@ function FilterPopover({
     };
   }, [anchorRef, onClose]);
 
-  // Suppress the first paint until `useLayoutEffect` has measured the
-  // anchor — otherwise the popover briefly flashes at the viewport's
-  // top-left before snapping to the correct coordinates.
+  // Suppress first paint until the anchor has been measured.
   if (!position) return null;
 
   return (
@@ -229,7 +228,9 @@ function FilterTrigger({ label, value, active, open, onClick }: TriggerProps) {
       aria-haspopup="menu"
       aria-expanded={open}
     >
-      <span className={styles.triggerLabel}>{label}</span>
+      <span className={cn(styles.triggerLabel, "ui-subheading")}>
+        {label}
+      </span>
       <span className={styles.triggerValue}>{value ?? "All"}</span>
       <ChevronIcon open={open} />
     </button>
@@ -261,69 +262,14 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
   );
 }
 
-/**
- * Filter rail rendered on the right side of the home-page `CommandBar`.
- * Replaces the old "X tokens live" counter — counting all launched
- * tokens stopped scaling visually once the catalogue grew, and the
- * space reads more useful as a discovery affordance than as a vanity
- * metric.
- *
- * Each trigger anchors a small popover with a single-select option list:
- *   - Sort (TRENDING + GRADUATED only): re-ranks the cohort by one of
- *     three keys. Option copy is ALL CAPS to match the table-head
- *     column names (`MCAP`, `24H CHANGE`, etc.). The first option
- *     uses the tab's natural ordering — `24H VOLUME` on TRENDING,
- *     `RECENTLY GRADUATED` on GRADUATED. The other two (`MCAP` /
- *     `24H CHANGE`) map to `sort=mcap` / `sort=change24h` on the
- *     API. The trigger is hidden on NEW + GRADUATING — those tabs
- *     have a fixed natural ordering (`createdAt desc` / `curveFilled
- *     desc`) and any override would fight the tab's own semantics.
- *   - Market: every detected supported underlying (HYPE, ETH, BTC, GOLD, …).
- *   - Leverage: 2× / 3× / 5×.
- *   - Direction: Long / Short.
- *
- * "All" at the top of each facet list clears that facet. Selecting any
- * other row updates Redux and the home-page `useInfiniteTokens` query
- * refetches server-side (the API supports `?sort=` / `?underlying=` /
- * `?leverage=` / `?direction=` directly — see
- * `apps/api/src/routes/tokens/list.ts`).
- *
- * Below `1240px` the rail wraps onto its own row directly under the
- * lifecycle tabs (see the matching media queries in
- * `CommandBar.module.css` and `TableFilters.module.css`). On those
- * narrower viewports the rail and tabs would crowd each other on a
- * single line, so the bar collapses into two sub-bands inside the
- * same `tableSection` frame — tabs on top, filter rail underneath,
- * with horizontal overflow scroll on each so the affordances never
- * disappear entirely on phone-width viewports.
- */
-/**
- * Label shown for the `"default"` sort row + trigger value, varying by
- * active tab. On TRENDING the default sort is 24h volume desc; on
- * GRADUATED it's the indexer's `graduatedAt desc`. The two surfaces
- * are different enough that calling them the same name ("Trending" on
- * graduated tokens reads strangely; "Recently graduated" on the
- * trending tab is nonsense) so we render tab-appropriate copy and let
- * Redux store the abstract `"default"` value.
- *
- * Labels render in ALL CAPS to match the table-head naming convention
- * (`MCAP`, `24H CHANGE`, etc. in `TokenTable.tsx`) — the dropdown is
- * intentionally a column-style affordance, distinct from the
- * sentence-case option rows in Market / Leverage / Direction (which
- * surface free-form values like `HYPE` / `Long`, not column names).
- */
+/** Tab-aware label for the abstract default sort. */
 function defaultSortLabel(
   activeFilter: ReturnType<typeof selectActiveFilter>,
 ): string {
   return activeFilter === "graduated" ? "RECENTLY GRADUATED" : "24H VOLUME";
 }
 
-/**
- * Trigger / option label for an explicit `TokenSort` value. Same copy
- * on every tab — only the `"default"` slot is tab-aware (see
- * `defaultSortLabel`). ALL CAPS for the same column-head consistency
- * reason as `defaultSortLabel`.
- */
+/** Explicit sort labels mirror table column names. */
 function explicitSortLabel(sort: Exclude<TokenSort, "default">): string {
   if (sort === "mcap") return "MCAP";
   if (sort === "volume24h") return "24H VOLUME";
@@ -335,7 +281,9 @@ export default function TableFilters() {
   const filters = useSelector(selectTokenFilters);
   const activeFilter = useSelector(selectActiveFilter);
   const tokenSort = useSelector(selectTokenSort);
+  const tokenViewMode = useSelector(selectTokenViewMode);
   const availableAssets = useAvailableUnderlyingAssets();
+  const leverageOptions = useLeverageOptions();
   const [open, setOpen] = useState<OpenPopover>(null);
 
   const sortRef = useRef<HTMLDivElement | null>(null);
@@ -343,12 +291,7 @@ export default function TableFilters() {
   const leverageRef = useRef<HTMLDivElement | null>(null);
   const directionRef = useRef<HTMLDivElement | null>(null);
 
-  // Sort dropdown is only meaningful on TRENDING + GRADUATED — the
-  // other two tabs (NEW / GRADUATING) have a fixed natural ordering
-  // (`createdAt desc` / `curveFilled desc`) that the API enforces and
-  // any "Mcap"-style override would fight against. Don't render the
-  // trigger at all there; the user shouldn't see a control that
-  // pretends to be available.
+  // NEW and GRADUATING have fixed API ordering, so sort controls would be misleading.
   const showSortTrigger =
     activeFilter === "trending" || activeFilter === "graduated";
 
@@ -391,211 +334,239 @@ export default function TableFilters() {
 
   return (
     <div className={styles.rail} role="group" aria-label="Filter tokens">
-      {showSortTrigger && (
-        <div className={styles.triggerWrap} ref={sortRef}>
+      <div className={styles.filterGroup}>
+        {showSortTrigger && (
+          <div className={styles.triggerWrap} ref={sortRef}>
+            <FilterTrigger
+              label="Sort"
+              value={sortTriggerLabel}
+              // Default sort is the tab's natural ordering, so keep the trigger neutral.
+              active={tokenSort !== "default"}
+              open={open === "sort"}
+              onClick={() => toggle("sort")}
+            />
+            {open === "sort" && (
+              <FilterPopover anchorRef={sortRef} onClose={closeAll}>
+                <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                  Sort by
+                </div>
+                <div className={styles.optionList}>
+                  <OptionRow
+                    selected={tokenSort === "default"}
+                    onClick={() => handleSelectSort("default")}
+                  >
+                    <span>{defaultSortLabel(activeFilter)}</span>
+                  </OptionRow>
+                  {/* TRENDING already defaults to 24H VOLUME; show the explicit row only on GRADUATED. */}
+                  {activeFilter === "graduated" && (
+                    <OptionRow
+                      selected={tokenSort === "volume24h"}
+                      onClick={() => handleSelectSort("volume24h")}
+                    >
+                      <span>{explicitSortLabel("volume24h")}</span>
+                    </OptionRow>
+                  )}
+                  <OptionRow
+                    selected={tokenSort === "mcap"}
+                    onClick={() => handleSelectSort("mcap")}
+                  >
+                    <span>{explicitSortLabel("mcap")}</span>
+                  </OptionRow>
+                  <OptionRow
+                    selected={tokenSort === "change24h"}
+                    onClick={() => handleSelectSort("change24h")}
+                  >
+                    <span>{explicitSortLabel("change24h")}</span>
+                  </OptionRow>
+                </div>
+              </FilterPopover>
+            )}
+          </div>
+        )}
+
+        <div className={styles.triggerWrap} ref={marketRef}>
           <FilterTrigger
-            label="Sort"
-            value={sortTriggerLabel}
-            // The "default" sort is the natural tab ordering — render
-            // the trigger in the neutral state (matches every other
-            // filter's "All …" affordance). Only the three explicit
-            // overrides light the trigger up in mint.
-            active={tokenSort !== "default"}
-            open={open === "sort"}
-            onClick={() => toggle("sort")}
+            label="Market"
+            value={
+              filters.underlying ? getAssetDisplayName(filters.underlying) : null
+            }
+            active={filters.underlying !== undefined}
+            open={open === "market"}
+            onClick={() => toggle("market")}
           />
-          {open === "sort" && (
-            <FilterPopover anchorRef={sortRef} onClose={closeAll}>
-              <div className={styles.popoverHeader}>Sort by</div>
+          {open === "market" && (
+            <FilterPopover anchorRef={marketRef} onClose={closeAll}>
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Market
+              </div>
               <div className={styles.optionList}>
                 <OptionRow
-                  selected={tokenSort === "default"}
-                  onClick={() => handleSelectSort("default")}
+                  selected={filters.underlying === undefined}
+                  onClick={() => handleSelectUnderlying(undefined)}
                 >
-                  <span>{defaultSortLabel(activeFilter)}</span>
+                  <span>All markets</span>
                 </OptionRow>
-                {/* 24H VOLUME is GRADUATED-only: TRENDING's natural
-                 * order is already 24h-volume desc (the `default` row
-                 * above renders that label there), so a duplicate
-                 * "24H VOLUME" row would be confusing. On GRADUATED
-                 * the natural order is `graduatedAt desc`, and this
-                 * row gives the user a way to re-rank the graduated
-                 * cohort by recent activity instead. The wire-level
-                 * mapping is `sort=trending` either way — see
-                 * `tokenService.wireSort`. */}
-                {activeFilter === "graduated" && (
+                {availableAssets.map((a) => (
                   <OptionRow
-                    selected={tokenSort === "volume24h"}
-                    onClick={() => handleSelectSort("volume24h")}
+                    key={a}
+                    selected={filters.underlying === a}
+                    onClick={() => handleSelectUnderlying(a)}
                   >
-                    <span>{explicitSortLabel("volume24h")}</span>
+                    <AssetIcon
+                      asset={a}
+                      size={18}
+                      className={styles.optionIcon}
+                      monogramRatio={0.48}
+                    />
+                    <span>{getAssetDisplayName(a)}</span>
                   </OptionRow>
-                )}
+                ))}
+              </div>
+            </FilterPopover>
+          )}
+        </div>
+
+        <div className={styles.triggerWrap} ref={leverageRef}>
+          <FilterTrigger
+            label="Leverage"
+            value={filters.leverage !== undefined ? `${filters.leverage}×` : null}
+            active={filters.leverage !== undefined}
+            open={open === "leverage"}
+            onClick={() => toggle("leverage")}
+          />
+          {open === "leverage" && (
+            <FilterPopover anchorRef={leverageRef} onClose={closeAll}>
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Leverage
+              </div>
+              <div className={styles.optionList}>
                 <OptionRow
-                  selected={tokenSort === "mcap"}
-                  onClick={() => handleSelectSort("mcap")}
+                  selected={filters.leverage === undefined}
+                  onClick={() => handleSelectLeverage(undefined)}
                 >
-                  <span>{explicitSortLabel("mcap")}</span>
+                  <span>All leverages</span>
+                </OptionRow>
+                {leverageOptions.map((l) => (
+                  <OptionRow
+                    key={l}
+                    selected={filters.leverage === l}
+                    onClick={() => handleSelectLeverage(l)}
+                  >
+                    <span className={styles.leverageBadge}>{l}×</span>
+                  </OptionRow>
+                ))}
+              </div>
+            </FilterPopover>
+          )}
+        </div>
+
+        <div className={styles.triggerWrap} ref={directionRef}>
+          <FilterTrigger
+            label="Direction"
+            value={
+              filters.direction === "long"
+                ? "Long"
+                : filters.direction === "short"
+                  ? "Short"
+                  : null
+            }
+            active={filters.direction !== undefined}
+            open={open === "direction"}
+            onClick={() => toggle("direction")}
+          />
+          {open === "direction" && (
+            <FilterPopover
+              anchorRef={directionRef}
+              onClose={closeAll}
+              align="right"
+            >
+              <div className={cn(styles.popoverHeader, "ui-subheading")}>
+                Direction
+              </div>
+              <div className={styles.optionList}>
+                <OptionRow
+                  selected={filters.direction === undefined}
+                  onClick={() => handleSelectDirection(undefined)}
+                >
+                  <span>Both directions</span>
                 </OptionRow>
                 <OptionRow
-                  selected={tokenSort === "change24h"}
-                  onClick={() => handleSelectSort("change24h")}
+                  selected={filters.direction === "long"}
+                  onClick={() => handleSelectDirection("long")}
                 >
-                  <span>{explicitSortLabel("change24h")}</span>
+                  <span className={cn(styles.directionDot, styles.dotMint)} />
+                  <span>Long</span>
+                </OptionRow>
+                <OptionRow
+                  selected={filters.direction === "short"}
+                  onClick={() => handleSelectDirection("short")}
+                >
+                  <span className={cn(styles.directionDot, styles.dotRed)} />
+                  <span>Short</span>
                 </OptionRow>
               </div>
             </FilterPopover>
           )}
         </div>
-      )}
 
-      <div className={styles.triggerWrap} ref={marketRef}>
-        <FilterTrigger
-          label="Market"
-          value={
-            filters.underlying ? getAssetDisplayName(filters.underlying) : null
-          }
-          active={filters.underlying !== undefined}
-          open={open === "market"}
-          onClick={() => toggle("market")}
-        />
-        {open === "market" && (
-          <FilterPopover anchorRef={marketRef} onClose={closeAll}>
-            <div className={styles.popoverHeader}>Market</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.underlying === undefined}
-                onClick={() => handleSelectUnderlying(undefined)}
-              >
-                <span>All markets</span>
-              </OptionRow>
-              {availableAssets.map((a) => (
-                <OptionRow
-                  key={a}
-                  selected={filters.underlying === a}
-                  onClick={() => handleSelectUnderlying(a)}
-                >
-                  <AssetIcon
-                    asset={a}
-                    size={18}
-                    className={styles.optionIcon}
-                    monogramRatio={0.48}
-                  />
-                  <span>{getAssetDisplayName(a)}</span>
-                </OptionRow>
-              ))}
-            </div>
-          </FilterPopover>
-        )}
-      </div>
-
-      <div className={styles.triggerWrap} ref={leverageRef}>
-        <FilterTrigger
-          label="Leverage"
-          value={filters.leverage !== undefined ? `${filters.leverage}×` : null}
-          active={filters.leverage !== undefined}
-          open={open === "leverage"}
-          onClick={() => toggle("leverage")}
-        />
-        {open === "leverage" && (
-          <FilterPopover anchorRef={leverageRef} onClose={closeAll}>
-            <div className={styles.popoverHeader}>Leverage</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.leverage === undefined}
-                onClick={() => handleSelectLeverage(undefined)}
-              >
-                <span>All leverages</span>
-              </OptionRow>
-              {LEVERAGE_OPTIONS.map((l) => (
-                <OptionRow
-                  key={l}
-                  selected={filters.leverage === l}
-                  onClick={() => handleSelectLeverage(l)}
-                >
-                  <span className={styles.leverageBadge}>{l}×</span>
-                </OptionRow>
-              ))}
-            </div>
-          </FilterPopover>
-        )}
-      </div>
-
-      <div className={styles.triggerWrap} ref={directionRef}>
-        <FilterTrigger
-          label="Direction"
-          value={
-            filters.direction === "long"
-              ? "Long"
-              : filters.direction === "short"
-                ? "Short"
-                : null
-          }
-          active={filters.direction !== undefined}
-          open={open === "direction"}
-          onClick={() => toggle("direction")}
-        />
-        {open === "direction" && (
-          <FilterPopover
-            anchorRef={directionRef}
-            onClose={closeAll}
-            align="right"
+        {hasActiveFilters && (
+          <button
+            type="button"
+            className={styles.clearButton}
+            onClick={() => {
+              dispatch(clearTokenFilters());
+              closeAll();
+            }}
+            aria-label={`Clear ${activeCount} active filter${activeCount === 1 ? "" : "s"}`}
           >
-            <div className={styles.popoverHeader}>Direction</div>
-            <div className={styles.optionList}>
-              <OptionRow
-                selected={filters.direction === undefined}
-                onClick={() => handleSelectDirection(undefined)}
-              >
-                <span>Both directions</span>
-              </OptionRow>
-              <OptionRow
-                selected={filters.direction === "long"}
-                onClick={() => handleSelectDirection("long")}
-              >
-                <span className={cn(styles.directionDot, styles.dotMint)} />
-                <span>Long</span>
-              </OptionRow>
-              <OptionRow
-                selected={filters.direction === "short"}
-                onClick={() => handleSelectDirection("short")}
-              >
-                <span className={cn(styles.directionDot, styles.dotRed)} />
-                <span>Short</span>
-              </OptionRow>
-            </div>
-          </FilterPopover>
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            <span>Clear</span>
+          </button>
         )}
-      </div>
 
-      {hasActiveFilters && (
-        <button
-          type="button"
-          className={styles.clearButton}
-          onClick={() => {
-            dispatch(clearTokenFilters());
-            closeAll();
-          }}
-          aria-label={`Clear ${activeCount} active filter${activeCount === 1 ? "" : "s"}`}
+        <div
+          className={styles.viewToggle}
+          role="group"
+          aria-label="Token view mode"
         >
-          <svg
-            aria-hidden="true"
-            focusable="false"
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          <SegmentedButton
+            size="slim"
+            tone="neutral"
+            indicator={false}
+            active={tokenViewMode === "grid"}
+            aria-pressed={tokenViewMode === "grid"}
+            onClick={() => dispatch(setTokenViewMode("grid"))}
           >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-          <span>Clear</span>
-        </button>
-      )}
+            <GridIcon />
+            Grid
+          </SegmentedButton>
+          <SegmentedButton
+            size="slim"
+            tone="neutral"
+            indicator={false}
+            active={tokenViewMode === "list"}
+            aria-pressed={tokenViewMode === "list"}
+            onClick={() => dispatch(setTokenViewMode("list"))}
+          >
+            <ListIcon />
+            List
+          </SegmentedButton>
+        </div>
+      </div>
     </div>
   );
 }

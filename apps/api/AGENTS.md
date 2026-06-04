@@ -40,12 +40,45 @@ If a new route adds an outbound dependency that doesn't fit one of these, set th
 | `GET /holders/:address` | `tokenBalance` index (sorted by `balance desc`) | Paginated up to 20K `routerTrades` to reconstruct balances in memory — silently undercounted on direct ERC-20 transfers. |
 | `GET /portfolio/:wallet` | `tokenBalance` (live amount) ⋈ `walletPosition` (cost basis) | Paginated up to 20K `routerTrades` to recompute both fields. |
 | `GET /security/:address` | `tokenBalance` row keyed `${creator}-${tokenAddress}` (primary-key hit) | Paginated up to 20K `routerTrades` to sum the creator's net position. |
-| `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single GraphQL query) | Paginated every trade across every token the creator has ever launched. |
+| `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single indexer read) | Paginated every trade across every token the creator has ever launched. |
 | `GET /stats` | `globalStats` singleton + last 24 `hourlyVolume` buckets | Paginated *every token in the catalogue* and *every Zap trade in the last 24h*. |
 
-All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidate=…` so the Cloudflare edge absorbs concurrent requests. The thundering-herd pattern (100 users opening the same viral token) used to fan in to up to 2,000 sequential GraphQL queries; the cache caps it at one per region per `s-maxage` window.
+All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidate=…` so the Cloudflare edge absorbs concurrent requests instead of fanning every hot page load into the indexer.
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
+
+## Analytics (`/api/v1/analytics/*`)
+
+Internal-dashboard business-insight endpoints. All read off existing indexer-side tables (`router_trade`, `fee_accrual`, `hourly_volume`, `token`, `graduation`) plus the API-owned `public.tokens` — **no indexer schema changes** ship with these routes. Mounted in `src/routes/analytics.ts` and protected by the standard `apiKeyAuth` middleware that gates the rest of `/api/v1/*` (no extra admin gate — the data here is the same business-state the protocol already exposes implicitly via `/stats`, `/tokens`, `/creators/:address/earnings` etc.). Helpers live in `src/lib/analytics-reads.ts`.
+
+| Endpoint | Purpose | Source tables |
+|---|---|---|
+| `GET /api/v1/analytics/overview` | Composite dashboard snapshot (lifetime + 24h/7d/30d windows + graduation funnel) | `global_stats`, `token`, `router_trade`, `fee_accrual`, `graduation` |
+| `GET /api/v1/analytics/volume` | Gross trading volume time series + snapshot windows | `hourly_volume` (≥1h buckets) / `router_trade` (sub-hour) |
+| `GET /api/v1/analytics/revenue` | Protocol fees per bucket + windows. Creator split returned alongside | `fee_accrual` |
+| `GET /api/v1/analytics/value-locked` | "Net value in system" chart — cumulative `buys − sells`. Excludes virtual reserves entirely (only counts USDC that traversed `Zap`) | `router_trade` + `token.organic_usdc_raised` for snapshot |
+| `GET /api/v1/analytics/active-users` | DAU/WAU/MAU + bucketed series, filtered by `?threshold=` USD bucket-volume cutoff (default `$500`) | `router_trade` |
+| `GET /api/v1/analytics/breakdown?by={leverage,direction,underlying,lt_pair}` | Composition of the launched-token set by an off-chain facet, with per-bucket aggregates | `public.tokens ⋈ ponder_views.token` |
+| `GET /api/v1/analytics/revenue-forecast` | Multi-window annualised projections (flat 1d/3d/7d/30d/90d) + EWMA (7d / 14d / 30d half-lives) over 120d of daily protocol fees | `fee_accrual` |
+| `GET /api/v1/analytics/graduations` | Graduation count per bucket + funnel stats (rate, median + mean time-to-graduate) | `graduation ⋈ token` |
+| `GET /api/v1/analytics/top-tokens?sort={volume,protocol_fees,creator_fees,raised}_lifetime` | Leaderboard ordered by any lifetime counter on `token` | `ponder_views.token` |
+
+Common query params: `?interval={hour,day,week}` (default `day`) and `?lookback=<N>` (count of intervals, capped per route — 168h / 365d / 156w). Chart routes return a **dense** series (missing buckets zero-filled) so chart libraries don't have to handle gaps.
+
+USDC amounts ride out as both raw 6dp strings (`*UsdcRaw`) and USD floats (`*Usd`) — same dual shape `/creators/:address/earnings` already uses.
+
+**Why this layer doesn't add new indexer columns:** the dashboard is an operator-only surface, queried at most a few times a minute, and every aggregate falls out of an existing index (`router_trade_timestamp_index`, `fee_accrual_timestamp_index`, `token_hourly_metrics_hour_start_index`, …). Persisting per-day pre-aggregates would save query cost only marginally and would lock the schema before we know what views matter most — accept the small live-query cost while the surface is still evolving.
+
+**Forecast philosophy** (`revenue-forecast`): protocol fees are highly volatile (10× day-to-day, marketing-campaign spikes, quiet stretches). One window is never right — surface multiple horizons (1d/3d/7d/30d/90d flat means, plus EWMA with 7d/14d/30d half-lives) and let the operator pick. Each estimate carries `stdDevUsd` so the dashboard can render a confidence band. The full 120-day daily series is returned alongside the projections so the operator can sanity-check visually.
+
+**Integration testing.** `src/__tests__/analytics.integration.test.ts` hits a real Neon database and verifies every SQL string parses + every route returns the documented shape. Gated on `process.env.DATABASE_URL`: skips quietly when the secret isn't set.
+
+Per `.cursor/rules/testing.mdc` ("Test database queries against a Neon branch, not production"), point `DATABASE_URL` at a **Neon branch** of the launchpad project, not the production endpoint. The suite is read-only (only `SELECT` queries), so hitting prod is technically safe — but a branch removes the production load and isolates the test from any concurrent schema change. Spin one up via the Neon MCP (`prepare_database_migration` flow) or the Neon console; branches are copy-on-write from `production` so the read shape matches without re-indexing.
+
+- **Locally**: `DATABASE_URL="<branch-connection-string>" npm test --workspace=@launchpad/api -- analytics.integration`. The integration test logs a soft warning when the URL matches the project's known prod-Neon pooler slug (`ep-super-feather-am3pnzsa-pooler`) — fix by switching to a branch URL. The check is intentionally conservative (no false positives on legit branch URLs that happen to use a pooler); if you rename the prod endpoint, update both the slug pattern in `analytics.integration.test.ts` and this sentence.
+- **CI**: the `api-analytics-integration` job in `.github/workflows/ci.yml` wires `secrets.DATABASE_URL` through (scoped to the test step only, not the whole job). Configure that secret as the **branch** connection string.
+
+The companion unit suite (`analytics.test.ts`) mocks the helpers so the standard `npm test` stays hermetic and the Neon-branch convention only applies to the explicit integration step.
 
 ## Listing tabs (`GET /api/v1/tokens?status=…`)
 
@@ -63,7 +96,7 @@ The threshold lives in `GRADUATING_TAB_MIN_CURVE_FILLED` in `routes/tokens/list.
 
 ### Why fetch the Ponder pool sorted by `curveSupply asc`
 
-`curveFilled` is USD-denominated (`realLt × rate / threshold × 100`, see *Token enrichment* below) and depends on the BounceTech LT exchange rate — neither value lives in Ponder, so we can't push the 75% gate or the `curveFilled desc` sort into the GraphQL query. Instead `fetchNonGraduatedTokensOnchain` returns up to `STATUS_POOL_SIZE` candidates sorted by `curveSupply asc` (closest-to-sold-out first). Supply curve filled is a strong proxy for USD curve filled at typical LT-rate ranges — supply-% systematically leads USD-% throughout most of the bonding curve under the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio — so the top-of-pool slice contains every realistic 75%-USD-curve-filled candidate with margin. The route then enriches the pool, applies the gate + sort + pagination in memory.
+`curveFilled` is USD-denominated (`realLt × rate / threshold × 100`, see *Token enrichment* below) and depends on the BounceTech LT exchange rate, so the 75% gate and `curveFilled desc` sort happen after enrichment. `fetchNonGraduatedTokensOnchain` returns up to `STATUS_POOL_SIZE` candidates sorted by `curveSupply asc` as a close-to-sold-out proxy, then the route filters, sorts, and paginates in memory.
 
 If the catalogue ever outgrows `STATUS_POOL_SIZE`, the right next step is a precomputed `curveFilled` column refreshed by a cron, not a bigger pool — same trajectory as `TRENDING_POOL_SIZE`.
 
@@ -77,7 +110,7 @@ If the catalogue ever outgrows `STATUS_POOL_SIZE`, the right next step is a prec
 | `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`, percent of threshold). Clamped at `curveFilled`. |
 | `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the net organic USDC raised (indexer's `organicUsdcRaised`, buys − sells, floored at 0). Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
 
-The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$500` raise toward a `$9K` threshold rendered as `~19%` instead of `~5.5%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
+The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Supply fill leads USD fill early in this AMM, so the progress bar tracks user-paid dollars while the contract's sellout trigger remains a separate bear-market backstop.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
@@ -132,7 +165,7 @@ CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by 
 
 ### Edge rate-limit rule (Cloudflare, in front of the Worker)
 
-A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to the upload paths and is the **primary** defence layer for image-upload abuse. The in-Worker per-IP write quota (added in #509) is a fallback that only fires when this rule is absent or misconfigured, or under `wrangler dev` where zone rules don't apply.
+A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to the upload paths and is the **primary** defence layer for image-upload abuse. The in-Worker per-IP write quota is a fallback for missing/misconfigured zone rules and local `wrangler dev`.
 
 | Field | Value |
 |---|---|
@@ -143,17 +176,11 @@ A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to t
 | Action | Block, custom response **429** |
 | Mitigation timeout | 60 seconds |
 
-Both paths are included intentionally. `POST /images` is being removed by #509 (the dual-mount was an accidental unauthenticated route), but the rule covers both belt-and-braces so the migration window — and any future regression that re-exposes the bare mount — stays rate-limited at the edge.
+Both paths are included intentionally so any bare `/images` exposure remains rate-limited at the edge.
 
 #### Why a separate layer from the in-Worker limiter
 
-Rate limiting inside the Worker still pays most of the cost the rule exists to avoid:
-
-- The Worker has to spin up and parse headers before the in-Worker limiter runs.
-- For the upload route specifically, the multipart body has to be fully ingested before `c.req.formData()` resolves and the size check fires — abusive requests still cost CPU + isolate memory + ingress before they're rejected.
-- The in-Worker limiter is per-isolate, so an attacker hitting different Cloudflare colos counts separately against each one. The edge rule is globally enforced across the zone.
-
-A native rate-limit rule rejects at the edge with zero Worker invocation, zero body upload, and zero isolate touched. That's the only layer that protects Worker CPU/memory under abuse and the only layer with cross-colo global enforcement; #509 stays in place as a fallback for the cases above.
+Worker-side limiting still pays startup, body-ingest, CPU, and per-isolate costs. The WAF rule rejects before Worker invocation and enforces globally across the zone; the in-Worker limiter stays as a fallback.
 
 #### Local dev caveat
 
@@ -241,6 +268,40 @@ The sell phase is purely defensive — it drains any token positions accumulated
 Per-tick cap `MAX_TRIGGERS_PER_TICK = 5` bounds wall-clock per tick. A flood of newly-eligible tokens drains across multiple ticks; the `tokens.ltReserve desc` Ponder ordering on the candidate fetch means closest-to-threshold tokens are drained first.
 
 Manual nonce management mirrors `graduation-keeper.ts` (viem's pending-nonce auto-fetch double-counts on rapid back-to-back submits). The trigger phase has no allowance / approval surface; per-token approvals for the legacy sell phase are still done once at `MAX_UINT256`.
+
+## Test HYPE buyback-and-burn keeper
+
+`src/lib/buyback-burn-keeper.ts` runs every cron tick. When the deployer's `creatorBalance` on `FeeVault` clears a randomised threshold, the keeper claims the fees, spends the claimed USDC on `Zap.buy(testHype)`, and transfers the bought tokens to `0x000…dEaD`. Hard-wired to the canary launch:
+
+| Constant | Value |
+|---|---|
+| `TEST_HYPE_TOKEN` | `0xE1A38D620298290d2d925bDEC280B15a12000000` |
+| `CREATOR_WALLET` | `0x2C8496Bce4aee5Ce4Af571E02543937fb38b244E` |
+| `BURN_ADDRESS` | `0x000000000000000000000000000000000000dEaD` |
+| Threshold range | `[$20, $30)` (USDC, 6dp) |
+
+### Front-run resistance via threshold randomisation
+
+A "fire every `$20`" trigger is trivially front-runnable — anyone watching `creatorBalance` could pre-position just before the round number. The keeper instead computes its trigger threshold per cycle as `$20 + (HMAC_SHA256(secret, lifetimeClaimed) mod $10)`, where `secret` is a Worker secret unknown to attackers. The threshold therefore lands somewhere in `[$20, $30)` on each cycle, and only the operator can reproduce the schedule.
+
+`lifetimeClaimed` is derived stateless from the chain as `lifetimeCreatorEarned − creatorBalance` — both fields rise in lockstep on every `accrue`, and only `claim()` decreases `creatorBalance`, so the difference only changes at claim time. That makes it a stable per-cycle counter the HMAC can key off without any KV / alarm / local persistence: across Worker restarts, the same on-chain state plus the same secret reproduces the same threshold.
+
+### Wallet bound to the creator (intentional)
+
+`FeeVault.claim()` only ever pays out to `msg.sender`, so the bot wallet has to BE the creator wallet — there is no authorise-a-third-party path on the vault. The keeper aborts with `buyback_burn_wallet_mismatch` (and does not attempt any tx) if `BUYBACK_BURN_PRIVATE_KEY` derives to anything other than `CREATOR_WALLET`.
+
+### Cycle (sequential with receipt awaits)
+
+Unlike the other keepers, this one has hard step-to-step data dependencies (claim → know exact USDC delta → buy → know exact token delta → burn), so each tx is awaited via `waitForTransactionReceipt` before the next is submitted. Total wall-clock per cycle is ~3-5s on small blocks. Balance-delta scoping means the bot only spends freshly-claimed USDC and only burns freshly-bought Test HYPE — pre-existing balances on the wallet are untouched.
+
+### Setup
+
+1. `wrangler secret put BUYBACK_BURN_PRIVATE_KEY` (prod / preview), value = the deployer's private key. Set in `.dev.vars` for local dev.
+2. (Recommended) `wrangler secret put BUYBACK_BURN_ENTROPY_SECRET`, value = `openssl rand -hex 32`. If unset, the keeper falls back to deriving the HMAC key from the private key itself — fine functionally, but rotating an explicit secret is cheaper than rotating the wallet.
+3. Fund the wallet with HYPE for gas (≤4 ~120k-gas txs per cycle).
+4. Leave the wallet on small blocks. On big blocks each tx waits ~60s and the cycle pushes past the 1-minute cron tick.
+
+Disabling the keeper: leave `BUYBACK_BURN_PRIVATE_KEY` unset. Each cron tick logs `buyback_burn_disabled_no_key` and exits without touching the chain.
 
 ## Durable Objects
 

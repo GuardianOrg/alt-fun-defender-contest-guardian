@@ -1,14 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * Curated subset of `PROFILE_FACES` that a brand-new user is seeded
- * with on their first visit (see `readInitial`). Trimmed to a small
- * "house style" set — straightforward kaomoji, no Western-style
- * emoticons — so the first-impression avatar reads as a recognisable
- * identity rather than a random roll across the full novelty pool.
- * The wider pool only unlocks once the user clicks the change-face
- * button on the profile page.
- */
+/** First-visit face seed set; the wider pool unlocks after cycling. */
 export const CORE_PROFILE_FACES = [
   "o_O",
   "^_^",
@@ -20,12 +12,7 @@ export const CORE_PROFILE_FACES = [
   "(o_O)",
 ];
 
-/**
- * Extras layered on top of the core seed set. The change-face button
- * cycles across `[...CORE, ...EXTRAS]`, so anything added here becomes
- * reachable from the profile page but never appears as a fresh
- * user's starting avatar.
- */
+/** Extra faces available only after the user cycles. */
 const EXTRA_PROFILE_FACES = [
   "(^_^)",
   "(>_<)",
@@ -61,30 +48,10 @@ const EXTRA_PROFILE_FACES = [
   "=)",
 ];
 
-/**
- * Full pool of placeholder ASCII faces — core seed faces plus the
- * wider novelty pool that `cycleProfileFace()` rolls across. Order is
- * `[...CORE, ...EXTRA]` so the seed set is guaranteed to be a strict
- * prefix subset; `pickRandomFace` can take either as a `pool` arg
- * without worrying about overlap.
- *
- * Prototype only — real avatars (gradient by address, ENS pfp, …)
- * will replace this once the profile flow is wired up.
- */
+/** Full placeholder face pool, with core faces as a strict prefix. */
 export const PROFILE_FACES = [...CORE_PROFILE_FACES, ...EXTRA_PROFILE_FACES];
 
-/* Tiny external store for the active profile face.
- *
- * Persisted in localStorage so a face the user picks on the profile
- * page survives reloads and becomes their identity across the app
- * (header chip + profile hero share the same selection). Wrapped in
- * React's `useSyncExternalStore` so any consumer re-renders the
- * moment the face changes — no prop drilling, no Redux slice for a
- * single string.
- *
- * Cross-tab sync: a `storage` event listener picks up writes made in
- * other tabs of the same origin, so changing the face in one tab
- * updates the header avatar in the others. */
+/* Tiny localStorage-backed external store for the active profile face. */
 
 const STORAGE_KEY = "altfun:profileFace";
 
@@ -96,14 +63,10 @@ const pickRandomFace = (pool: readonly string[], exclude?: string): string => {
 const readInitial = (): string => {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    // Validate against the full pool, not just the core set: a user
-    // who's already cycled to an extra face on a previous visit must
-    // keep it across reloads. The core-only restriction only applies
-    // to the *first* assignment below.
+    // Preserve previously selected extra faces across reloads.
     if (stored && PROFILE_FACES.includes(stored)) return stored;
   } catch {
-    // localStorage unavailable (SSR, sandboxed iframe, disabled storage)
-    // — fall through to a fresh random pick without persistence.
+    // Fall through to a fresh random pick without persistence.
   }
   const initial = pickRandomFace(CORE_PROFILE_FACES);
   try {
@@ -136,14 +99,7 @@ export function getProfileFace(): string {
   return currentFace;
 }
 
-/**
- * Pick a new random face from the *full* `PROFILE_FACES` pool
- * (different from the current one), persist it, and notify
- * subscribers. The first-assignment restriction to `CORE_PROFILE_FACES`
- * only applies in `readInitial`; once the user explicitly asks for a
- * new face via the profile page, the entire novelty pool opens up.
- * No-op if the pool collapses to a single entry.
- */
+/** Pick a new random face from the full pool and notify subscribers. */
 export function cycleProfileFace(): void {
   const next = pickRandomFace(PROFILE_FACES, currentFace);
   if (next === currentFace) return;
@@ -163,10 +119,7 @@ const subscribe = (listener: () => void): (() => void) => {
   };
 };
 
-/**
- * React hook returning the current profile face, re-rendering the
- * caller whenever it changes (in this tab or another).
- */
+/** React hook for the current profile face, including cross-tab updates. */
 export function useProfileFace(): string {
   return useSyncExternalStore(subscribe, getProfileFace, getProfileFace);
 }

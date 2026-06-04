@@ -1,11 +1,13 @@
-import { formatUnits, parseUnits } from "viem";
+import type { ReactNode } from "react";
 
 import styles from "./TradePanel.module.css";
+import {
+  getSellPresetAmount,
+  isSellPresetActive,
+} from "./tradePanelInputPresets";
 import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
-import { tierFor } from "../../utils/vanityTier";
-import VanityEffect from "../effects/VanityEffect";
 import UsdcIcon from "../icons/UsdcIcon";
 import PresetChip from "../shared/PresetChip";
 
@@ -18,17 +20,11 @@ interface Props {
   setAmount: (value: string) => void;
   isBusy: boolean;
   maxBalance: string | null;
-  /**
-   * Raw wei balance, used by the sell-side percent chips so 100% routes a
-   * string that round-trips exactly through `parseUnits(amount, 18)`.
-   * Going through `parseFloat(maxBalance)` drops ~3 trailing wei digits
-   * (doubles hold ~16 sig figs vs. 18-decimal tokens), which lands the
-   * 100% click a few units above `maxBalanceWei` and re-trips the
-   * insufficient-balance guard in `TradePanel`.
-   */
+  /** Raw wei balance so sell-percent chips round-trip through `parseUnits`. */
   maxBalanceWei: bigint | null;
   sellQuote: SellQuote | null;
   token: Token;
+  headerAction?: ReactNode;
 }
 
 export default function TradePanelInput({
@@ -40,9 +36,9 @@ export default function TradePanelInput({
   maxBalanceWei,
   sellQuote,
   token,
+  headerAction,
 }: Props) {
   const ticker = token.ticker;
-  const vanityTier = tierFor(token.address);
   const coinIcon = (
     <div
       className={cn(
@@ -70,8 +66,11 @@ export default function TradePanelInput({
 
   return (
     <>
-      <div className={styles.denomToggle}>
-        {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+      <div className={styles.amountHeader}>
+        <div className={cn(styles.denomToggle, "ui-subheading")}>
+          {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+        </div>
+        {headerAction}
       </div>
 
       <div className={styles.amountWrap}>
@@ -87,13 +86,7 @@ export default function TradePanelInput({
           <span className={styles.denomLabel}>
             {mode === "buy" ? "USDC" : ticker}
           </span>
-          {mode === "sell" && vanityTier.id !== "none" ? (
-            <VanityEffect tier={vanityTier} size="icon" as="inline">
-              {coinIcon}
-            </VanityEffect>
-          ) : (
-            coinIcon
-          )}
+          {coinIcon}
         </div>
       </div>
 
@@ -117,52 +110,24 @@ export default function TradePanelInput({
           ))
         ) : (
           SELL_PERCENT_OPTIONS.map((pct) => {
-            // Percent math in bigint against `maxBalanceWei` so 100%
-            // round-trips exactly through the `parseUnits(amount, 18)`
-            // check in `TradePanel`. The previous parseFloat-based path
-            // lost ~3 trailing wei (16-sig-fig double vs. 18-decimal
-            // token), landing 100% one ULP above the wallet balance and
-            // re-tripping the insufficient-balance guard.
-            const computedValue =
-              maxBalanceWei !== null
-                ? (() => {
-                    let resultWei = (maxBalanceWei * BigInt(pct)) / 100n;
-                    // `maxSellableTokens` is a float (LT-buffer cap); convert
-                    // to wei conservatively via `toFixed(18)` so the bigint
-                    // min is exact. Wrapped in try/catch because `toFixed`
-                    // on an extreme float can yield a string `parseUnits`
-                    // rejects — in that case fall through to the unclamped
-                    // balance percent rather than disabling the chip.
-                    if (
-                      sellQuote &&
-                      Number.isFinite(sellQuote.maxSellableTokens)
-                    ) {
-                      try {
-                        const capWei = parseUnits(
-                          sellQuote.maxSellableTokens.toFixed(18),
-                          18,
-                        );
-                        if (capWei < resultWei) resultWei = capWei;
-                      } catch {
-                        // Ignored.
-                      }
-                    }
-                    return formatUnits(resultWei, 18);
-                  })()
-                : null;
+            const computedAmount = getSellPresetAmount(
+              maxBalanceWei,
+              pct,
+              sellQuote,
+            );
             return (
               <PresetChip
                 key={pct}
                 fluid
-                active={
-                  computedValue !== null && amount === computedValue
-                }
+                active={isSellPresetActive(amount, computedAmount)}
                 onClick={() => {
-                  if (computedValue !== null) {
-                    setAmount(computedValue);
+                  if (computedAmount !== null && computedAmount.wei > 0n) {
+                    setAmount(computedAmount.value);
                   }
                 }}
-                disabled={isBusy || maxBalanceWei === null}
+                disabled={
+                  isBusy || computedAmount === null || computedAmount.wei === 0n
+                }
               >
                 {pct}%
               </PresetChip>

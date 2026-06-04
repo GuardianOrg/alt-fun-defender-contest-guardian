@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { getLeverageOptions } from "@launchpad/shared";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchLeveragedTokens } from "../services/api";
@@ -20,7 +21,7 @@ import type { LiveLeveragedToken } from "@launchpad/shared";
 export function useLeveragedTokens() {
   return useQuery({
     queryKey: ["leveragedTokens"],
-    queryFn: fetchLeveragedTokens,
+    queryFn: ({ signal }) => fetchLeveragedTokens(signal),
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
@@ -63,5 +64,16 @@ export function useLeveragedToken(
   return useMemo(
     () => findLeveragedTokenByAddress(data, ltAddress),
     [data, ltAddress],
+  );
+}
+
+export function useLeverageOptions(
+  asset?: string,
+  isLong?: boolean,
+): number[] {
+  const { data } = useLeveragedTokens();
+  return useMemo(
+    () => getLeverageOptions(data ?? [], asset, isLong),
+    [data, asset, isLong],
   );
 }

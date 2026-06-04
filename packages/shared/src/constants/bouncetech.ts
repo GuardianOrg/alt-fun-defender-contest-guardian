@@ -62,6 +62,8 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "ZEC",
   "kPEPE",
   "FARTCOIN",
+  "NEAR",
+  "LIT",
   "xyz:CBRS",
   "xyz:CL",
   "xyz:BRENTOIL",
@@ -70,7 +72,9 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "xyz:NVDA",
   "xyz:TSLA",
   "xyz:SP500",
+  "xyz:SPCX",
   "xyz:XYZ100",
+  "xyz:BB",
 ] as const;
 
 export type SupportedAsset = (typeof SUPPORTED_UNDERLYING_ASSETS)[number];
@@ -89,8 +93,26 @@ export function getHyperliquidDex(
   return asset.startsWith("xyz:") ? HYPERLIQUID_XYZ_DEX : null;
 }
 
-export const SUPPORTED_LEVERAGES = [2, 3, 5] as const;
-export type SupportedLeverage = (typeof SUPPORTED_LEVERAGES)[number];
+export type SupportedLeverage = number;
+
+function isContractLeverage(value: number): boolean {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+export function getLeverageOptions(
+  lts: readonly LeveragedTokenInfo[],
+  asset?: string,
+  isLong?: boolean,
+): number[] {
+  const leverages = new Set<number>();
+  for (const lt of lts) {
+    if (asset !== undefined && lt.targetAsset !== asset) continue;
+    if (isLong !== undefined && lt.isLong !== isLong) continue;
+    if (!isContractLeverage(lt.targetLeverage)) continue;
+    leverages.add(lt.targetLeverage);
+  }
+  return [...leverages].sort((a, b) => a - b);
+}
 
 /**
  * Filter a live LT list down to the ones Alt Fun supports.
@@ -101,7 +123,7 @@ export function filterSupportedLTs(
   return lts.filter(
     (lt) =>
       isSupportedUnderlying(lt.targetAsset) &&
-      (SUPPORTED_LEVERAGES as readonly number[]).includes(lt.targetLeverage),
+      isContractLeverage(lt.targetLeverage),
   );
 }
 

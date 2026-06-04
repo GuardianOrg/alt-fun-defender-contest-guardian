@@ -44,6 +44,9 @@
   --font-mono: "JetBrains Mono", "Courier New", Courier, monospace;
   --font-display: "Geist", "Inter", system-ui, sans-serif;
 
+  /* Layout */
+  --app-max-width: 2000px;
+
   /* Shadows */
   --shadow-mint-glow: 0 0 16px rgba(77, 232, 180, 0.25);
   --shadow-mint-glow-lg: 0 0 24px rgba(77, 232, 180, 0.3);
@@ -85,6 +88,15 @@ textarea,
 button,
 select {
   font-family: var(--font-mono);
+}
+
+input,
+textarea,
+select,
+input[class],
+textarea[class],
+select[class] {
+  border-radius: 0;
 }
 
 ::selection {
@@ -265,10 +277,30 @@ p {
 
 /* Global utility classes (non-modular) */
 
+.ui-subheading {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--txt-3);
+}
+
 .bar-glow-mint {
   box-shadow:
     inset 0 0 6px rgba(42, 184, 138, 0.3),
     0 0 4px rgba(77, 232, 180, 0.15);
+}
+
+.terminal-table-head {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--txt-2);
 }
 
 .leverage-fire {

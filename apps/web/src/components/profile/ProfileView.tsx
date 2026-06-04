@@ -35,12 +35,6 @@ const TABS: { label: string; tab: ProfileTab }[] = [
   { label: "MANAGE WALLET", tab: "wallet" },
 ];
 
-/**
- * Per-tab empty-state copy + CTA. Lives next to the tab list so the
- * mapping is obvious at a glance; the surrounding markup is shared by
- * every tab. The Balances tab swaps this out for the live token list
- * once `useBalances` returns rows.
- */
 interface EmptyStateContent {
   title: string;
   body: string;
@@ -63,15 +57,8 @@ const EMPTY_STATES: Record<"balances" | "rewards", EmptyStateContent> = {
   },
 };
 
-/** Number of skeleton rows shown during the initial balances fetch.
- * Tuned to roughly fill the visible panel area without dominating it
- * — real rows that exceed this count scroll into view normally. */
 const BALANCE_SKELETON_COUNT = 5;
 
-/** Skeleton row count for the rewards tab. Two is plenty: most
- * creators have one or two live tokens at most, and a shorter
- * placeholder stops the panel from feeling artificially crowded
- * before real data lands. */
 const REWARDS_SKELETON_COUNT = 2;
 
 export default function ProfileView() {
@@ -80,14 +67,7 @@ export default function ProfileView() {
   const face = useProfileFace();
   const [activeTab, setActiveTab] = useState<ProfileTab>("balances");
 
-  // Disconnect leaves the user staring at an empty profile (no address,
-  // no balances, no rewards), which reads as a broken state. Bouncing
-  // back to the home route turns the same action into a clean
-  // "log out and go to the marketplace" flow. We navigate first and
-  // fire the (async) disconnect as fire-and-forget so the page swap
-  // is instant — the wallet teardown completes in the background and
-  // the home page's `useWallet` will pick up the new state on its
-  // next render.
+  // Navigate before async disconnect so the profile never sits in an empty logged-out state.
   const handleDisconnect = () => {
     navigate(HOME_ROUTE);
     void disconnect();
@@ -105,11 +85,7 @@ export default function ProfileView() {
     claim,
     refetch: refetchEarnings,
   } = useCreatorEarnings();
-  // Same predicate drives both the rewards table and the transfer-ownership
-  // table because both surfaces iterate the same `earnings.tokens` list —
-  // every token a creator can transfer is also one whose pooled fees they
-  // can claim. Kept as a single boolean so the two consumers can never
-  // drift out of sync.
+  // Rewards and ownership transfer both depend on the same created-token list.
   const hasCreatedTokens =
     !!earnings && earnings.tokens.length > 0;
 
@@ -128,9 +104,7 @@ export default function ProfileView() {
   );
 
   const renderBalances = () => {
-    // Skeleton during the initial fetch so the panel doesn't flash the
-    // "No tokens yet" empty state on first paint. Once the first
-    // response lands, the empty branch below is the source of truth.
+    // Avoid flashing the empty state during the initial fetch.
     if (balancesLoading && heldTokens.length === 0) {
       return (
         <div aria-busy="true" aria-label="Loading balances">
@@ -171,11 +145,7 @@ export default function ProfileView() {
   };
 
   const renderRewards = () => {
-    // Skeleton-first paint mirrors balances: the rewards summary +
-    // per-token rows show shaped placeholders while the initial
-    // `useCreatorEarnings` fetch is in-flight so the panel doesn't
-    // flash "No tokens created yet" for users who do, in fact, have
-    // tokens.
+    // Avoid flashing "No tokens created yet" during the initial rewards fetch.
     if (earningsLoading && !earnings) {
       return (
         <div aria-busy="true" aria-label="Loading creator rewards">
@@ -235,7 +205,7 @@ export default function ProfileView() {
           <span className={styles.avatarFace}>{face}</span>
         </button>
         <div className={styles.identity}>
-          <div className={styles.label}>profile</div>
+          <div className={cn(styles.label, "ui-subheading")}>profile</div>
           <div className={styles.addressRow}>
             <span className={styles.address} title={address}>
               {isConnected ? shortAddress : "not connected"}
@@ -250,9 +220,7 @@ export default function ProfileView() {
                   className={styles.explorerLink}
                   aria-label={`View ${address} on hyperevm scan`}
                 >
-                  View on hyperevm scan
                   <svg
-                    className={styles.explorerLinkIcon}
                     aria-hidden="true"
                     focusable="false"
                     width="12"
@@ -344,12 +312,12 @@ export default function ProfileView() {
   );
 }
 
-/* ---------- Balances sub-components ---------- */
-
 function BalancesSummary({ totalValue }: { totalValue: number }) {
   return (
     <div className={styles.balanceSummary}>
-      <div className={styles.balanceSummaryLabel}>total value</div>
+      <div className={cn(styles.balanceSummaryLabel, "ui-subheading")}>
+        total value
+      </div>
       <div className={styles.balanceSummaryValue}>
         {formatUsd(totalValue)}
       </div>
@@ -360,7 +328,9 @@ function BalancesSummary({ totalValue }: { totalValue: number }) {
 function BalancesSummarySkeleton() {
   return (
     <div className={styles.balanceSummary} aria-hidden="true">
-      <div className={styles.balanceSummaryLabel}>total value</div>
+      <div className={cn(styles.balanceSummaryLabel, "ui-subheading")}>
+        total value
+      </div>
       <Skeleton width="8rem" height="1.6rem" />
     </div>
   );
@@ -368,7 +338,7 @@ function BalancesSummarySkeleton() {
 
 function BalancesListHeader() {
   return (
-    <div className={styles.balanceHeader}>
+    <div className={cn(styles.balanceHeader, "terminal-table-head")}>
       <span>Altcoin</span>
       <span className={styles.balanceHeadAddress}>Address</span>
       <span className={styles.balanceHeadAmount}>Amount</span>
@@ -438,9 +408,7 @@ function BalanceRow({ token, onClick }: BalanceRowProps) {
       </div>
       <div
         className={styles.balanceAddress}
-        // Keep click + keydown from bubbling to the row's navigate
-        // handler so the user can copy the contract address without
-        // also being teleported to the token page mid-interaction.
+        // Copying the contract address should not also navigate the row.
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") e.stopPropagation();
@@ -455,7 +423,6 @@ function BalanceRow({ token, onClick }: BalanceRowProps) {
         <span className={styles.balanceAmountValue}>
           {formatTokenAmount(token.amount)}
         </span>
-        <span className={styles.balanceAmountTicker}>{token.ticker}</span>
       </div>
       <div className={cn(styles.balanceChange, changeClass)}>
         {formatPercentOrDash(change)}
@@ -493,21 +460,6 @@ function BalanceRowSkeleton() {
   );
 }
 
-/* ---------- Creator Rewards sub-components ---------- */
-
-/**
- * Summary strip above the per-token list. The hero is the live
- * `Claimable` figure — a centered, mint-coloured number that
- * visually couples to the `Claim $X USDC` CTA directly below it.
- * The CTA is capped at `--rewards-cta-max` so it never spans the
- * full width of the (wide) profile panel; capping keeps the button
- * proportional to the hero number rather than reading as an
- * "intensely wide" bar at desktop widths. The historical figures
- * (`total earned` + `previously claimed`) sit below a divider in a
- * matched two-column grid so both secondary stats render with the
- * same label/value treatment instead of one being a centered
- * column-block and the other a row-with-space-between strip.
- */
 interface RewardsSummaryProps {
   totalClaimable: number;
   totalEarned: number;
@@ -526,7 +478,9 @@ function RewardsSummary({
   return (
     <div className={styles.rewardsSummary}>
       <div className={styles.rewardsHero}>
-        <div className={styles.rewardsLabel}>claimable</div>
+        <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+          claimable
+        </div>
         <div className={styles.rewardsClaimable}>
           ${totalClaimable.toFixed(2)}
         </div>
@@ -557,13 +511,17 @@ function RewardsSummary({
 
       <div className={styles.rewardsStats}>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>total earned</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            total earned
+          </div>
           <div className={styles.rewardsStatValue}>
             ${totalEarned.toFixed(2)}
           </div>
         </div>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>previously claimed</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            previously claimed
+          </div>
           <div className={styles.rewardsStatValue}>
             ${totalClaimed.toFixed(2)}
           </div>
@@ -577,7 +535,9 @@ function RewardsSummarySkeleton() {
   return (
     <div className={styles.rewardsSummary} aria-hidden="true">
       <div className={styles.rewardsHero}>
-        <div className={styles.rewardsLabel}>claimable</div>
+        <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+          claimable
+        </div>
         <Skeleton width="8rem" height="2.4rem" />
       </div>
       <div className={styles.rewardsCtaWrap}>
@@ -585,11 +545,15 @@ function RewardsSummarySkeleton() {
       </div>
       <div className={styles.rewardsStats}>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>total earned</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            total earned
+          </div>
           <Skeleton width="5rem" height="1.4rem" />
         </div>
         <div className={styles.rewardsStat}>
-          <div className={styles.rewardsLabel}>previously claimed</div>
+          <div className={cn(styles.rewardsLabel, "ui-subheading")}>
+            previously claimed
+          </div>
           <Skeleton width="5rem" height="1.4rem" />
         </div>
       </div>
@@ -599,7 +563,7 @@ function RewardsSummarySkeleton() {
 
 function RewardsListHeader() {
   return (
-    <div className={styles.rewardsHeader}>
+    <div className={cn(styles.rewardsHeader, "terminal-table-head")}>
       <span>Altcoin</span>
       <span className={styles.balanceHeadAddress}>Address</span>
       <span>Volume</span>
@@ -659,8 +623,7 @@ function RewardsRow({ token, onClick }: RewardsRowProps) {
       </div>
       <div
         className={styles.balanceAddress}
-        // Same stop-propagation pattern as the balances table: copying
-        // an address shouldn't double as "navigate to token page".
+        // Copying the contract address should not also navigate the row.
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") e.stopPropagation();
@@ -706,14 +669,6 @@ function RewardsRowSkeleton() {
   );
 }
 
-/**
- * Standing disclaimer beneath the populated rewards table — mirrors the
- * footer in `layout/RewardsTab.tsx` so the same creator-fee promise reads
- * identically inside the floating earnings panel and on the profile page.
- * Sourced from `CREATOR_FEE_SHARE_PCT` so the displayed % stays in sync
- * with the on-chain split if `FEES.creatorSplit` / `FEES.protocolSplit`
- * are ever rebalanced.
- */
 function RewardsFooter() {
   return (
     <div className={styles.rewardsFooter}>

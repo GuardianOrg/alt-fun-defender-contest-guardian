@@ -4,13 +4,21 @@ import { HOME_ROUTE } from "../../app/routes";
 import Button from "../shared/Button";
 import Fallback from "../shared/Fallback";
 
-export default function NotFound() {
+interface Props {
+  title?: string;
+  message?: string;
+}
+
+export default function NotFound({
+  title = "Page not found",
+  message = "We couldn't find what you were looking for. The page may have moved, or the link could be broken.",
+}: Props) {
   const navigate = useNavigate();
   return (
     <Fallback
       code="404"
-      title="Page not found"
-      message="We couldn't find what you were looking for. The page may have moved, or the link could be broken."
+      title={title}
+      message={message}
       actions={
         <Button
           variant="primary"

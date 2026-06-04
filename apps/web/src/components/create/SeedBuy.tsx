@@ -100,7 +100,9 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
             { label: "curve filled", value: curveStr, cls: "" },
           ].map((s) => (
             <div key={s.label} className={styles.statCard}>
-              <div className={styles.statLabel}>{s.label}</div>
+              <div className={cn(styles.statLabel, "ui-subheading")}>
+                {s.label}
+              </div>
               <div className={cn(styles.statValue, s.cls)}>{s.value}</div>
             </div>
           ))}

@@ -5,16 +5,70 @@
 }
 
 .column {
+  --token-table-fade-height: 0.8rem;
+  --token-table-side-fade-width: 1.2rem;
+
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  position: relative;
+}
+
+.column::before,
+.column::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--token-table-fade-height);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.column::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+}
+
+.column::after {
+  bottom: 0;
+  background: linear-gradient(to bottom, rgba(9, 14, 11, 0), var(--bg-1) 85%);
 }
 
 .scrollArea {
   flex: 1;
   overflow: auto;
+  scrollbar-width: none;
+}
+
+.scrollArea::-webkit-scrollbar {
+  display: none;
+}
+
+.columnGrid .scrollArea {
+  overflow-x: hidden;
+}
+
+.sideFadeLeft,
+.sideFadeRight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--token-table-side-fade-width);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.sideFadeLeft {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+}
+
+.sideFadeRight {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-1) 15%, rgba(9, 14, 11, 0));
 }
 
 /*
@@ -22,13 +76,48 @@
  * widths. `gap: 1.6rem` is the minimum spacing between columns, and
  * `justify-content: space-between` distributes any extra horizontal space
  * evenly between them — so on wide viewports the columns "breathe" out to
- * the edges, and on narrow viewports they stay packed at the 1.6rem gap and
- * the surrounding `.scrollArea` provides a horizontal scrollbar.
+ * the edges, and on tablet-width viewports they stay packed at the 1.6rem gap
+ * with the surrounding `.scrollArea` providing a horizontal scrollbar. Phone
+ * widths switch rows to cards below.
  */
 .tableInner {
   display: flex;
   flex-direction: column;
   min-width: max-content;
+}
+
+.gridInner {
+  --token-card-min-width: 350px;
+  --token-card-gap: 0.8rem;
+
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--token-card-min-width)), 1fr)
+  );
+  gap: var(--token-card-gap);
+  padding: 0.8rem;
+}
+
+.gridInner > [role="status"]:not(.emptyState) {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(100%, var(--token-card-min-width)), 1fr)
+  );
+  grid-column: 1 / -1;
+  gap: var(--token-card-gap);
+}
+
+.gridInner .sentinel {
+  grid-column: 1 / -1;
+}
+
+.columnGrid .sideFadeLeft,
+.columnGrid .sideFadeRight {
+  display: none;
 }
 
 .tableHead {
@@ -42,17 +131,23 @@
   padding: 0.8rem 0.8rem;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
+}
+
+.tableHead::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 1px);
+  height: var(--token-table-fade-height);
+  background: linear-gradient(to bottom, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+  pointer-events: none;
 }
 
 .headCell {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--txt-2);
   display: flex;
   align-items: center;
-  font-family: var(--font-mono);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -140,7 +235,7 @@
   margin-top: 0.4rem;
   padding: 0.4rem 1.2rem;
   border: 1px solid var(--border-2);
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--mint-bg);
   color: var(--mint);
   font-family: var(--font-mono);
@@ -162,4 +257,9 @@
 .emptyStateClear:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
+}
+
+.gridInner .emptyState {
+  position: static;
+  grid-column: 1 / -1;
 }

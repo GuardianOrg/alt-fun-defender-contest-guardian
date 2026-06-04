@@ -42,6 +42,10 @@ contract Router is Initializable, AccessControlUpgradeable {
         return factory.ltFor(token);
     }
 
+    /// @notice Constant-product quote. The buy side routes through
+    ///         `_computeBuy` so it honours the same real-balance cap as `buy`:
+    ///         the virtual token reserve runs above the sellable balance, so an
+    ///         uncapped quote would overstate output.
     function getAmountOut(
         address token,
         bool isBuy,
@@ -51,19 +55,16 @@ contract Router is Initializable, AccessControlUpgradeable {
         address pairAddr = factory.getPair(token, asset);
         if (pairAddr == address(0)) revert PairNotFound();
 
+        if (isBuy) {
+            (, uint256 tokensOut) = _computeBuy(pairAddr, amountIn);
+            return tokensOut;
+        }
+
         IPair pair = IPair(pairAddr);
         (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
-        uint256 k = pair.k();
-
-        if (isBuy) {
-            uint256 newReserveAsset = reserveAsset + amountIn;
-            uint256 newReserveToken = k / newReserveAsset;
-            return reserveToken - newReserveToken;
-        } else {
-            uint256 newReserveToken = reserveToken + amountIn;
-            uint256 newReserveAsset = k / newReserveToken;
-            return reserveAsset - newReserveAsset;
-        }
+        uint256 newReserveToken = reserveToken + amountIn;
+        uint256 newReserveAsset = pair.k() / newReserveToken;
+        return reserveAsset - newReserveAsset;
     }
 
     /// @param virtualReserveToken Token reserve stored in the pair (defines K);

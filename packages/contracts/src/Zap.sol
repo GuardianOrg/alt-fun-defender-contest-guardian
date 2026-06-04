@@ -7,9 +7,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
+import {IBounceGlobalStorage} from "./interfaces/IBounceGlobalStorage.sol";
 import {IBounceLeveragedToken} from "./interfaces/IBounceLeveragedToken.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
@@ -38,17 +40,18 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     /// @dev Owner-fat-finger guard. 2% hard ceiling on each side.
     uint256 public constant MAX_FEE_BPS = 200;
 
-    /// @dev BounceTech `mint`/`redeem` floor. Below this the LT reverts with
-    ///      undecodable selector `0x05eb05ac`; pre-checked so users see
-    ///      `BelowMinAmount` instead. Real USDC (6dp) — `$10`.
-    uint256 public constant MIN_USDC_AMOUNT = 10e6;
-
     /// @notice Mandatory seed-buy floor enforced on every `createToken` call
     ///         (real USDC, 6dp — `$20`). Combined with `Bonding`'s
     ///         `LAUNCH_TRADING_DELAY_BLOCKS`, this is the system's anti-snipe
-    ///         design: the creator's seed absorbs the cheap end of the curve
-    ///         while public buys are gated for the next 3 blocks, so first-
-    ///         block bots cannot capture supply at the curve floor.
+    ///         design: the seed lands ahead of the gate while public buys are
+    ///         blocked for the next 3 blocks, so no one else can race the
+    ///         creator into the cheap end of the curve. The gate covers buys
+    ///         only — see the no-cap note below for why the creator is never
+    ///         forced to leave the seed in the curve.
+    /// @dev    The floor is measured against the gross `seedUsdcAmount` the
+    ///         creator supplies, not the post-fee amount routed to the curve.
+    ///         The buy fee is skimmed in `_executeBuy`, so a `$20` seed lands
+    ///         `$20 − buyFee` of net curve liquidity.
     /// @dev    There is **no upper bound** on the seed buy. This is
     ///         intentional. A cap is trivially bypassable (the same creator
     ///         seeds via wallet A then snipes from wallet B at
@@ -63,10 +66,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     struct ZapStorage {
         Bonding bonding;
         IERC20 usdc;
-        /// @dev Set once at `initialize` and immutable thereafter — there is
-        ///      no live setter. Migrating to a different HyperSwap fork
-        ///      requires a UUPS upgrade so the change is visible on-chain
-        ///      ahead of time.
+        /// @dev Currently unused. Post-graduation swaps go direct-to-pair
+        ///      (see `_swapOnUniswapV2`), so nothing reads this on-chain. Set
+        ///      once at `initialize`, with no live setter. Retained in case a
+        ///      future version routes swaps through the V2 router; rotating it
+        ///      would then require a UUPS upgrade.
         IUniswapV2Router02 uniswapV2Router;
         FeeVault feeVault;
         uint256 buyFeeBps;
@@ -220,7 +224,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) internal returns (address tokenAddr) {
         if (params.ltAddress == address(0)) revert InvalidInput();
         // Mandatory seed buy. See `MIN_SEED_USDC` for the no-cap rationale.
-        if (seedUsdcAmount < MIN_SEED_USDC) revert BelowMinSeed();
+        // Floored at the live mint floor too, so a seed can't pass here and
+        // then revert when it's minted (see `minSeedUsdc`).
+        if (seedUsdcAmount < minSeedUsdc()) revert BelowMinSeed();
 
         (tokenAddr,) = _s().bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
@@ -241,14 +247,14 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
         if (tokenAddress == address(0)) revert InvalidInput();
-        if (usdcAmount < MIN_USDC_AMOUNT) revert BelowMinAmount();
+        if (usdcAmount < minUsdcAmount()) revert BelowMinAmount();
         Bonding bonding_ = _s().bonding;
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
-        uint256 amountInUsed;
+        uint256 grossSpent;
         uint256 actualFee;
-        (tokensOut, amountInUsed, actualFee) = _executeBuy(tokenAddress, usdcAmount);
+        (tokensOut, grossSpent, actualFee) = _executeBuy(tokenAddress, usdcAmount);
 
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
@@ -256,10 +262,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             _accrueFee(tokenAddress, bonding_.creatorOf(tokenAddress), actualFee, true);
         }
 
-        emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
+        // Report the USDC actually spent, not the submitted `usdcAmount`. A
+        // graduation-capped buy refunds the unused principal and fee, so the
+        // two diverge there; for every other buy they're equal.
+        emit Buy(tokenAddress, msg.sender, grossSpent, tokensOut);
 
         if (referrer != address(0) && referrer != msg.sender) {
-            emit Referred(tokenAddress, msg.sender, referrer, usdcAmount);
+            emit Referred(tokenAddress, msg.sender, referrer, grossSpent);
         }
     }
 
@@ -291,7 +300,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // ~5-cent dirty band (`[MIN, MIN / (1 − buyFeeBps/BPS_DENOM)]`) where
         // the gross passes but `mint` reverts with the undecodable
         // `0x05eb05ac` selector that the pre-check exists to suppress.
-        if (netUsdc < MIN_USDC_AMOUNT) revert BelowMinAmount();
+        if (netUsdc < minUsdcAmount()) revert BelowMinAmount();
 
         $.usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
@@ -343,8 +352,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
                 // `redeem` would re-incur BounceTech's redemption fee on
                 // dust, defeating the pre-sizing optimisation this branch
                 // exists for.
-                if (baseToConvert < MIN_USDC_AMOUNT) {
-                    baseToConvert = MIN_USDC_AMOUNT;
+                uint256 floor = minUsdcAmount();
+                if (baseToConvert < floor) {
+                    baseToConvert = floor;
                     if (baseToConvert > netUsdc) revert BelowMinAmount();
                 }
             }
@@ -377,7 +387,20 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // size (rather than the consumed slice) would over-charge users
         // who hit this dust band.
         uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
-        actualFee = (usdcAmount * buyFeeBps_ * effectiveBaseSpent) / (BPS_DENOM * netUsdc);
+        // Round the prorated fee up in favour of the protocol and creator, then
+        // cap it at the gross fee already withheld so the refund can't underflow
+        // and a full-size buy never charges more than `feeOnGross`.
+        actualFee = Math.mulDiv(usdcAmount * buyFeeBps_, effectiveBaseSpent, BPS_DENOM * netUsdc, Math.Rounding.Ceil);
+        if (actualFee > feeOnGross) actualFee = feeOnGross;
+
+        // `amountInUsed` (the curve-consumed LT) is not read by the caller, so
+        // repurpose this return to report the USDC the trade actually spent on
+        // the launched token: the curve-consumed slice plus the retained fee.
+        // Using `effectiveBaseSpent` (not `baseToConvert`) excludes any LT
+        // refunded to the buyer in the floor-bump branch, so the amount tracks
+        // `tokensOut`. Equals the submitted amount on every non-capped buy.
+        amountInUsed = effectiveBaseSpent + actualFee;
+
         uint256 feeRefund = feeOnGross - actualFee;
 
         uint256 usdcLeft = netUsdc - baseToConvert;
@@ -401,6 +424,18 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
+        // LT appreciation can push a curve token past the graduation threshold
+        // with no buy. Selling now would drag the raised reserve back below it,
+        // so graduate the token instead. The holder keeps their tokens and
+        // exits on the graduated pool. Nothing is sold, so this fills `0` — only
+        // take it when the caller set no floor; a positive `minUsdcOut` reverts
+        // so the `usdcOut >= minUsdcOut` guarantee is never silently broken.
+        if (bonding_.canGraduate(tokenAddress)) {
+            if (minUsdcOut != 0) revert TokenIsGraduating();
+            bonding_.triggerGraduation(tokenAddress);
+            return 0;
+        }
+
         address lt = bonding_.ltOf(tokenAddress);
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
@@ -410,7 +445,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             : _sellOnCurve(tokenAddress, tokenAmount);
 
         uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
-        if (grossUsdcEstimate / 1e12 < MIN_USDC_AMOUNT) revert BelowMinAmount();
+        if (grossUsdcEstimate / 1e12 < minUsdcAmount()) revert BelowMinAmount();
 
         // Intentional v1 tradeoff: sells only use BounceTech's atomic
         // `redeem()` path (no `prepareRedeem` fallback/queue in Zap). If the
@@ -422,7 +457,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Symmetric with `_executeBuy`: fee charged on EVERY sell — curve
         // AND post-graduation. The `isGraduated` branch above selects the
         // venue, not the fee policy. See `_executeBuy` for the rationale.
-        uint256 fee = (grossUsdc * $.sellFeeBps) / BPS_DENOM;
+        uint256 fee = Math.mulDiv(grossUsdc, $.sellFeeBps, BPS_DENOM, Math.Rounding.Ceil);
         usdcOut = grossUsdc - fee;
 
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
@@ -518,13 +553,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address pair = bonding_.graduatedPair(tokenIn);
         if (pair == address(0)) pair = bonding_.graduatedPair(tokenOut);
 
-        (uint112 reserve0, uint112 reserve1,) = IUniswapV2Pair(pair).getReserves();
         bool inIsToken0 = IUniswapV2Pair(pair).token0() == tokenIn;
-        (uint256 reserveIn, uint256 reserveOut) =
-            inIsToken0 ? (uint256(reserve0), uint256(reserve1)) : (uint256(reserve1), uint256(reserve0));
-
-        uint256 amountInWithFee = amountIn * 997;
-        amountOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+        // Quote from the pair so the output tracks its live fee instead of a
+        // hardcoded rate, keeping `amountOut` consistent with the K-check.
+        amountOut = IUniswapV2Pair(pair).getAmountOut(amountIn, tokenIn);
 
         IERC20(tokenIn).safeTransfer(pair, amountIn);
 
@@ -620,6 +652,27 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
 
     function creatorFeeBps() external view returns (uint256) {
         return _s().creatorFeeBps;
+    }
+
+    /// @notice Live BounceTech `mint`/`redeem` floor in USDC (6dp), sourced
+    ///         from `GlobalStorage` so a change to their floor is honoured
+    ///         without a redeploy. Used as the pre-flight buy/sell minimum
+    ///         and as the graduation floor-bump target; also surfaced for
+    ///         off-chain callers sizing minimum trades.
+    function minUsdcAmount() public view returns (uint256) {
+        return _s().bonding.bounceGlobalStorage().minTransactionSize();
+    }
+
+    /// @notice Effective minimum seed buy for `createToken`: the larger of the
+    ///         anti-snipe `MIN_SEED_USDC` floor and the live `minUsdcAmount()`
+    ///         mint floor grossed up for the buy fee. Enforced so a launch can
+    ///         never pass the seed pre-check only to revert when the post-fee
+    ///         seed is minted. `MIN_SEED_USDC` is already a gross floor; the
+    ///         mint floor binds on the post-fee amount, so it's grossed up.
+    function minSeedUsdc() public view returns (uint256) {
+        uint256 grossFloorForMint =
+            Math.mulDiv(minUsdcAmount(), BPS_DENOM, BPS_DENOM - _s().buyFeeBps, Math.Rounding.Ceil);
+        return Math.max(MIN_SEED_USDC, grossFloorForMint);
     }
 
     function _authorizeUpgrade(

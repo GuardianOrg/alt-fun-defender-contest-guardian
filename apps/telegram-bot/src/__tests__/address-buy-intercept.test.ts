@@ -59,6 +59,7 @@ const callbackUpdate = (data: string, updateId = 1) => ({
 const tokenResponse = () =>
   new Response(
     JSON.stringify({
+      status: "success",
       data: {
         address: TOKEN_ADDR,
         name: "Test Token",
@@ -70,6 +71,7 @@ const tokenResponse = () =>
         curveFilled: 30,
         status: "curve",
       },
+      error: null,
     }),
     { status: 200 },
   );

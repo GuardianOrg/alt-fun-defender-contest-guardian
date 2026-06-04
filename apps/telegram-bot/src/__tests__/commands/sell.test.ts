@@ -84,6 +84,7 @@ const mockTokenAndRpc = (
         })
       : new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR,
               name: "Test Token",
@@ -95,6 +96,7 @@ const mockTokenAndRpc = (
               curveFilled: 30,
               status: "curve",
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -405,11 +407,13 @@ describe("Sell flow (st:s button → conversation)", () => {
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR, name: "Test Token", ticker: "TEST",
               priceUsd: 0.001, mcapUsd: 5000, change24h: 0,
               ltChange24h: null, curveFilled: 30, status: "curve",
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -542,6 +546,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR,
               name: "Test Token",
@@ -553,6 +558,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
               curveFilled: 30,
               status: "curve",
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -645,6 +651,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR,
               name: "Test Token",
@@ -656,6 +663,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
               curveFilled: 30,
               status: "curve",
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -709,6 +717,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR,
               name: "Test Token",
@@ -720,6 +729,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
               curveFilled: 30,
               status: "curve",
             },
+            error: null,
           }),
           { status: 200 },
         );
@@ -798,6 +808,7 @@ describe("Sell flow (LT buffer preflight)", () => {
       if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
         return new Response(
           JSON.stringify({
+            status: "success",
             data: {
               address: TOKEN_ADDR,
               name: "Test Token",
@@ -810,6 +821,7 @@ describe("Sell flow (LT buffer preflight)", () => {
               status: "curve",
               ltPair: LT_ADDR,
             },
+            error: null,
           }),
           { status: 200 },
         );

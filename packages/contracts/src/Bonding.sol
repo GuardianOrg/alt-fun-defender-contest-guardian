@@ -47,7 +47,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    /// @dev USD-denominated (18-dp) virtual liquidity seeded at launch.
+    /// @dev Virtual liquidity seeded at launch, in USDC (18-dp). Every
+    ///      `*Usd`-named value and every "USD" figure in this contract is
+    ///      a USDC amount scaled to 18-dp: the protocol treats 1 USDC as
+    ///      1 USD and holds no price oracle.
     ///      Combined with the LT's launch-time `exchangeRate()` to derive
     ///      the launch-time `virtualLtReserve`, which permanently shapes
     ///      the curve via `K = TOTAL_SUPPLY * virtualLtReserve`. Pairs
@@ -105,9 +108,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         The seed buy attached to the launch tx bypasses the gate via
     ///         the transient flag set in `launch()` — see `buy()` for the
     ///         consume-once mechanic. Combined with `Zap.MIN_SEED_USDC`, this
-    ///         is the system's first-block-sniper mitigation: the creator's
-    ///         seed absorbs the cheap end of the curve, and no other buyer
-    ///         can race them into block N or pile in at N+1..N+3.
+    ///         is the system's first-block-sniper mitigation: no other buyer
+    ///         can race the creator into block N or pile in at N+1..N+3. The
+    ///         gate is buy-only and does not lock the seed in — see
+    ///         `_enforceLaunchDelay`.
     uint256 public constant LAUNCH_TRADING_DELAY_BLOCKS = 3;
 
     /// @dev Transient-storage slot keying the seed-buy bypass. Set in
@@ -146,7 +150,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         narrowing cast would strand real LT in phase 2.
     /// @dev    No `pendingSince` / freshness timestamp by design — see the
     ///         "exchange-rate drift between phase 1 and phase 2" note on
-    ///         `finalizeGraduation` for the audit-acceptance rationale.
+    ///         `finalizeGraduation` for the rationale.
     struct PendingGraduation {
         uint256 tokensForLP;
         uint256 ltFromPair;
@@ -251,6 +255,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     event TokenGraduating(
         address indexed token, uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned
     );
+    /// @notice Phase 2 complete: the V2 LP has been seeded and locked.
+    /// @param liquidity LP tokens minted to the lock — the authoritative
+    ///        locked-liquidity figure.
+    /// @param tokensInLP The phase-1 LP-seed target cached in
+    ///        `pendingGraduation` (pinned at the last curve price). Equals the
+    ///        tokens actually deposited on the normal empty-pair seed; when the
+    ///        pair already holds live reserves the deposit rebalances, so this
+    ///        is the intended target rather than the exact amount deposited.
+    ///        Derive actual reserves from `liquidity` / the pair state.
     event TokenGraduated(
         address indexed token,
         address indexed pairAddress,
@@ -289,6 +302,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     error RouterNotFound();
     error MustKeepOneRouter();
     error ZeroExchangeRate();
+    /// @dev Launch-time `exchangeRate` so low the curve's LT reserve would
+    ///      overflow the HyperSwap V2 pair's `uint112` reserve slot at
+    ///      graduation, bricking `finalizeGraduation`.
+    error ExchangeRateTooLow();
     error InvalidNameLength();
     error InvalidTickerLength();
     error InvalidDescriptionLength();
@@ -312,7 +329,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         _disableInitializers();
     }
 
-    /// @param graduationThresholdUsd_ Immutable USD trigger (18-dp). Must be
+    /// @param graduationThresholdUsd_ Immutable USDC trigger (18-dp). Must be
     ///        ≥ `VIRTUAL_LIQUIDITY_USD` so a fresh curve can't be pre-graduated.
     function initialize(
         address factory_,
@@ -415,10 +432,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///
     ///      Drift is accepted: it's inherent to using a leveraged token as
     ///      the reserve (same drift class as the phase-1 → phase-2 gap on
-    ///      `finalizeGraduation`). A donation attack on the LT's
-    ///      `baseAssetBalance` to skew the snapshot is cost-negative — the
-    ///      donation is irrevocable and the only direct victim is the
-    ///      creator's `MIN_SEED_USDC`-floored seed buy.
+    ///      `finalizeGraduation`). The snapshot is also a pre-checkpoint
+    ///      view — `exchangeRate()` doesn't settle the LT's accrued
+    ///      streaming fee until the seed buy's `mint` checkpoints it moments
+    ///      later — so the curve opens off a rate marginally above the
+    ///      settled one, bounded by the pending fee and immaterial. A
+    ///      donation attack on the LT's `baseAssetBalance` to skew the
+    ///      snapshot is cost-negative — the donation is irrevocable and the
+    ///      only direct victim is the creator's `MIN_SEED_USDC`-floored seed
+    ///      buy.
     ///
     ///      No `(min, max)` band on `LaunchParams` by design: a band
     ///      introduces a launch-failure mode users can't diagnose and forces
@@ -444,6 +466,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
+        // The raised LT reserve peaks at `3 * virtualLtReserve` (curve sell-out)
+        // and is later deposited into a HyperSwap V2 pair, whose reserves are
+        // `uint112`. Bound it at launch (4x headroom) so graduation can never
+        // exceed that slot.
+        if (virtualLtReserve > type(uint112).max / 4) revert ExchangeRateTooLow();
 
         IERC20(tokenAddr).forceApprove(address($.router), curveSupply);
         // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
@@ -553,6 +580,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
+        // A graduatable curve token must graduate, not sell back below the
+        // threshold. The user-facing router triggers graduation up front via
+        // `triggerGraduation`; rejecting here stops any router that skipped
+        // that step from un-ripening a ready graduation.
+        if (canGraduate(tokenAddress)) revert TokenIsGraduating();
 
         (, uint256 assetOut) = $.router.sell(amountIn, tokenAddress, msg.sender);
         if (assetOut < amountOutMin) revert SlippageExceeded();
@@ -617,6 +649,16 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         see `_launchTimeVirtualLtReserve`). Donations to the pair
     ///         move only the live ERC20 balance, not the stored reserve, so
     ///         they are excluded from the threshold.
+    ///
+    ///         `exchangeRate()` is a view that doesn't settle the LT's
+    ///         accrued streaming fee (only mint / redeem / agent checkpoints
+    ///         do), so the USD leg can read marginally high and trip the
+    ///         threshold a touch early. Bounded by the pending fee,
+    ///         one-directional, and the same accepted drift class as the
+    ///         launch snapshot (`_deployAndSeed`); the inline post-buy path
+    ///         is unaffected (`Zap.buy`'s `mint` checkpoints in the same tx)
+    ///         and LP seeding never reads the rate, so the pool still opens
+    ///         at the exact curve-close price.
     ///
     ///         Supply trigger: uses live `IPair.tokenBalance()`. This IS an
     ///         `IERC20.balanceOf` read but is donation-resistant in the
@@ -820,20 +862,26 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     // ─── Internals ───────────────────────────────────────────────────────
 
-    /// @dev Anti-snipe gate. Inside the launch tx the seed buy fires the
-    ///      transient bypass set in `launch()`, so the creator's seed always
-    ///      lands. Any other buy (including same-block sniper bundles in a
-    ///      separate tx) sees a cleared transient slot and reverts until
+    /// @dev Anti-snipe gate on the buy path. Inside the launch tx the seed
+    ///      buy fires the transient bypass set in `launch()`, so the
+    ///      creator's seed always lands. Any other buy (including same-block
+    ///      sniper bundles in a separate tx) sees a cleared transient slot
+    ///      and reverts until
     ///      `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The
     ///      bypass is consumed on first use so a malicious router that
     ///      crammed multiple buys into one tx still only gets one through.
+    ///
+    ///      Only buys are gated; the creator can sell the seed back into the
+    ///      curve within the window. We accept this for the same reason we
+    ///      don't cap the seed (below): the creator controls their own open
+    ///      regardless and cannot be forced to leave the seed in the curve.
     ///
     ///      We do **not** cap the seed-buy size. Some creators legitimately
     ///      seed >50% of a curve and burn the result post-launch as a supply
     ///      sink — capping would block that pattern, and the cap is
     ///      trivially bypassable anyway via a second wallet at
-    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. Auditors: this
-    ///      is intentional, not an oversight.
+    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. This is
+    ///      intentional, not an oversight.
     function _enforceLaunchDelay(
         address tokenAddress
     ) internal {
@@ -1014,7 +1062,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address pairAddr = _s().tokenInfo[tokenAddress].pair;
         (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
-        unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
+        unsoldBurned = IPair(pairAddr).tokenBalance();
         if (unsoldBurned > 0) {
             Token(tokenAddress).burn(pairAddr, unsoldBurned);
         }
@@ -1067,12 +1115,18 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         }
     }
 
-    /// @dev LP-seeding into the HyperSwap pair, with hostile-pre-seed defense
-    ///      (#308). Three regimes:
+    /// @dev LP-seeding into the HyperSwap pair, hardened against hostile
+    ///      pre-seeds. Three regimes:
     ///
-    ///        1. **Empty pair (~99% of graduations).** Pristine direct mint
-    ///           at exactly `(tokensForLP, ltFromPair)` — pool opens at the
-    ///           curve-close price. Zero gap by construction.
+    ///        1. **No LP minted yet — `totalSupply == 0` (~99% of
+    ///           graduations).** Covers both the pristine empty pair and the
+    ///           `sync()`-dust shape (`transfer(pair, dust) + pair.sync()`
+    ///           leaves `reserves > 0` but `totalSupply == 0`). Direct mint
+    ///           at exactly `(tokensForLP, ltFromPair)`: V2's first-liquidity
+    ///           branch makes our cached amounts the sole LP-price input, so
+    ///           the pool opens at the curve-close price and any attacker
+    ///           dust becomes pool reserves with no LP claim. Zero gap for a
+    ///           pristine pair; ≤ 0 attacker P&L for any dust seed.
     ///        2. **Pure-donation pre-seed.** Attacker `transfer`'d to the
     ///           pair without `mint` (balance > 0, reserves == 0).
     ///           `pair.skim(address(this))` pulls the donation into
@@ -1085,29 +1139,35 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           escrow). NEVER routed to `LPLock` — `LPLock` has no
     ///           rescue path in v1, so anything that lands there is
     ///           permanently stuck.
-    ///        3. **Mint pre-seed (the actual issue).** Attacker called
-    ///           `pair.mint` against a self-funded dust seed, baking a
-    ///           hostile (TOKEN, LT) ratio into the pool. Without
-    ///           intervention `pair.mint(lpLock)`'s `min(amount0·S/r0,
-    ///           amount1·S/r1)` formula would (a) open the LP off
-    ///           curve-close-price and (b) donate the larger arm to the
-    ///           attacker's pre-existing LP. We rebalance via a direct
-    ///           `pair.swap` toward the curve-close ratio, then deposit
-    ///           the remaining inventory via the router's `quote()`-based
-    ///           `addLiquidity` — which only pulls the optimal amounts
-    ///           at the post-swap ratio, so neither side becomes a
-    ///           `min()` donation. Off-ratio TOKEN remainder is burned;
-    ///           off-ratio LT remainder is auto-swept to the owner by
-    ///           `finalizeGraduation`'s post-bookend (see its natspec).
+    ///        3. **Mint pre-seed.** Attacker called `pair.mint` against a
+    ///           self-funded seed, baking a hostile (TOKEN, LT) ratio into
+    ///           the pool. Without intervention `pair.mint(lpLock)`'s
+    ///           `min(amount0·S/r0, amount1·S/r1)` formula would (a) open
+    ///           the LP off curve-close-price and (b) donate the larger arm
+    ///           to the attacker's pre-existing LP. We rebalance via a
+    ///           direct `pair.swap` toward the curve-close ratio, then
+    ///           deposit the remaining inventory via the router's
+    ///           `quote()`-based `addLiquidity` — which only pulls the
+    ///           optimal amounts at the post-swap ratio, so neither side
+    ///           becomes a `min()` donation. Off-ratio TOKEN remainder is
+    ///           burned; off-ratio LT remainder is auto-swept to the owner
+    ///           by `finalizeGraduation`'s post-bookend (see its natspec).
+    ///           When the seed is small enough that the fee-charging swap
+    ///           quote rounds to zero, no swap can move the ratio — but the
+    ///           reserves are then negligible against this graduation's
+    ///           inventory, so we fall back to the regime-1 direct mint
+    ///           (`_seedDirectMint`) and open at the cached ratio anyway.
+    ///           The captured LP share is bounded by
+    ///           `max(reserveToken/tokensForLP, reserveLT/ltFromPair)`,
+    ///           which vanishes for any seed that small.
     ///
     ///      Brick resistance: the rebalance swap input is capped at our
-    ///      per-side budget; the swap is precondition-checked to skip
-    ///      when V2's fee-charging `getAmountOut` would round to zero
-    ///      (which would otherwise revert `pair.swap` with
-    ///      `INSUFFICIENT_OUTPUT_AMOUNT`); the deposit uses
-    ///      `addLiquidity(min=1, min=1)`; and the empty/donation regimes
-    ///      don't touch the router or `pair.swap`. So a hostile pre-seed
-    ///      of any shape cannot DoS `finalizeGraduation`.
+    ///      per-side budget; a swap whose fee-charging `getAmountOut` would
+    ///      round to zero (which would otherwise revert `pair.swap` with
+    ///      `INSUFFICIENT_OUTPUT_AMOUNT`) is replaced by the direct-mint
+    ///      fallback; the deposit uses `addLiquidity(min=1, min=1)`; and the
+    ///      empty/donation regimes don't touch the router or `pair.swap`. So
+    ///      a hostile pre-seed of any shape cannot DoS `finalizeGraduation`.
     ///
     ///      Asymmetric router usage: **the rebalance swap is direct-to-pair
     ///      (`pair.swap`), not router-mediated.** HyperSwap mainnet's V2
@@ -1141,40 +1201,42 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // No-op on a freshly-created pair (balance == reserves == 0).
         IUniswapV2Pair(pair).skim(address(this));
 
-        // Regime 1/4 — no LP has been minted yet. Covers both the pristine
-        // empty pair (~99% of graduations) and the `sync()`-dust shape an
-        // attacker can produce by `transfer(pair, dust) + pair.sync()`:
-        // `getReserves()` returns non-zero but `totalSupply == 0` because no
-        // one ever called `pair.mint`. The non-empty-reserve branch of the
-        // earlier `r0 == 0 && r1 == 0` check missed this state and fell
-        // through to Regime 3, where the rebalance swap rounds to zero for
-        // 1-wei reserves and the deposit lands at the attacker's synced
-        // ratio (auditor finding, $-drain on graduation).
+        // Regime 1 — no LP minted yet (`totalSupply == 0`). Covers both the
+        // pristine empty pair (~99% of graduations) and the `sync()`-dust
+        // shape an attacker produces with `transfer(pair, dust) +
+        // pair.sync()`, which leaves `getReserves()` non-zero while
+        // `totalSupply == 0` (nobody ever called `pair.mint`).
         //
-        // Direct-minting against a non-empty + zero-supply pair is safe:
-        // V2's `mint` falls into the first-liquidity branch
-        // (`liquidity = sqrt(amount0 · amount1) − MINIMUM_LIQUIDITY`), so
-        // our `tokensForLP / ltFromPair` are the only inputs to the LP
-        // price. The attacker's dust becomes part of the pool's reserves
-        // with no LP claim — i.e. it is donated to the locked LP holder.
-        // For 1-wei dust the opening ratio is indistinguishable from the
-        // curve-close ratio; for a larger attacker stake the attacker
-        // gifts that capital to us at the cost of a short-lived arb gap
-        // that closes back to true price within blocks. Net attacker P&L
-        // is strictly ≤ 0 either way.
+        // History: the original `r0 == 0 && r1 == 0` gate let the sync-dust
+        // shape fall through to the rebalance path. On the pre-fallback code
+        // a 1-wei seed's swap rounded to zero and the router deposit then
+        // opened the pool at the attacker's synced ratio — the auditor's
+        // graduation-drain finding. The `_pairRebalance`-returns-false →
+        // `_seedDirectMint` fallback (see `_seedRebalancing`) already defuses
+        // that specific 1-wei case. Gating on `totalSupply()` here is the
+        // explicit, defense-in-depth form of the same fix: it routes the
+        // ENTIRE zero-supply regime (any dust size, swap-rounds-to-zero or
+        // not) straight to the cached-ratio direct mint, instead of relying
+        // on the rebalance swap to incidentally round away. It is a strict
+        // superset of the pristine `r0 == 0 && r1 == 0` case, so the common
+        // path is unchanged, and it skips a pointless swap against a pool we
+        // are about to own outright (cheaper, and one fewer edge case).
+        //
+        // Direct-minting against a zero-supply pair is safe for dust of any
+        // size: V2's `mint` takes the first-liquidity branch
+        // (`liquidity = sqrt(amount0 · amount1) − MINIMUM_LIQUIDITY`), so our
+        // cached `(tokensForLP, ltFromPair)` are the only inputs to the LP
+        // price and the attacker's dust becomes pool reserves with NO LP
+        // claim — donated to the locked LP holder, which ends up owning ~100%
+        // of the pool. Realistic dust is negligible against the multi-token
+        // graduation inventory, so the pool opens at the curve-close ratio;
+        // an attacker willing to commit inventory-scale capital only skews
+        // the opening price at the cost of gifting that capital to us (a
+        // short-lived arb gap on price discovery, captured by the locked LP).
+        // Net attacker P&L is ≤ 0 either way. `_seedDirectMint` also burns
+        // any TOKEN skimmed from a pure-donation pre-seed (Regime 2 → 1).
         if (IUniswapV2Pair(pair).totalSupply() == 0) {
-            IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
-            IERC20(lt).safeTransfer(pair, ltFromPair);
-            liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
-            // Burn any TOKEN remainder skimmed from a pure-donation
-            // pre-seed (Regime 2 → 1 fall-through). LT remainder is
-            // handled by `finalizeGraduation`'s `_sweepLTToOwner` post-
-            // bookend; no extra call needed here.
-            uint256 leftoverToken = IERC20(tokenAddress).balanceOf(address(this));
-            if (leftoverToken > 0) {
-                Token(tokenAddress).burn(address(this), leftoverToken);
-            }
-            return liquidity;
+            return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
         }
 
         // Regime 3 — mint pre-seed: rebalance, then deposit balanced subset.
@@ -1183,6 +1245,31 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // keep this function's stack pressure under solc's 16-slot ceiling
         // without `viaIR`.
         return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair, protectedLT);
+    }
+
+    /// @dev Transfer the full `(tokensForLP, ltFromPair)` to the pair and
+    ///      `mint` the LP to `LPLock`, opening at the exact cached
+    ///      curve-close ratio. Used by the empty-pair regime and as the
+    ///      dust-pre-seed fallback in `_seedRebalancing` — against dust
+    ///      reserves the V2 `min()` formula's donation to any pre-existing
+    ///      LP is negligible (see `_seedUniswapV2Direct` natspec). Any TOKEN
+    ///      remainder (a skimmed pure-donation pre-seed) is burned; the LT
+    ///      remainder is left for `finalizeGraduation`'s `_sweepLTToOwner`
+    ///      post-bookend.
+    function _seedDirectMint(
+        address tokenAddress,
+        address lt,
+        address pair,
+        uint256 tokensForLP,
+        uint256 ltFromPair
+    ) internal returns (uint256 liquidity) {
+        IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
+        IERC20(lt).safeTransfer(pair, ltFromPair);
+        liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
+        uint256 leftoverToken = IERC20(tokenAddress).balanceOf(address(this));
+        if (leftoverToken > 0) {
+            Token(tokenAddress).burn(address(this), leftoverToken);
+        }
     }
 
     /// @dev Memory bag for `_seedRebalancing` → `_pairRebalance` so the call
@@ -1220,35 +1307,45 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // Direction: pool TOKEN-rich vs target ⇒ swap LT in (TOKEN out).
         // Pool LT-rich ⇒ swap TOKEN in (LT out). Bounded by uint112 reserves
         // and curve-close-shape targets, both products fit in uint256.
+        // When `_pairRebalance` returns false the seed is too small for any
+        // swap to move the ratio (its fee-charging quote rounds to zero), so
+        // the reserves are negligible against this graduation's inventory:
+        // overpower them with a direct mint at the cached ratio rather than
+        // letting the router deposit at the attacker's ratio. A swap that
+        // does fire leaves the pool ≈ at target for the router deposit.
         if (reserveToken * ltFromPair > reserveLT * tokensForLP) {
             // Pool TOKEN-rich. tokenIn = lt, tokenOut = tokenAddress.
             // tokenInIs0 = (lt is token0) = !tokenIs0.
-            _pairRebalance(
-                RebalanceParams({
-                    pair: pair,
-                    tokenIn: lt,
-                    tokenInIs0: !tokenIs0,
-                    reserveIn: reserveLT,
-                    reserveOut: reserveToken,
-                    targetN: ltFromPair,
-                    targetD: tokensForLP,
-                    maxSwap: _swapBudget(_ltSwapInventory(lt, protectedLT))
-                })
-            );
+            if (!_pairRebalance(
+                    RebalanceParams({
+                        pair: pair,
+                        tokenIn: lt,
+                        tokenInIs0: !tokenIs0,
+                        reserveIn: reserveLT,
+                        reserveOut: reserveToken,
+                        targetN: ltFromPair,
+                        targetD: tokensForLP,
+                        maxSwap: _swapBudget(_ltSwapInventory(lt, protectedLT))
+                    })
+                )) {
+                return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+            }
         } else if (reserveToken * ltFromPair < reserveLT * tokensForLP) {
             // Pool LT-rich. tokenIn = tokenAddress, tokenInIs0 = tokenIs0.
-            _pairRebalance(
-                RebalanceParams({
-                    pair: pair,
-                    tokenIn: tokenAddress,
-                    tokenInIs0: tokenIs0,
-                    reserveIn: reserveToken,
-                    reserveOut: reserveLT,
-                    targetN: tokensForLP,
-                    targetD: ltFromPair,
-                    maxSwap: _swapBudget(IERC20(tokenAddress).balanceOf(address(this)))
-                })
-            );
+            if (!_pairRebalance(
+                    RebalanceParams({
+                        pair: pair,
+                        tokenIn: tokenAddress,
+                        tokenInIs0: tokenIs0,
+                        reserveIn: reserveToken,
+                        reserveOut: reserveLT,
+                        targetN: tokensForLP,
+                        targetD: ltFromPair,
+                        maxSwap: _swapBudget(IERC20(tokenAddress).balanceOf(address(this)))
+                    })
+                )) {
+                return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+            }
         }
         // else: pool already at curve-close ratio (rare — e.g. attacker
         // pre-seeded at exactly target). Skip swap, deposit directly.
@@ -1298,38 +1395,37 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      with a non-standard ABI. Same direct-to-pair pattern
     ///      `Zap._swapOnUniswapV2` uses for the same reason.
     ///
-    ///      We compute the V2 fee-charging amount-out ourselves
-    ///      (`(s · 997 · rOut) / (rIn · 1000 + s · 997)`) and pass it as
-    ///      the output to `pair.swap`. The pair's K-invariant check uses
-    ///      the canonical V2 0.3% fee math, so a wrong `expectedOut`
-    ///      would revert there.
+    ///      We read the output from the pair's own fee-aware quote
+    ///      (`getAmountOut`) and pass it to `pair.swap`, so the value always
+    ///      tracks the pair's live per-token fee and stays consistent with
+    ///      its K-invariant check.
     ///
-    ///      The `expectedOut == 0` precheck is necessary because
-    ///      `pair.swap` reverts with `INSUFFICIENT_OUTPUT_AMOUNT` when
-    ///      both output amounts are zero — happens for tiny `s` against
-    ///      an extremely imbalanced pool. Skipping is safe — the
-    ///      subsequent `addLiquidity` still defuses the LP-capture
-    ///      attack via its `quote()`-based optimal split, just opens at
-    ///      the (sub-bp) residual skew the swap would have closed.
-    ///      Whether the skip fired is observable post-hoc by comparing
-    ///      the cached `tokensForLP / ltFromPair` ratio in the
-    ///      `TokenGraduating` event against the resulting pool reserves.
+    ///      Returns `true` if a swap executed, `false` if it was skipped.
+    ///      Skips when the no-fee input rounds to zero (`s == 0`) or when
+    ///      the pair's fee-charging `getAmountOut(s)` rounds to zero — the
+    ///      latter would otherwise revert `pair.swap` with
+    ///      `INSUFFICIENT_OUTPUT_AMOUNT`. Both only happen for a seed too
+    ///      small to move the ratio by a whole wei of output; the caller
+    ///      reads the `false` return and falls back to a direct mint that
+    ///      overpowers the dust at the cached ratio.
     ///
     ///      No router approval needed (we transfer to the pair directly),
     ///      so no allowance hygiene to worry about.
     function _pairRebalance(
         RebalanceParams memory p
-    ) internal {
+    ) internal returns (bool) {
         uint256 s = _noFeeSwapInput(p.reserveIn, p.reserveOut, p.targetN, p.targetD, p.maxSwap);
-        if (s == 0) return;
+        if (s == 0) return false;
 
-        uint256 amountInWithFee = s * 997;
-        uint256 expectedOut = (amountInWithFee * p.reserveOut) / (p.reserveIn * 1000 + amountInWithFee);
-        if (expectedOut == 0) return;
+        // Quote from the pair so the output tracks its live fee; a value
+        // derived from a stale fee rate would trip the pair's K-check.
+        uint256 expectedOut = IUniswapV2Pair(p.pair).getAmountOut(s, p.tokenIn);
+        if (expectedOut == 0) return false;
 
         IERC20(p.tokenIn).safeTransfer(p.pair, s);
         (uint256 amount0Out, uint256 amount1Out) = p.tokenInIs0 ? (uint256(0), expectedOut) : (expectedOut, uint256(0));
         IUniswapV2Pair(p.pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
+        return true;
     }
 
     /// @dev Deposit leg: add liquidity at the post-swap pool ratio via the
@@ -1394,9 +1490,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      under the no-fee constant-product model:
     ///        `(reserveIn + s)² = reserveIn * reserveOut * targetN/targetD`
     ///      ⇒ `s = sqrt(reserveIn * reserveOut * targetN/targetD) - reserveIn`,
-    ///      capped at `maxSwap`. The actual swap is fee-charging (V2 0.3%),
-    ///      so the post-swap ratio drifts ~30 bps from the target; the
-    ///      balanced-subset deposit absorbs the residual without donating.
+    ///      capped at `maxSwap`. The actual swap is fee-charging (the pair's
+    ///      live fee), so the post-swap ratio drifts from the target by the
+    ///      fee; the balanced-subset deposit absorbs the residual without
+    ///      donating.
     ///
     ///      `Math.mulDiv` keeps the intermediate product
     ///      `reserveIn * reserveOut * targetN` inside its 512-bit working

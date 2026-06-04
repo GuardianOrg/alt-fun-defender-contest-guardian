@@ -1,16 +1,65 @@
 .rail {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.4rem;
   margin-left: 0;
-  padding: 0.8rem;
+  padding: 0.8rem 0rem;
   flex-shrink: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
+  min-width: 0;
 }
 
-.rail::-webkit-scrollbar {
+.rail::before,
+.rail::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0.8rem;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rail::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-1) 15%, rgba(9, 14, 11, 0));
+}
+
+.rail::after {
+  right: 0;
+  background: linear-gradient(to right, rgba(9, 14, 11, 0), var(--bg-1) 85%);
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0 0.8rem;
+}
+
+.filterGroup::-webkit-scrollbar {
   display: none;
+}
+
+.viewToggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 2.4rem;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.viewToggle > button {
+  height: 100%;
+  font-family: var(--font-display);
 }
 
 .triggerWrap {
@@ -24,7 +73,7 @@
   height: 2.4rem;
   padding: 0 0.8rem;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 0;
   background: transparent;
   color: var(--txt-3);
   font-family: var(--font-mono);
@@ -62,10 +111,7 @@
 }
 
 .triggerLabel {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--txt-4);
+  display: inline-block;
 }
 
 .triggerActive .triggerLabel {
@@ -75,6 +121,12 @@
 .triggerValue {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--txt-2);
+}
+
+.trigger:hover .triggerValue,
+.triggerOpen .triggerValue {
+  color: var(--txt-1);
 }
 
 /* `position` + `top` / `left` / `right` are all set by inline `style`
@@ -95,16 +147,12 @@
   flex-direction: column;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
-  border-radius: 3px;
+  border-radius: 0;
 }
 
 .popoverHeader {
   padding: 0.4rem 0.8rem;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--txt-4);
-  font-family: var(--font-mono);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -127,7 +175,7 @@
   width: 100%;
   padding: 0.4rem 0.8rem;
   border: 0;
-  border-radius: 2px;
+  border-radius: 0;
   background: transparent;
   color: var(--txt-2);
   font-family: var(--font-mono);
@@ -204,7 +252,7 @@
   height: 1.6rem;
   padding: 0 0.4rem;
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: 0;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   font-size: 12px;
@@ -223,7 +271,7 @@
   height: 2.4rem;
   padding: 0 0.8rem;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 0;
   background: transparent;
   color: var(--txt-3);
   font-family: var(--font-mono);
@@ -245,4 +293,15 @@
 .clearButton:focus-visible {
   outline: 2px solid var(--mint);
   outline-offset: 2px;
+}
+
+@media (max-width: 1400px) {
+  .rail {
+    align-items: center;
+  }
+
+  .viewToggle {
+    order: -1;
+    margin-left: 0;
+  }
 }

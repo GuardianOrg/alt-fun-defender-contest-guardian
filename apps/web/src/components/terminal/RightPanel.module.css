@@ -10,14 +10,6 @@
   overflow: hidden;
 }
 
-.section {
-  border: 1px solid var(--border);
-  background: var(--bg-1);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
 /* Positions caps at 50% of the right column so a user with many holdings
  * can't push RECENT TRADES off-screen. When positions has only a few
  * rows it stays at its intrinsic height and the trades section absorbs
@@ -36,49 +28,6 @@
   flex-shrink: 0;
 }
 
-.sectionBody {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.sectionHeader {
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mint);
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-  background: var(--mint-bg);
-  border-bottom: 1px solid var(--border);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-.sectionHeaderLive {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.liveIndicator {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--txt-3);
-}
-
-.liveDot {
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 9999px;
-  background: var(--mint);
-  animation: livep 2s ease-in-out infinite;
-}
-
 .tradeRow {
   display: flex;
   align-items: center;
@@ -87,16 +36,11 @@
   padding-right: 0.8rem;
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
     border-color 0.15s ease;
-}
-
-.tradeRow:last-child {
-  border-bottom: 0;
 }
 
 .tradeRow:hover {
@@ -163,7 +107,7 @@
 
 .tradeTime {
   font-size: 11px;
-  color: var(--txt-4);
+  color: var(--txt-3);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -182,7 +126,7 @@
 }
 
 .tradeWallet {
-  color: var(--txt-4);
+  color: var(--txt-3);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -201,7 +145,7 @@
   width: 1.4rem;
   height: 1.4rem;
   flex-shrink: 0;
-  color: var(--txt-4);
+  color: var(--txt-3);
 }
 
 .tradeAmount {
@@ -228,7 +172,6 @@
   padding-right: 0.8rem;
   padding-top: 0.4rem;
   padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--border);
   font-size: 13px;
   cursor: pointer;
   transition: background-color 0.15s ease;
@@ -236,10 +179,6 @@
 
 .infoRow:hover {
   background: rgba(255, 255, 255, 0.02);
-}
-
-.infoRowNoBorderLast:last-child {
-  border-bottom: 0;
 }
 
 .infoName {
@@ -277,13 +216,8 @@
   padding-right: 0.8rem;
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.15s ease;
-}
-
-.positionRow:last-child {
-  border-bottom: 0;
 }
 
 .positionRow:hover {

@@ -37,6 +37,7 @@ export default function BottomTabs({ token }: Props) {
             active={activeTab === tab}
             onClick={() => setActiveTab(tab)}
             className={styles.tabBtn}
+            fullWidthIndicator
           >
             {tab}
           </SegmentedButton>
