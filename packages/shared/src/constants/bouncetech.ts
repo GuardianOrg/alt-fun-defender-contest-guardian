@@ -64,6 +64,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "FARTCOIN",
   "NEAR",
   "LIT",
+  "XRP",
   "xyz:CBRS",
   "xyz:CL",
   "xyz:BRENTOIL",
@@ -75,6 +76,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "xyz:SPCX",
   "xyz:XYZ100",
   "xyz:BB",
+  "xyz:MU",
 ] as const;
 
 export type SupportedAsset = (typeof SUPPORTED_UNDERLYING_ASSETS)[number];
