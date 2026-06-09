@@ -20,11 +20,13 @@ import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
 import spcx from "../../assets/Logos/spcx.svg";
 import tesla from "../../assets/Logos/tesla.svg";
+import xrp from "../../assets/Logos/xrp.svg";
 import xyz_BB from "../../assets/Logos/xyz_BB.svg";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
-import cbrs from "../../assets/Logos/xyz_CBRS.svg";
+import xyz_CBRS from "../../assets/Logos/xyz_CBRS.svg";
 import xyz_CL from "../../assets/Logos/xyz_CL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
+import xyz_MU from "../../assets/Logos/xyz_MU.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
 import xyz_XYZ100 from "../../assets/Logos/xyz_XYZ100.svg";
 import zec from "../../assets/Logos/zec.svg";
@@ -41,7 +43,8 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   FARTCOIN: fartcoin,
   NEAR: near,
   LIT: lit,
-  "xyz:CBRS": cbrs,
+  XRP: xrp,
+  "xyz:CBRS": xyz_CBRS,
   "xyz:CL": xyz_CL,
   "xyz:BRENTOIL": xyz_BRENTOIL,
   "xyz:GOLD": xyz_GOLD,
@@ -52,6 +55,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:SPCX": spcx,
   "xyz:XYZ100": xyz_XYZ100,
   "xyz:BB": xyz_BB,
+  "xyz:MU": xyz_MU,
 };
 
 interface Props {
