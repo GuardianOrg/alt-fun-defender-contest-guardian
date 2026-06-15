@@ -11,7 +11,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
-import {IBounceGlobalStorage} from "./interfaces/IBounceGlobalStorage.sol";
 import {IBounceLeveragedToken} from "./interfaces/IBounceLeveragedToken.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
@@ -40,8 +39,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     /// @dev Owner-fat-finger guard. 2% hard ceiling on each side.
     uint256 public constant MAX_FEE_BPS = 200;
 
-    /// @notice Mandatory seed-buy floor enforced on every `createToken` call
-    ///         (real USDC, 6dp — `$20`). Combined with `Bonding`'s
+    /// @notice Base anti-snipe seed-buy floor (real USDC, 6dp — `$20`). The
+    ///         floor enforced on every `createToken` call is `minSeedUsdc()`,
+    ///         which raises this to the live mint floor grossed up for the buy
+    ///         fee whenever that is larger. Combined with `Bonding`'s
     ///         `LAUNCH_TRADING_DELAY_BLOCKS`, this is the system's anti-snipe
     ///         design: the seed lands ahead of the gate while public buys are
     ///         blocked for the next 3 blocks, so no one else can race the
@@ -59,7 +60,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ///         creators legitimately want to seed-and-burn to remove
     ///         supply — capping would block that pattern. The floor is the
     ///         only side that protects the curve floor from being free.
-    ///         Front-end mirrors this constant in `MIN_USDC_BUY_AMOUNT`.
+    ///         Front-end mirrors this base value in `MIN_USDC_BUY_AMOUNT`.
     uint256 public constant MIN_SEED_USDC = 20e6;
 
     /// @custom:storage-location erc7201:altfun.storage.Zap
@@ -101,7 +102,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
-    event FeeVaultUpdated(address indexed oldFeeVault, address indexed newFeeVault);
     event FeesUpdated(
         uint256 oldBuyFeeBps,
         uint256 newBuyFeeBps,
@@ -114,7 +114,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     error SlippageExceeded();
     error ZeroAddress();
     error InvalidFee();
-    error VaultNotConfigured();
     error TokenIsGraduating();
     /// @dev Caught upfront so unknown tokens revert before any USDC moves
     ///      (otherwise the failure surfaces deep in `SafeERC20` with an opaque error).
@@ -122,9 +121,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     /// @dev Mirrors the BounceTech LT `mint`/`redeem` floor so users see a
     ///      clean error instead of an undecodable LT revert.
     error BelowMinAmount();
-    /// @dev Seed buy below `MIN_SEED_USDC`. Surfaced separately from
+    /// @dev Seed buy below `minSeedUsdc()`. Surfaced separately from
     ///      `BelowMinAmount` so the UI can distinguish "you tried to buy too
-    ///      little" from "your launch seed must be at least $20".
+    ///      little" from "your launch seed is below the minimum".
     error BelowMinSeed();
 
     constructor() {
@@ -157,7 +156,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     }
 
     /// @param seedUsdcAmount USDC for the mandatory seed buy. Must be
-    ///                       `>= MIN_SEED_USDC`. Routed through
+    ///                       `>= minSeedUsdc()`. Routed through
     ///                       `_buyInternal` so it inherits the standard
     ///                       fee/refund handling and emits `Buy`.
     function createToken(
@@ -579,21 +578,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
-
-    /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
-    ///         allowlists this zap as a depositor — otherwise the next
-    ///         buy/sell would brick. Owners must `feeVault.addDepositor(zap)`
-    ///         on the new vault first.
-    function setFeeVault(
-        address feeVault_
-    ) external onlyOwner {
-        if (feeVault_ == address(0)) revert ZeroAddress();
-        if (!FeeVault(feeVault_).isDepositor(address(this))) revert VaultNotConfigured();
-        ZapStorage storage $ = _s();
-        address old = address($.feeVault);
-        $.feeVault = FeeVault(feeVault_);
-        emit FeeVaultUpdated(old, feeVault_);
-    }
 
     function setFees(
         uint256 buyFeeBps_,

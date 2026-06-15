@@ -798,7 +798,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     /// @notice Hot-swap BounceTech `GlobalStorage`. Backstop for the unlikely
     ///         case BounceTech redeploys it (factory rotations flow through
-    ///         automatically). Affects future launches only.
+    ///         automatically). Also re-points the live per-trade minimum for
+    ///         existing tokens, since `Zap.minUsdcAmount()` reads
+    ///         `minTransactionSize()` through this pointer on every buy/sell
+    ///         and on seed sizing.
     function setBounceGlobalStorage(
         address newBounceGlobalStorage
     ) external onlyOwner {
