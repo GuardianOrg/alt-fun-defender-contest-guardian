@@ -1372,50 +1372,6 @@ contract ZapTest is DeployHelper {
 
     // ─── Admin Tests ─────────────────────────────────────────────────────
 
-    function test_setBonding_onlyOwner() public {
-        vm.prank(trader);
-        vm.expectRevert();
-        zap.setBonding(address(1));
-    }
-
-    function test_setBonding_updatesValue() public {
-        Bonding freshBonding = _deployFreshBonding();
-        freshBonding.addRouter(address(zap));
-
-        zap.setBonding(address(freshBonding));
-        assertEq(address(zap.bonding()), address(freshBonding));
-    }
-
-    function test_setBonding_revertsZeroAddress() public {
-        vm.expectRevert(Zap.ZeroAddress.selector);
-        zap.setBonding(address(0));
-    }
-
-    function test_setBonding_revertsIfZapNotRouter() public {
-        Bonding freshBonding = _deployFreshBonding();
-
-        vm.expectRevert(Zap.BondingNotConfigured.selector);
-        zap.setBonding(address(freshBonding));
-    }
-
-    function _deployFreshBonding() internal returns (Bonding) {
-        Bonding bondingImpl = new Bonding();
-        bytes memory bondingInit = abi.encodeCall(
-            Bonding.initialize,
-            (
-                address(factory),
-                address(curveRouter),
-                address(hyperswapFactory),
-                address(hyperswapRouter),
-                address(lpLockContract),
-                address(tokenImpl),
-                TEST_GRADUATION_THRESHOLD_USD,
-                address(bounceGlobalStorage)
-            )
-        );
-        return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
-    }
-
     // `uniswapV2Router` is currently unused and retained for potential future
     // use (see the natspec on the storage slot in `Zap.sol`); it's set once at
     // `initialize` and has no live setter.

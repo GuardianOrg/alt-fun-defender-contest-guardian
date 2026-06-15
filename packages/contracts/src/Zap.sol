@@ -101,7 +101,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
-    event BondingUpdated(address indexed oldBonding, address indexed newBonding);
     event FeeVaultUpdated(address indexed oldFeeVault, address indexed newFeeVault);
     event FeesUpdated(
         uint256 oldBuyFeeBps,
@@ -116,7 +115,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     error ZeroAddress();
     error InvalidFee();
     error VaultNotConfigured();
-    error BondingNotConfigured();
     error TokenIsGraduating();
     /// @dev Caught upfront so unknown tokens revert before any USDC moves
     ///      (otherwise the failure surfaces deep in `SafeERC20` with an opaque error).
@@ -581,17 +579,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
-
-    function setBonding(
-        address bonding_
-    ) external onlyOwner {
-        if (bonding_ == address(0)) revert ZeroAddress();
-        if (!Bonding(bonding_).isRouter(address(this))) revert BondingNotConfigured();
-        ZapStorage storage $ = _s();
-        address old = address($.bonding);
-        $.bonding = Bonding(bonding_);
-        emit BondingUpdated(old, bonding_);
-    }
 
     /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
     ///         allowlists this zap as a depositor — otherwise the next

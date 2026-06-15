@@ -589,19 +589,6 @@ export const ZapAbi = [
   },
   {
     "type": "function",
-    "name": "setBonding",
-    "inputs": [
-      {
-        "name": "bonding_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setFeeVault",
     "inputs": [
       {
@@ -692,25 +679,6 @@ export const ZapAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "event",
-    "name": "BondingUpdated",
-    "inputs": [
-      {
-        "name": "oldBonding",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newBonding",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
   },
   {
     "type": "event",
@@ -975,11 +943,6 @@ export const ZapAbi = [
   {
     "type": "error",
     "name": "BelowMinSeed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "BondingNotConfigured",
     "inputs": []
   },
   {
