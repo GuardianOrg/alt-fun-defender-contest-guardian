@@ -31,6 +31,7 @@ contract Router is Initializable, AccessControlUpgradeable {
     function initialize(
         address factory_
     ) external initializer {
+        if (factory_ == address(0)) revert ZeroAddress();
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         factory = Factory(factory_);
