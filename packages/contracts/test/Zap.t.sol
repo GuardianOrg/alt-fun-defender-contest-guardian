@@ -1580,36 +1580,6 @@ contract ZapTest is DeployHelper {
         zap.setFees(50, 50, 10_001);
     }
 
-    function test_setFeeVault_onlyOwner() public {
-        vm.prank(trader);
-        vm.expectRevert();
-        zap.setFeeVault(makeAddr("new"));
-    }
-
-    function test_setFeeVault_revertsZeroAddress() public {
-        vm.expectRevert(Zap.ZeroAddress.selector);
-        zap.setFeeVault(address(0));
-    }
-
-    function test_setFeeVault_revertsIfRouterNotDepositor() public {
-        FeeVault impl = new FeeVault();
-        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
-        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
-
-        vm.expectRevert(Zap.VaultNotConfigured.selector);
-        zap.setFeeVault(address(freshVault));
-    }
-
-    function test_setFeeVault_succeedsWhenDepositorAllowlisted() public {
-        FeeVault impl = new FeeVault();
-        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
-        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
-        freshVault.addDepositor(address(zap));
-
-        zap.setFeeVault(address(freshVault));
-        assertEq(address(zap.feeVault()), address(freshVault));
-    }
-
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
 
     function testFuzz_buy_curvePath(

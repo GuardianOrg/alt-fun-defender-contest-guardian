@@ -102,7 +102,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
     event BondingUpdated(address indexed oldBonding, address indexed newBonding);
-    event FeeVaultUpdated(address indexed oldFeeVault, address indexed newFeeVault);
     event FeesUpdated(
         uint256 oldBuyFeeBps,
         uint256 newBuyFeeBps,
@@ -115,7 +114,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     error SlippageExceeded();
     error ZeroAddress();
     error InvalidFee();
-    error VaultNotConfigured();
     error BondingNotConfigured();
     error TokenIsGraduating();
     /// @dev Caught upfront so unknown tokens revert before any USDC moves
@@ -591,21 +589,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address old = address($.bonding);
         $.bonding = Bonding(bonding_);
         emit BondingUpdated(old, bonding_);
-    }
-
-    /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
-    ///         allowlists this zap as a depositor — otherwise the next
-    ///         buy/sell would brick. Owners must `feeVault.addDepositor(zap)`
-    ///         on the new vault first.
-    function setFeeVault(
-        address feeVault_
-    ) external onlyOwner {
-        if (feeVault_ == address(0)) revert ZeroAddress();
-        if (!FeeVault(feeVault_).isDepositor(address(this))) revert VaultNotConfigured();
-        ZapStorage storage $ = _s();
-        address old = address($.feeVault);
-        $.feeVault = FeeVault(feeVault_);
-        emit FeeVaultUpdated(old, feeVault_);
     }
 
     function setFees(

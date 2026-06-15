@@ -602,19 +602,6 @@ export const ZapAbi = [
   },
   {
     "type": "function",
-    "name": "setFeeVault",
-    "inputs": [
-      {
-        "name": "feeVault_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setFees",
     "inputs": [
       {
@@ -739,25 +726,6 @@ export const ZapAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "FeeVaultUpdated",
-    "inputs": [
-      {
-        "name": "oldFeeVault",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newFeeVault",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1091,11 +1059,6 @@ export const ZapAbi = [
         "internalType": "bytes32"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "VaultNotConfigured",
-    "inputs": []
   },
   {
     "type": "error",
