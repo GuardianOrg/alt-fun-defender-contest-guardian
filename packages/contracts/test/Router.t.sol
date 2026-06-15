@@ -78,6 +78,14 @@ contract RouterTest is Test {
         (, assetOut) = router.sell(tokenAmount, address(token), seller);
     }
 
+    // ─── Initialize Tests ────────────────────────────────────────────────
+
+    function test_initialize_revertsOnZeroFactory() public {
+        Router fresh = new Router();
+        vm.expectRevert(Router.ZeroAddress.selector);
+        fresh.initialize(address(0));
+    }
+
     // ─── getAmountOut Tests ──────────────────────────────────────────────
 
     function test_getAmountOut_buy_returnsPositive() public view {
