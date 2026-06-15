@@ -629,9 +629,11 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
         (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
 
-        // 1 LT and 3x the curve-close-ratio of token: meaningfully token-rich,
-        // so the rebalance swap fires with a non-trivial input and output.
-        uint256 reserveLt = 1 ether;
+        // LT side above the direct-mint band and token side at 3x the
+        // curve-close ratio: meaningfully token-rich, so the rebalance swap
+        // fires with a non-trivial input and output rather than the
+        // sub-band direct-mint path.
+        uint256 reserveLt = (ltFromPair * (bonding.DIRECT_MINT_PRESEED_BPS() * 2)) / 10_000;
         uint256 reserveToken = (3 * reserveLt * tokensForLP) / ltFromPair;
         address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
 
@@ -654,6 +656,44 @@ contract TwoPhaseGraduationTest is DeployHelper {
             priceFinal, priceTarget, 1e16, "meaningful pre-seed must still open near the curve-close ratio"
         );
         assertGt(MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)), 0, "lpLock must hold the protocol LP");
+    }
+
+    /// @notice A mint pre-seed below the direct-mint band on both sides but
+    ///         large enough that the rebalance swap would still fire (non-zero
+    ///         no-fee input AND non-zero fee-charging output). Finalize must
+    ///         skip the coarse swap and open at the cached ratio instead of
+    ///         depositing the inventory at the attacker's skewed pool ratio.
+    function test_hostilePreSeed_subBandSwap_opensAtCachedRatio() public {
+        (address tokenAddr,) = _launchToken();
+        _grieferAccumulate(tokenAddr);
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        // Tiny LT reserve; token reserve at half the curve-close ratio
+        // (LT-rich), so the rebalance would swap TOKEN in for LT out.
+        uint256 reserveLt = 1e6;
+        uint256 reserveToken = (reserveLt * tokensForLP) / (ltFromPair * 2);
+
+        uint256 band = bonding.DIRECT_MINT_PRESEED_BPS();
+        assertLt(reserveToken * 10_000, tokensForLP * band, "token side must sit below the band");
+        assertLt(reserveLt * 10_000, ltFromPair * band, "LT side must sit below the band");
+
+        // The swap would fire on the rebalance path (this is NOT the s==0 /
+        // getAmountOut==0 fallback) — the band gate is what reroutes it.
+        uint256 s = _noFeeSwapInputUncapped(reserveToken, reserveLt, tokensForLP, ltFromPair);
+        assertGt(s, 0, "no-fee swap input must be positive");
+
+        address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
+        assertGt(
+            MockHyperswapPair(hyperPair).getAmountOut(s, tokenAddr), 0, "fee-charging swap output must be positive"
+        );
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        assertTrue(bonding.isGraduated(tokenAddr));
+        assertEq(bonding.graduatedPair(tokenAddr), hyperPair, "must reuse the front-run pair");
+        _assertOpensAtCachedRatio(hyperPair, tokenAddr, tokensForLP, ltFromPair);
     }
 
     // ─── Phase 1 gas budget ──────────────────────────────────────────────

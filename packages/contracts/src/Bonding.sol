@@ -66,6 +66,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     uint256 public constant LP_RESERVE = (1_000_000_000 ether * LP_RESERVE_BPS) / BPS_DENOM;
 
+    /// @notice A mint pre-seed at or below this fraction (bps) of each
+    ///         LP-bound side is seeded with a direct mint at the cached
+    ///         curve-close ratio: below this band a rebalance swap is too
+    ///         coarse to reach the ratio, and the pre-existing LP's claim on
+    ///         the deposit stays bounded by the same fraction.
+    uint256 public constant DIRECT_MINT_PRESEED_BPS = 50;
+
     /// @dev Name/ticker bounds mirror Pump.fun so tokens render consistently in
     ///      cross-launchpad aggregators (DEXScreener, Birdeye) that size UI off
     ///      the longest name they've indexed. Webapp/API replicate.
@@ -1273,6 +1280,20 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
         (uint256 reserveToken, uint256 reserveLT) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+
+        // Below the band on BOTH sides, overpower the pre-seed with a direct
+        // mint at the cached ratio: the rebalance swap is too coarse to reach
+        // the ratio against such small reserves, and the pre-existing LP's
+        // claim on the deposit stays bounded by `DIRECT_MINT_PRESEED_BPS`. A
+        // side that is large relative to its LP target still takes the
+        // rebalance path so it isn't donated under the empty-mint `min()`.
+        if (
+            reserveToken * BPS_DENOM <= tokensForLP * DIRECT_MINT_PRESEED_BPS
+                && reserveLT * BPS_DENOM <= ltFromPair * DIRECT_MINT_PRESEED_BPS
+        ) {
+            return _seedDirectMint(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+        }
+
         // Budget reads `balanceOf(this)` rather than `tokensForLP` /
         // `ltFromPair` so any skim donation contributes to the rebalance
         // and not only to `_routerDepositAndDispose`'s deposit.
