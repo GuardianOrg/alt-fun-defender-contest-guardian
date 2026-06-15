@@ -454,6 +454,11 @@ export const FactoryAbi = [
   },
   {
     "type": "error",
+    "name": "RouterFactoryMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "RouterFrozen",
     "inputs": []
   },

@@ -99,6 +99,11 @@ contract Deploy is Script {
         FeeVault(feeVaultProxy).addDepositor(zapProxy);
         Bonding(bondingProxy).addRouter(zapProxy);
 
+        require(factory.router() == address(router), "wiring: factory.router");
+        require(address(router.factory()) == address(factory), "wiring: router.factory");
+        require(address(Bonding(bondingProxy).router()) == address(router), "wiring: bonding.router");
+        require(address(Bonding(bondingProxy).factory()) == address(factory), "wiring: bonding.factory");
+
         console.log("--- Deployment complete ---");
         console.log("USDC:", USDC);
         console.log("Uniswap V2 Router:", UNISWAP_V2_ROUTER);
