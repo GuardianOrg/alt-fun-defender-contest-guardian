@@ -176,6 +176,12 @@ contract FeeVault is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         emit DepositorRemoved(depositor);
     }
 
+    /// @notice Set the protocol fee recipient.
+    /// @dev Protocol fees are pooled and paid to whoever is `feeTo` at claim
+    ///      time, so rotating here redirects the entire outstanding
+    ///      `protocolBalance` — and any sweepable donations — to `feeTo_`. Call
+    ///      `claimProtocol()` (and `sweepDonations()`) first to settle the
+    ///      pending balance to the current recipient before rotating.
     function setFeeTo(
         address feeTo_
     ) external onlyOwner {
