@@ -4,13 +4,14 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Factory} from "../src/Factory.sol";
 import {Pair} from "../src/Pair.sol";
+import {Router} from "../src/Router.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract FactoryTest is Test {
     Factory public factory;
+    Router public router;
 
     address public owner = address(this);
-    address public routerAddr = makeAddr("router");
     address public bondingRole = makeAddr("bonding");
     address public stranger = makeAddr("stranger");
 
@@ -20,7 +21,11 @@ contract FactoryTest is Test {
     function setUp() public {
         factory = new Factory();
         factory.initialize();
-        factory.setRouter(routerAddr);
+
+        router = new Router();
+        router.initialize(address(factory));
+
+        factory.setRouter(address(router));
         factory.grantRole(factory.BONDING_ROLE(), bondingRole);
 
         tokenA = new MockERC20("Token A", "TKA");
@@ -67,7 +72,7 @@ contract FactoryTest is Test {
         address pairAddr = factory.createPair(address(tokenA), address(tokenB));
         Pair pair = Pair(pairAddr);
 
-        assertEq(pair.router(), routerAddr);
+        assertEq(pair.router(), address(router));
         assertEq(pair.launchedToken(), address(tokenA));
         assertEq(pair.assetToken(), address(tokenB));
     }
@@ -156,9 +161,20 @@ contract FactoryTest is Test {
     // ─── setRouter Tests ──────────────────────────────────────────────────
 
     function test_setRouter_updatesRouter() public {
-        address newRouter = makeAddr("newRouter");
-        factory.setRouter(newRouter);
-        assertEq(factory.router(), newRouter);
+        Router newRouter = new Router();
+        newRouter.initialize(address(factory));
+        factory.setRouter(address(newRouter));
+        assertEq(factory.router(), address(newRouter));
+    }
+
+    function test_setRouter_revertsOnFactoryMismatch() public {
+        Factory otherFactory = new Factory();
+        otherFactory.initialize();
+        Router mismatched = new Router();
+        mismatched.initialize(address(otherFactory));
+
+        vm.expectRevert(Factory.RouterFactoryMismatch.selector);
+        factory.setRouter(address(mismatched));
     }
 
     function test_setRouter_revertsWithoutAdmin() public {
