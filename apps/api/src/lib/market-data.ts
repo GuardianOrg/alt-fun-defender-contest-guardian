@@ -285,29 +285,33 @@ export async function fetchGraduatedTokensOnchain(
  * under the `curveSupply asc` ordering and pass the 75% gate.
  */
 /**
- * Top-K trending candidates ranked by **rolling 24h gross USDC volume**.
- * Sole source of truth for the trending tab — there's no per-request
- * re-score on top, no precomputed score column, no boost system. Powered
- * by `ponder_views.token_hourly_metrics` (one row per (token, hour) bucket;
+ * Trending candidate pool for the **multi-window walk**. Sole source of
+ * truth for the trending tab — no per-request re-score, no precomputed
+ * score column, no boost system. Powered by
+ * `ponder_views.token_hourly_metrics` (one row per (token, hour) bucket;
  * see `indexer-reads.ts → fetchTrendingCandidatesByVolume`).
  *
- * `cutoffHourStartSec` is the earliest `hour_start` to include — callers
- * pass `floor((now - 86400) / 3600) * 3600` for a trailing 24h window.
+ * `currentHourStartSec` is the current hour boundary
+ * (`floor(now / 3600) * 3600`); the read buckets tokens into successive 24h
+ * windows counting back from it and assigns each to the most recent window
+ * it traded in. The global order is window 0 (last 24h) by volume desc, then
+ * window 1 (24–48h ago) by volume desc, etc., so the tab keeps producing
+ * trending rows past the last 24h for infinite scroll.
  *
- * Returns `(lowercased address, 24h volume in USD)` pairs ordered by
- * volume desc. The route hydrates the slice with token metadata + on-chain
- * state + live market data, then preserves the volume ordering through
- * pagination (tie-break on mcap).
+ * Returns `(lowercased address, in-window volume, windowIndex)` triples in
+ * that order. The route hydrates the slice with token metadata + on-chain
+ * state + live market data and preserves the ordering through pagination
+ * (tie-break on mcap within a window).
  */
 export async function fetchTrendingCandidatesByVolume(
   databaseUrl: string,
   limit: number,
-  cutoffHourStartSec: number,
+  currentHourStartSec: number,
 ): Promise<TrendingVolumeCandidate[] | null> {
   return readTrendingCandidatesByVolume(
     createDb(databaseUrl),
     limit,
-    cutoffHourStartSec,
+    currentHourStartSec,
   );
 }
 

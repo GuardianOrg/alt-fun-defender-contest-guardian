@@ -53,20 +53,16 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
 // How many candidate addresses to pull from the indexer's
-// `token_hourly_metrics` 24h-volume aggregate. Trending is a pure
-// `ORDER BY SUM(volume_usd) DESC LIMIT K` against the per-token hourly
-// bucket table — anti-spam by construction (a token nobody trades has no
-// rows in the window), so the pool size is bounded purely for response
-// payload / pagination depth. 500 is enough to back the page-100 slot
-// with margin and matches the budget the GRADUATING / GRADUATED tabs use.
+// `token_hourly_metrics` aggregate. Trending walks successive 24h windows
+// (last 24h, then 24–48h, …), ranking each token by its in-window volume
+// and placing it in the most-recent window it traded in — anti-spam by
+// construction (a token nobody ever traded has no rows), so the pool size
+// is bounded purely for response payload / pagination depth. 500 is enough
+// to back deep infinite-scroll for the current catalogue and matches the
+// budget the GRADUATING / GRADUATED tabs use; once the ever-traded set
+// outgrows it the next step is a cron-refreshed `(token, window, volume)`
+// rollup, not a larger scan.
 const TRENDING_POOL_SIZE = 500;
-// Trending sums hourly buckets back to this cutoff. Mirrors the
-// platform-wide /stats scan: we round down to the current hour-start
-// before subtracting 24h so the window is always at least 24h wide
-// regardless of where in the hour the request lands (matches
-// `fetchPlatformStats` semantics — the extra bucket gives the rolling
-// window full coverage).
-const TRENDING_WINDOW_SEC = 86_400;
 const SECONDS_PER_HOUR = 3_600;
 // Upper bound on how many graduated / graduating tokens we'll fetch from
 // Ponder for the status=graduated|graduating tabs. Same reasoning as
@@ -221,6 +217,11 @@ function buildScoredComparator(
   sort: "trending" | "mcap" | "change24h",
   volume24hOf: (t: EnrichedToken) => number,
   mcapOf: (t: EnrichedToken) => number,
+  // `windowIndex` (0 = last 24h, 1 = 24–48h ago, …) is the primary key for
+  // the `trending` sort's multi-window walk. Defaults to a flat 0 so the
+  // single-cohort callers (graduated branch, degraded fallback) keep the
+  // pure volume-desc behaviour. Ignored by the mcap / change24h branches.
+  windowIndexOf: (t: EnrichedToken) => number = () => 0,
 ): (a: EnrichedToken, b: EnrichedToken) => number {
   if (sort === "mcap") {
     return (a, b) => {
@@ -244,8 +245,13 @@ function buildScoredComparator(
       return mcapOf(b) - mcapOf(a);
     };
   }
-  // sort === "trending": 24h volume desc, mcap tie-break.
+  // sort === "trending": window asc (last-24h cohort first, then 24–48h,
+  // …), then in-window volume desc, mcap tie-break. The window key keeps
+  // the comparator from re-sorting an older-window token above a newer one
+  // just because its in-window volume is higher.
   return (a, b) => {
+    const w = windowIndexOf(a) - windowIndexOf(b);
+    if (w !== 0) return w;
     const v = volume24hOf(b) - volume24hOf(a);
     if (v !== 0) return v;
     return mcapOf(b) - mcapOf(a);
@@ -262,8 +268,10 @@ function buildScoredComparator(
  * fetches the volume-ranked candidate pool from the indexer and then
  * reorders the hydrated rows in memory.
  *
- *   - `trending`   — 24h gross USDC volume desc (mcap tie-break).
- *                    The TRENDING-tab default.
+ *   - `trending`   — multi-window walk: last-24h cohort by gross USDC
+ *                    volume desc, then the 24–48h cohort, then 48–72h,
+ *                    … (mcap tie-break within a window). The TRENDING-tab
+ *                    default; backs infinite scroll past the last 24h.
  *   - `mcap`       — market cap desc (24h volume tie-break: equal
  *                    mcap rows surface the more-active token first).
  *   - `change24h`  — 24h percentage change desc (mcap tie-break;
@@ -805,21 +813,25 @@ listRoute.get("/", async (c) => {
         : tokens.createdAt;
 
   // Scored sorts (trending / mcap / change24h) all use the same
-  // candidate pool — rolling 24h gross USDC volume desc, top‑N from
+  // candidate pool — the multi-window trending ranking, top‑N from
   // `token_hourly_metrics`. Two-stage flow:
   //
-  //   1. Sum the `token_hourly_metrics` buckets over the last 24h per
-  //      token, `ORDER BY SUM(volume_usd) DESC LIMIT POOL`. The ranking
-  //      IS the candidate list — no per-request re-score, no precomputed
-  //      score column, no boost system. Anti-spam by construction: a
-  //      token nobody trades simply has no rows in the window and so
-  //      never appears in the ranking.
+  //   1. Bucket every token into successive 24h windows counting back
+  //      from the current hour-start, assign it to the most-recent
+  //      window it traded in, and rank window 0 (last 24h) by in-window
+  //      volume desc, then window 1 (24–48h ago), then window 2, … The
+  //      ranking IS the candidate list — no per-request re-score, no
+  //      precomputed score column, no boost system. Anti-spam by
+  //      construction: a token nobody ever traded has no rows and so
+  //      never appears. Walking older windows is what lets the tab keep
+  //      producing rows for infinite scroll once the last-24h cohort is
+  //      exhausted.
   //   2. Hydrate the matching rows from Postgres with the user's filters
   //      applied (`status`, `underlying`, `direction`, etc.). The user's
   //      selected sort decides the *final ordering* over the pool (see
   //      the comparator block far below) — but the pool itself is
   //      always volume-driven. So `sort=mcap` means "top mcap among
-  //      tokens that traded in the last 24h", NOT "top mcap globally"
+  //      tokens with recent trading activity", NOT "top mcap globally"
   //      (the latter would lose the anti-spam property and surface
   //      stale tokens no one is engaging with). Same logic for
   //      `change24h`.
@@ -829,35 +841,37 @@ listRoute.get("/", async (c) => {
   // "degraded"` below; the brief loss of volume ordering is preferable
   // to a 503 on the home-page tab.
   let trendingDegraded = false;
-  // Map from lowercased address → 24h volume (USD). Populated for the
-  // happy path so the final sort can use the same numbers the candidate
-  // query ranked on — keeps the API-visible ordering an exact mirror of
-  // the SQL `ORDER BY` (and means the response never re-disagrees with
-  // itself if a few of the hydrated `volume24hUsd` values come back null
-  // due to a transient indexer aggregation failure on the second query).
+  // Map from lowercased address → in-window volume (USD). Populated for
+  // the happy path so the final sort can use the same numbers the
+  // candidate query ranked on — keeps the API-visible ordering an exact
+  // mirror of the SQL `ORDER BY` (and means the response never
+  // re-disagrees with itself if a few of the hydrated `volume24hUsd`
+  // values come back null due to a transient aggregation failure).
   let trendingVolumeByAddress: Map<string, number> | null = null;
+  // Map from lowercased address → assigned 24h window index (0 = last
+  // 24h, 1 = 24–48h ago, …). Primary sort key for `sort=trending` so the
+  // comparator keeps older-window tokens below newer-window ones
+  // regardless of raw in-window volume.
+  let trendingWindowByAddress: Map<string, number> | null = null;
   let dbTokens: DbToken[];
   if (isScoredSort) {
     const nowSecForCandidates = Math.floor(Date.now() / 1000);
-    // Round down to the current hour-start before subtracting the
-    // window so we always include at least 24 full buckets — same
-    // semantics as `fetchPlatformStats`. The extra (current) hour
-    // guarantees the window is ≥24h regardless of where in the hour
-    // the request lands.
+    // Current hour boundary — the read buckets tokens into 24h windows
+    // counting back from here.
     const currentHourStart =
       Math.floor(nowSecForCandidates / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
-    const cutoffHourStart = currentHourStart - TRENDING_WINDOW_SEC;
     const candidates = await fetchTrendingCandidatesByVolume(
       c.env.DATABASE_URL,
       TRENDING_POOL_SIZE,
-      cutoffHourStart,
+      currentHourStart,
     );
     if (candidates !== null) {
       if (candidates.length === 0) {
-        // Indexer is up but no tokens have traded in the last 24h —
-        // legitimately-empty trending tab. Skip the DB roundtrip.
+        // Indexer is up but no token has ever traded — legitimately-empty
+        // trending tab. Skip the DB roundtrip.
         dbTokens = [];
         trendingVolumeByAddress = new Map();
+        trendingWindowByAddress = new Map();
       } else {
         // `tokens.address` is stored checksummed (`getAddress(...)` at
         // insert time in `lib/token-registration.ts`); the indexer
@@ -878,14 +892,18 @@ listRoute.get("/", async (c) => {
         trendingVolumeByAddress = new Map(
           candidates.map((c) => [c.tokenAddress, c.volume24hUsd]),
         );
+        trendingWindowByAddress = new Map(
+          candidates.map((c) => [c.tokenAddress, c.windowIndex]),
+        );
         // For `sort=trending` we can paginate BEFORE market-data
-        // enrichment: candidates come back sorted `SUM(volume_usd)
-        // DESC, token_address ASC` from the indexer, so reordering
-        // filter-passing rows to match that order and slicing the
-        // `[offset, offset+limit]` window upfront caps the downstream
-        // `computeMarketDataForAddresses` call (and its BounceTech
-        // LATERAL scans) at page-size instead of the full
-        // `TRENDING_POOL_SIZE` — the dominant cost on cold cache.
+        // enrichment: candidates come back in the final walk order
+        // (`window_index ASC, in-window volume DESC, token_address ASC`)
+        // from the indexer, so reordering filter-passing rows to match
+        // that order and slicing the `[offset, offset+limit]` window
+        // upfront caps the downstream `computeMarketDataForAddresses`
+        // call (and its BounceTech LATERAL scans) at page-size instead
+        // of the full `TRENDING_POOL_SIZE` — the dominant cost on cold
+        // cache.
         //
         // `sort=mcap` / `sort=change24h` re-rank the same volume-
         // ordered pool by a key that isn't known until enrichment, so
@@ -1041,15 +1059,18 @@ listRoute.get("/", async (c) => {
     // still better than arbitrary `createdAt` order.
     //
     // Tie-breaks (per sort):
-    //   - trending / change24h → mcap desc
+    //   - trending → window asc, then in-window volume desc, then mcap
+    //     desc (the window key keeps older-window tokens below newer-
+    //     window ones)
+    //   - change24h → mcap desc
     //   - mcap → 24h volume desc (equal-mcap rows surface the more-
     //     active token first)
     // For `sort=trending`, `dbTokens` was already sliced to the page
-    // upstream (volume-ordered), so the comparator's mcap tie-break
-    // only reshuffles ties *within the page* — the post-sort slice
-    // below is skipped to avoid double-paginating. For mcap /
-    // change24h the pool is still 500 tokens here and the comparator
-    // picks the true top-N before the post-sort slice paginates.
+    // upstream (window-ordered), so the comparator only reshuffles ties
+    // *within the page* — the post-sort slice below is skipped to avoid
+    // double-paginating. For mcap / change24h the pool is still 500
+    // tokens here and the comparator picks the true top-N before the
+    // post-sort slice paginates.
     const volume24hOf = (t: EnrichedToken): number => {
       const addr = t.address.toLowerCase();
       const mapped = trendingVolumeByAddress?.get(addr);
@@ -1057,8 +1078,13 @@ listRoute.get("/", async (c) => {
       return t.volume24hUsd ?? 0;
     };
     const mcapOf = (t: EnrichedToken) => t.mcapUsd ?? 0;
+    // Older windows sink below newer ones. Falls back to window 0 when
+    // the candidate map is unavailable (degraded createdAt-DESC path) so
+    // the comparator collapses to plain volume-desc there.
+    const windowIndexOf = (t: EnrichedToken): number =>
+      trendingWindowByAddress?.get(t.address.toLowerCase()) ?? 0;
     const sorted = [...enriched].sort(
-      buildScoredComparator(sort, volume24hOf, mcapOf),
+      buildScoredComparator(sort, volume24hOf, mcapOf, windowIndexOf),
     );
     enriched =
       sort === "trending" ? sorted : sorted.slice(offset, offset + limit);

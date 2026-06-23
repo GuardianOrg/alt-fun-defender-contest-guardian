@@ -652,13 +652,15 @@ describe("GET /tokens — totalVolumeUsd enrichment", () => {
 
 /**
  * Coverage for the volume-based trending candidate path. The trending
- * tab is a pure `ORDER BY SUM(volume_usd) DESC` against the per-token
- * hourly bucket table — no precomputed score, no boost, no freshness /
- * recency / dead-token heuristics. The candidate query IS the ranking.
- * These tests cover the happy path (ranking preserved across hydration),
- * the indexer-down fallback (createdAt-DESC + dataSource=degraded), the
- * empty-result short-circuit, and the cutoff math (≥ 24 full buckets
- * regardless of where in the hour the request lands).
+ * tab is a multi-window walk over the per-token hourly bucket table:
+ * each token is placed in the most-recent 24h window it traded in and
+ * ranked by in-window volume, window 0 (last 24h) first, then 24–48h,
+ * etc. — no precomputed score, no boost, no recency decay beyond the
+ * window bucketing. The candidate query IS the ranking. These tests
+ * cover the happy path (ranking preserved across hydration), the
+ * cross-window ordering, the indexer-down fallback (createdAt-DESC +
+ * dataSource=degraded), the empty-result short-circuit, and the
+ * hour-start arg the read buckets back from.
  */
 describe("GET /tokens?sort=trending — volume-based candidate path", () => {
   beforeEach(() => {
@@ -702,20 +704,54 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "AAA", "CCC"]);
   });
 
-  it("passes a 24h cutoff aligned to the current hour-start", async () => {
+  it("passes the current hour-start so the read can bucket into 24h windows", async () => {
     mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
     await createApp().request("/tokens?sort=trending", {}, makeEnv());
 
     expect(mockFetchTrendingCandidatesByVolume).toHaveBeenCalledTimes(1);
     const call = mockFetchTrendingCandidatesByVolume.mock.calls[0];
-    const passedCutoff = call?.[2] as number;
-    // Cutoff = current-hour-start − 86_400. The current hour-start is
-    // `floor(now / 3600) * 3600`, so for any `now` the cutoff sits
-    // exactly on an hour boundary in [now − 90_000, now − 86_400].
+    const passedHourStart = call?.[2] as number;
+    // The read now buckets back from the current hour-start
+    // (`floor(now / 3600) * 3600`) rather than receiving a precomputed
+    // 24h cutoff — so it lands on an hour boundary in [now − 3600, now].
     const nowSec = Math.floor(Date.now() / 1000);
-    expect(passedCutoff % 3600).toBe(0);
-    expect(passedCutoff).toBeGreaterThanOrEqual(nowSec - 86_400 - 3600);
-    expect(passedCutoff).toBeLessThanOrEqual(nowSec - 86_400);
+    expect(passedHourStart % 3600).toBe(0);
+    expect(passedHourStart).toBeGreaterThanOrEqual(nowSec - 3600);
+    expect(passedHourStart).toBeLessThanOrEqual(nowSec);
+  });
+
+  it("orders the last-24h cohort ahead of older windows regardless of in-window volume", async () => {
+    // Multi-window walk: A traded only in window 1 (24–48h ago) with a
+    // big in-window volume; B traded in window 0 (last 24h) with a tiny
+    // volume. B must still rank first — newer window wins over raw
+    // in-window volume. The candidate stub is deliberately returned in
+    // the "wrong" order (A first) to prove the route re-ranks on
+    // windowIndex rather than trusting array position.
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 5_000, windowIndex: 1 },
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 100, windowIndex: 0 },
+    ]);
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "OLD_WINDOW" }),
+      makeDbRow(ADDR_B, { ticker: "LAST_24H" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket() },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["LAST_24H", "OLD_WINDOW"]);
   });
 
   it("breaks volume ties on mcap desc so quiet tokens can't leapfrog priced ones", async () => {
