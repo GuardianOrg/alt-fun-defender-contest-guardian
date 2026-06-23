@@ -22,7 +22,6 @@ import {
   indexerRouterTrade,
   indexerToken,
   indexerTokenBalance,
-  indexerTokenHourlyMetrics,
   indexerTokenSnapshot,
   indexerWalletBotPosition,
   indexerWalletPosition,
@@ -854,77 +853,112 @@ export async function fetchTokenPairAddresses(
   }
 }
 
-/** Resolved (address, 24h volume) pair for the trending pool. */
+/** Resolved trending candidate, with its placement in the multi-window walk. */
 export interface TrendingVolumeCandidate {
   /** Lowercased token address. */
   tokenAddress: string;
-  /** Gross USDC routed through `Zap` for this token in the last 24h, USD float. */
+  /**
+   * Gross USDC (USD float) the token traded **within its assigned window**.
+   * For `windowIndex === 0` this is the true trailing-24h volume; for older
+   * windows it's the gross volume inside that 24h slice. Drives the
+   * in-window ranking only — the row's displayed `volume24hUsd` still comes
+   * from live market enrichment (correctly ~0 for a token whose last trade
+   * was days ago).
+   */
   volume24hUsd: number;
+  /**
+   * 0-based 24h window the token is assigned to, counting back from the
+   * current hour-start: 0 = last 24h, 1 = 24–48h ago, 2 = 48–72h ago, …
+   * A token is placed in the **most recent** window it traded in, so it
+   * surfaces exactly once across the whole walk.
+   */
+  windowIndex: number;
 }
 
 /**
- * Top-K trending candidate token addresses, ranked by **rolling 24h gross
- * USDC volume**. Pure-volume trending sort: the candidate fetch IS the
- * ranking — there's no per-request re-score on top, no precomputed
- * `base_score` column, no boost system, no freshness/recency/dead-token
- * heuristics. Sole backing store is `token_hourly_metrics` (hour-bucketed
- * gross USDC per token), summed over the last 24h.
+ * Trending candidate pool ranked for an **infinite multi-window walk**.
  *
- * `cutoffHourStartSec` is the earliest `hour_start` to include — callers
- * pass `floor((now - 86400) / 3600) * 3600` to get a "trailing 24h"
- * window that's always at least 24h wide regardless of where in the hour
- * the request lands (matches the platform-wide `hourlyVolume` scan
- * semantics in `fetchPlatformStats`).
+ * The trending tab no longer stops at the trailing 24h. Tokens are bucketed
+ * into successive 24h windows counting back from `currentHourStartSec`
+ * (window 0 = last 24h, window 1 = 24–48h ago, …) via
+ * `floor((currentHourStart − hour_start) / 86400)`. Each token is assigned to
+ * the **most recent** window it traded in and ranked within that window by
+ * the gross USDC it traded there. The global order is therefore:
  *
- * Tokens with zero recent activity are absent from the result — the
- * `HAVING SUM(volume_usd) > 0` is implicit in the `GROUP BY` (a token
- * with no bucket rows in the window contributes nothing to the result).
- * The 24h cutoff + `(token_address, hour_start)` index keep this O(active
- * tokens × ≤25 buckets) — cheap even on a cold cache, no truncation case.
+ *   window 0 by volume desc → window 1 by volume desc → window 2 → …
  *
- * Tie-breaking: the secondary `ORDER BY token_address ASC` makes the
- * truncated candidate set deterministic across requests. The route layer
- * then applies the documented `volume desc, mcap desc` tie-break over
- * the hydrated pool — that's intentionally best-effort because mcap
- * depends on the BounceTech LT rate × curve price and can't be expressed
- * in SQL here. Collisions on 6dp-USDC `SUM(volume_usd)` across 500+
- * tokens are vanishingly improbable in practice (each gross-USDC trade
- * tail adds entropy), so the deterministic SQL sort + best-effort mcap
- * tie-break is the right cost/correctness trade. CodeRabbit feedback on
- * PR #946.
+ * so once the last-24h cohort runs out the list keeps flowing with the
+ * previous-24h trending set, then the one before, and so on — backing an
+ * infinite scroll even when only a handful of tokens traded recently.
+ * Assigning each token to a single (most-recent) window dedups the walk by
+ * construction: a token that traded in both window 0 and window 3 only ever
+ * appears in window 0.
+ *
+ * Still a pure-volume ranking — no precomputed score column, no boost
+ * system, no recency decay beyond the 24h window bucketing itself. A token
+ * that has never traded has no rows here and never appears.
+ *
+ * Bounded by `limit` (the route's `TRENDING_POOL_SIZE`) — the same budget the
+ * single-window version used. If the ever-traded catalogue outgrows it the
+ * next step is a precomputed `(token, window, volume)` rollup refreshed by
+ * cron, not a larger scan. Tie-break inside a window is `token_address ASC`
+ * (deterministic across requests); the route then applies the documented
+ * `mcap desc` tie-break over the hydrated pool (mcap can't be expressed in
+ * SQL — it depends on the BounceTech LT rate × curve price).
  */
 export async function fetchTrendingCandidatesByVolume(
   db: Database,
   limit: number,
-  cutoffHourStartSec: number,
+  currentHourStartSec: number,
 ): Promise<TrendingVolumeCandidate[] | null> {
   try {
-    const rows = (await db
-      .select({
-        tokenAddress: indexerTokenHourlyMetrics.tokenAddress,
-        volumeRaw: sql<string>`SUM(${indexerTokenHourlyMetrics.volumeUsd})::text`,
-      })
-      .from(indexerTokenHourlyMetrics)
-      .where(
-        gte(indexerTokenHourlyMetrics.hourStart, String(cutoffHourStartSec)),
+    // `window_index` is a SELECT alias reused in GROUP BY (Postgres allows
+    // output-column names in GROUP BY / ORDER BY). The outer projection
+    // names the volume column `window_volume_usd` so the `ORDER BY
+    // window_volume DESC` binds to the numeric source column, not a text
+    // output alias (which would sort lexicographically).
+    const result = await db.execute(sql`
+      WITH per_window AS (
+        SELECT
+          token_address,
+          FLOOR((${currentHourStartSec}::bigint - hour_start::bigint) / 86400) AS window_index,
+          SUM(volume_usd) AS window_volume
+        FROM ponder_views.token_hourly_metrics
+        GROUP BY token_address, window_index
+      ),
+      assigned AS (
+        SELECT DISTINCT ON (token_address)
+          token_address,
+          window_index,
+          window_volume
+        FROM per_window
+        ORDER BY token_address, window_index ASC
       )
-      .groupBy(indexerTokenHourlyMetrics.tokenAddress)
-      .orderBy(
-        sql`SUM(${indexerTokenHourlyMetrics.volumeUsd}) DESC`,
-        asc(indexerTokenHourlyMetrics.tokenAddress),
-      )
-      .limit(limit)) as Array<{ tokenAddress: string; volumeRaw: string }>;
+      SELECT
+        token_address,
+        window_index::int AS window_index,
+        window_volume::text AS window_volume_usd
+      FROM assigned
+      ORDER BY window_index ASC, window_volume DESC, token_address ASC
+      LIMIT ${limit}
+    `);
+    const rows = result.rows as unknown as Array<{
+      token_address: string;
+      window_index: number;
+      window_volume_usd: string;
+    }>;
     return rows.map((r) => ({
-      tokenAddress: r.tokenAddress.toLowerCase(),
+      tokenAddress: r.token_address.toLowerCase(),
       // USDC is 6dp on-chain; convert to USD here so the route can ship
-      // the value verbatim and sort by it without re-parsing the bigint.
-      volume24hUsd: Number(BigInt(r.volumeRaw)) / 1e6,
+      // the value verbatim and rank on it without re-parsing the bigint.
+      volume24hUsd: Number(BigInt(r.window_volume_usd)) / 1e6,
+      windowIndex: Number(r.window_index),
     }));
   } catch (error) {
     logIndexerReadFailure(
       "indexer_reads.fetchTrendingCandidatesByVolume_failed",
       error,
-      { limit, cutoffHourStartSec },
+      { limit, currentHourStartSec },
     );
     return null;
   }
