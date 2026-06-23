@@ -98,6 +98,16 @@ export function quantizeTrailing24hCutoffSec(nowSec: number): number {
 }
 
 /**
+ * How far back the trending multi-window walk
+ * ({@link fetchTrendingCandidatesByVolume}) aggregates `hour_start` buckets.
+ * 90 days = 90 successive 24h windows, far deeper than any realistic
+ * infinite-scroll session, so it bounds the per-cold-miss scan without
+ * practically capping the walk. Tokens with no activity inside the horizon
+ * are dead from a trending standpoint and drop out.
+ */
+const TRENDING_WINDOW_HORIZON_SEC = 90 * 86_400;
+
+/**
  * Strip Drizzle's `Failed query: <SQL>\nparams: <values>` decoration so
  * the `error.message` log field stays grep-able. The SQL itself is
  * already in the source (and the surrounding `event` name pinpoints
@@ -899,9 +909,14 @@ export interface TrendingVolumeCandidate {
  * that has never traded has no rows here and never appears.
  *
  * Bounded by `limit` (the route's `TRENDING_POOL_SIZE`) — the same budget the
- * single-window version used. If the ever-traded catalogue outgrows it the
- * next step is a precomputed `(token, window, volume)` rollup refreshed by
- * cron, not a larger scan. Tie-break inside a window is `token_address ASC`
+ * single-window version used — and by {@link TRENDING_WINDOW_HORIZON_SEC} on
+ * the time axis: the CTE only aggregates buckets within the horizon so the
+ * `token_hourly_metrics_hour_start_index` keeps this a bounded range scan
+ * instead of a full-history hash aggregate on every cold miss of the hot
+ * trending route. A token whose last trade predates the horizon is treated
+ * as dead and dropped. If the ever-traded catalogue outgrows `limit` the next
+ * step is a precomputed `(token, window, volume)` rollup refreshed by cron,
+ * not a wider scan. Tie-break inside a window is `token_address ASC`
  * (deterministic across requests); the route then applies the documented
  * `mcap desc` tie-break over the hydrated pool (mcap can't be expressed in
  * SQL — it depends on the BounceTech LT rate × curve price).
@@ -911,6 +926,12 @@ export async function fetchTrendingCandidatesByVolume(
   limit: number,
   currentHourStartSec: number,
 ): Promise<TrendingVolumeCandidate[] | null> {
+  // Earliest `hour_start` the walk considers. Bounds the per-cold-miss scan
+  // to a range on the `hour_start` index. The horizon is generous enough
+  // (TRENDING_WINDOW_HORIZON_SEC) that it never practically caps infinite
+  // scroll — it only drops tokens with no activity in months, which are
+  // already dead from a trending standpoint.
+  const horizonCutoffSec = currentHourStartSec - TRENDING_WINDOW_HORIZON_SEC;
   try {
     // `window_index` is a SELECT alias reused in GROUP BY (Postgres allows
     // output-column names in GROUP BY / ORDER BY). The outer projection
@@ -924,6 +945,7 @@ export async function fetchTrendingCandidatesByVolume(
           FLOOR((${currentHourStartSec}::bigint - hour_start::bigint) / 86400) AS window_index,
           SUM(volume_usd) AS window_volume
         FROM ponder_views.token_hourly_metrics
+        WHERE hour_start >= ${horizonCutoffSec}::bigint
         GROUP BY token_address, window_index
       ),
       assigned AS (
