@@ -66,12 +66,24 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     uint256 public constant LP_RESERVE = (1_000_000_000 ether * LP_RESERVE_BPS) / BPS_DENOM;
 
-    /// @notice A mint pre-seed at or below this fraction (bps) of each
-    ///         LP-bound side is seeded with a direct mint at the cached
-    ///         curve-close ratio: below this band a rebalance swap is too
-    ///         coarse to reach the ratio, and the pre-existing LP's claim on
-    ///         the deposit stays bounded by the same fraction.
-    uint256 public constant DIRECT_MINT_PRESEED_BPS = 50;
+    /// @notice A mint pre-seed at or below this fraction (bps) of BOTH
+    ///         LP-bound sides is seeded with a direct mint at the cached
+    ///         curve-close ratio instead of being rebalanced: against reserves
+    ///         this small the rebalance swap is too coarse to reach the ratio,
+    ///         so a direct mint opens the pool cleanly.
+    ///
+    ///         The direct mint is not free: the empty-mint `min()` formula
+    ///         donates the over-funded side of the deposit to the pre-seeder's
+    ///         pre-existing LP, so this band doubles as the cap on that
+    ///         subsidy (≈ this fraction of `ltFromPair`). It is deliberately
+    ///         tiny (1 bp) so the subsidy is economically negligible. Any
+    ///         larger pre-seed exceeds the band and takes the rebalance path,
+    ///         which arbs the pre-seed back to the curve-close ratio in the
+    ///         same tx and leaves the pre-seeder net-negative — so the only
+    ///         pre-seeds that reach the direct mint are ones whose subsidy is
+    ///         bounded here, plus genuine dust that the `_pairRebalance`
+    ///         swap-rounds-to-zero fallback would route here anyway.
+    uint256 public constant DIRECT_MINT_PRESEED_BPS = 1;
 
     /// @dev Name/ticker bounds mirror Pump.fun so tokens render consistently in
     ///      cross-launchpad aggregators (DEXScreener, Birdeye) that size UI off
