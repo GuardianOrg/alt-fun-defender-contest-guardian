@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {Pair} from "./Pair.sol";
-import {Router} from "./Router.sol";
+import {IRouter} from "./interfaces/IRouter.sol";
 
 /// @title Factory
 /// @notice Registry of bonding-curve pairs. Forked from Virtuals `FFactory.sol`.
@@ -66,7 +66,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (router_ == address(0)) revert ZeroAddress();
         if (pairCount > 0) revert RouterFrozen();
-        if (address(Router(router_).factory()) != address(this)) revert RouterFactoryMismatch();
+        if (IRouter(router_).factory() != address(this)) revert RouterFactoryMismatch();
         address old = router;
         router = router_;
         emit RouterUpdated(old, router_);
