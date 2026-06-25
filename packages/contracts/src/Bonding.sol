@@ -66,12 +66,16 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
     uint256 public constant LP_RESERVE = (1_000_000_000 ether * LP_RESERVE_BPS) / BPS_DENOM;
 
-    /// @notice A mint pre-seed at or below this fraction (bps) of each
-    ///         LP-bound side is seeded with a direct mint at the cached
-    ///         curve-close ratio: below this band a rebalance swap is too
-    ///         coarse to reach the ratio, and the pre-existing LP's claim on
-    ///         the deposit stays bounded by the same fraction.
-    uint256 public constant DIRECT_MINT_PRESEED_BPS = 50;
+    /// @notice When a pre-seed is tiny on both sides — at or below this
+    ///         fraction (bps) of each LP-bound side — we skip the rebalance
+    ///         swap (too coarse to land the ratio at that size) and just
+    ///         direct-mint at the cached curve-close ratio. That mint quietly
+    ///         hands the pre-seeder a small subsidy (the empty-mint `min()`
+    ///         donates the over-funded side to their LP), so we keep this band
+    ///         tiny to keep the subsidy negligible — at 1 bp it's not worth
+    ///         chasing. Anything larger takes the rebalance path instead,
+    ///         which arbs the pre-seed away and leaves them out of pocket.
+    uint256 public constant DIRECT_MINT_PRESEED_BPS = 1;
 
     /// @dev Name/ticker bounds mirror Pump.fun so tokens render consistently in
     ///      cross-launchpad aggregators (DEXScreener, Birdeye) that size UI off

@@ -696,6 +696,104 @@ contract TwoPhaseGraduationTest is DeployHelper {
         _assertOpensAtCachedRatio(hyperPair, tokenAddr, tokensForLP, ltFromPair);
     }
 
+    // ─── Direct-mint subsidy band (M-01) ─────────────────────────────────
+    //
+    // `_seedDirectMint` against a pre-existing LP donates the over-funded
+    // side of the deposit to the pre-seeder under V2's empty-mint `min()`.
+    // `DIRECT_MINT_PRESEED_BPS` caps that subsidy AND gates which pre-seeds
+    // reach the direct mint. These tests bracket the band: a pre-seed sitting
+    // on the band still direct-mints with a subsidy bounded by the band; a
+    // pre-seed above the band takes the rebalance path and cannot profit.
+
+    /// @dev Value `lp`'s claim on `(reserveToken, reserveLt)` expressed in LT
+    ///      at the pool's current price, i.e. `claimToken * price + claimLt`.
+    function _lpValueInLt(
+        address hyperPair,
+        address tokenAddr,
+        uint256 lp
+    ) private view returns (uint256) {
+        uint256 totalLp = MockHyperswapPair(hyperPair).totalSupply();
+        if (totalLp == 0) return 0;
+        (uint112 r0, uint112 r1,) = MockHyperswapPair(hyperPair).getReserves();
+        bool tokenIs0 = MockHyperswapPair(hyperPair).token0() == tokenAddr;
+        (uint256 reserveToken, uint256 reserveLt) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+        uint256 claimToken = (lp * reserveToken) / totalLp;
+        uint256 claimLt = (lp * reserveLt) / totalLp;
+        return (claimToken * reserveLt) / reserveToken + claimLt;
+    }
+
+    /// @notice M-01 regression. The documented subsidy attack pre-seeds the
+    ///         pair with TOKEN at the original 0.5% band on one side and 1 wei
+    ///         of LT on the other; the empty-mint `min()` then donates ~0.5%
+    ///         of `ltFromPair` to the attacker's LP for free. With the
+    ///         tightened band this shape exceeds the direct-mint cutoff and
+    ///         takes the rebalance path, which arbs the pre-seed away — so the
+    ///         pre-seeder's redeemable value can never exceed its deposit
+    ///         (P&L ≤ 0).
+    function test_hostilePreSeed_asymmetricSubsidy_isNotProfitable() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        // Worst-case M-01 shape: token side at the original 0.5% band, LT side
+        // at 1 wei. Under the original 50-bps band this sat on the direct-mint
+        // cutoff and the empty-mint `min()` donated ~0.5% of `ltFromPair` to
+        // the attacker. Under the tightened band it exceeds the cutoff and
+        // takes the loss-making rebalance path. The P&L assertion below holds
+        // only on the tightened band (it fails on the original 50-bps value),
+        // which is what makes this a regression test for M-01.
+        uint256 reserveToken = (tokensForLP * 50) / 10_000;
+        uint256 reserveLt = 1;
+
+        deal(tokenAddr, griefer, reserveToken);
+        address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
+        uint256 grieferLp = MockHyperswapPair(hyperPair).balanceOf(griefer);
+
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr));
+
+        uint256 claimValueLt = _lpValueInLt(hyperPair, tokenAddr, grieferLp);
+        uint256 depositValueLt = (reserveToken * ltFromPair) / tokensForLP + reserveLt;
+        assertLe(claimValueLt, depositValueLt, "pre-seeder must not profit from the direct-mint subsidy");
+    }
+
+    /// @notice The residual case: a one-sided pre-seed sitting on the tightened
+    ///         band still reaches the direct mint, and the empty-mint `min()`
+    ///         still donates the over-funded side to the pre-seeder. This is
+    ///         the worst case for the retained direct-mint path (token on the
+    ///         band, LT at 1 wei, so the whole LT side is donated). The net
+    ///         subsidy must stay bounded by the band fraction of `ltFromPair`,
+    ///         which at 1 bp is economically negligible — this pins both the
+    ///         bound the M-01 fix relies on and the constant against drifting
+    ///         back up.
+    function test_hostilePreSeed_atBand_subsidyBoundedByBand() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        uint256 band = bonding.DIRECT_MINT_PRESEED_BPS();
+        uint256 reserveToken = (tokensForLP * band) / 10_000;
+        uint256 reserveLt = 1;
+        // Both sides sit within the band, so the gate routes this to the
+        // direct mint rather than the rebalance swap.
+        assertLe(reserveToken * 10_000, tokensForLP * band, "token side must sit within the band");
+        assertLe(reserveLt * 10_000, ltFromPair * band, "LT side must sit within the band");
+
+        deal(tokenAddr, griefer, reserveToken);
+        address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
+        uint256 grieferLp = MockHyperswapPair(hyperPair).balanceOf(griefer);
+
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr));
+
+        uint256 claimValueLt = _lpValueInLt(hyperPair, tokenAddr, grieferLp);
+        uint256 depositValueLt = (reserveToken * ltFromPair) / tokensForLP + reserveLt;
+        uint256 maxSubsidy = (ltFromPair * band) / 10_000;
+        assertLe(claimValueLt, depositValueLt + maxSubsidy, "direct-mint subsidy must stay within the band");
+    }
+
     // ─── Hostile pre-seed economic safety (M-02) ─────────────────────────
     //
     // When a mint pre-seed is lopsided enough that the bounded rebalance swap
