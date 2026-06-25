@@ -696,6 +696,171 @@ contract TwoPhaseGraduationTest is DeployHelper {
         _assertOpensAtCachedRatio(hyperPair, tokenAddr, tokensForLP, ltFromPair);
     }
 
+    // ─── Hostile pre-seed economic safety (M-02) ─────────────────────────
+    //
+    // When a mint pre-seed is lopsided enough that the bounded rebalance swap
+    // cannot reach the cached curve-close ratio — the per-side budget is only
+    // `tokensForLP` (TOKEN-in) or `ltFromPair` (LT-in) — `finalizeGraduation`
+    // deposits at the still-skewed post-swap ratio rather than reverting.
+    // Brick-resistance (a revert leaves every holder stuck in `Graduating`
+    // forever) ranks above price integrity, so the residual off-curve open is
+    // accepted. These tests pin the economic floor that makes it acceptable:
+    // the pre-seeder is always net-negative because the over-funded side is
+    // arbed out by the rebalance swap and then confiscated (swept to the owner
+    // or burned), and finalize never reverts across the pre-seed shape space.
+
+    /// @dev Value `lp`'s pool claim in LT at the curve-close (fair) price
+    ///      `ltFromPair / tokensForLP`, i.e. `claimToken * price + claimLt`.
+    ///      Valuing at the fair price (not the skewed pool price) is what makes
+    ///      "claim <= deposit" a genuine P&L statement rather than a
+    ///      pool-relative identity that holds trivially.
+    function _lpValueAtCurveClose(
+        address hyperPair,
+        address tokenAddr,
+        uint256 lp,
+        uint256 tokensForLP,
+        uint256 ltFromPair
+    ) private view returns (uint256) {
+        uint256 totalLp = MockHyperswapPair(hyperPair).totalSupply();
+        if (totalLp == 0) return 0;
+        (uint112 r0, uint112 r1,) = MockHyperswapPair(hyperPair).getReserves();
+        bool tokenIs0 = MockHyperswapPair(hyperPair).token0() == tokenAddr;
+        (uint256 reserveToken, uint256 reserveLt) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+        uint256 claimToken = (lp * reserveToken) / totalLp;
+        uint256 claimLt = (lp * reserveLt) / totalLp;
+        return Math.mulDiv(claimToken, ltFromPair, tokensForLP) + claimLt;
+    }
+
+    /// @dev The pre-seeder's deposit valued at the curve-close price — their
+    ///      cost basis, measured the same way as the LP claim above. `deal`ing
+    ///      the TOKEN side for free is conservative: a real attacker buys it on
+    ///      the curve at ~this price, so charging fair value here understates
+    ///      neither their cost nor the conclusion.
+    function _depositValueAtCurveClose(
+        uint256 reserveTokenAmt,
+        uint256 reserveLtAmt,
+        uint256 tokensForLP,
+        uint256 ltFromPair
+    ) private pure returns (uint256) {
+        return Math.mulDiv(reserveTokenAmt, ltFromPair, tokensForLP) + reserveLtAmt;
+    }
+
+    /// @dev Pool's current LT-per-token price (1e18-scaled). Factored out to
+    ///      keep the M-02 reproducer below under solc's no-viaIR stack ceiling.
+    function _poolPriceLtPerToken(
+        address hyperPair,
+        address tokenAddr
+    ) private view returns (uint256) {
+        (uint112 r0, uint112 r1,) = MockHyperswapPair(hyperPair).getReserves();
+        bool tokenIs0 = MockHyperswapPair(hyperPair).token0() == tokenAddr;
+        (uint256 finalToken, uint256 finalLt) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+        return (finalLt * 1e18) / finalToken;
+    }
+
+    /// @notice M-02 reproducer. An LT-rich mint pre-seed so lopsided that the
+    ///         TOKEN-side rebalance swap exhausts its full budget (~99% of
+    ///         `tokensForLP`) without reaching the cached ratio, so the pool
+    ///         deposits materially off curve-close. Finalize must still succeed
+    ///         (no brick), the over-funded LT side must be confiscated to the
+    ///         owner, and the pre-seeder must end net-negative.
+    function test_hostilePreSeed_budgetCappedSwap_isNotProfitable() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        // Extreme LT-rich shape: TOKEN side at 1% of target, LT side at 200x.
+        // The optimal TOKEN-in swap to reach the cached ratio is ~1.4x
+        // `tokensForLP`, so the 99%-of-`tokensForLP` budget cap binds and the
+        // pool stays ~2x off curve-close after the swap.
+        uint256 reserveToken = tokensForLP / 100;
+        uint256 reserveLt = ltFromPair * 200;
+
+        // M-02 precondition: the optimal swap exceeds the budget (this is the
+        // budget-capped regime, distinct from the swap-rounds-to-zero fallback
+        // covered by the dust tests above).
+        assertGt(
+            _noFeeSwapInputUncapped(reserveToken, reserveLt, tokensForLP, ltFromPair),
+            (tokensForLP * 99) / 100,
+            "setup: optimal rebalance swap must exceed the per-side budget (M-02 regime)"
+        );
+
+        deal(tokenAddr, griefer, reserveToken);
+        address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
+        uint256 grieferLp = MockHyperswapPair(hyperPair).balanceOf(griefer);
+        uint256 ownerLtBefore = lt.balanceOf(bonding.owner());
+
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr), "finalize must succeed despite an unrecoverable pre-seed");
+
+        // The accepted residual: no bounded swap can correct a 200x LT-rich
+        // pre-seed, so the pool opens materially off curve-close.
+        assertGt(
+            _poolPriceLtPerToken(hyperPair, tokenAddr),
+            (((ltFromPair * 1e18) / tokensForLP) * 12) / 10,
+            "M-02 regime: pool opens materially off curve-close"
+        );
+
+        // The over-funded LT side is arbed out by the rebalance swap and swept
+        // to the owner — the pre-seeder cannot recover it.
+        assertGt(
+            lt.balanceOf(bonding.owner()) - ownerLtBefore,
+            reserveLt / 2,
+            "the over-funded LT side must be confiscated to the owner"
+        );
+
+        // P&L: the pre-seeder's residual LP, valued at the fair (curve-close)
+        // price, is worth a fraction of what they deposited — the attack is
+        // cost-negative.
+        uint256 claimValue = _lpValueAtCurveClose(hyperPair, tokenAddr, grieferLp, tokensForLP, ltFromPair);
+        uint256 depositValue = _depositValueAtCurveClose(reserveToken, reserveLt, tokensForLP, ltFromPair);
+        assertLe(claimValue, depositValue, "pre-seeder must not profit (P&L <= 0)");
+        assertLt(claimValue * 2, depositValue, "pre-seeder must lose materially, not merely break even");
+    }
+
+    /// @notice Across the hostile mint-pre-seed shape space — both rich
+    ///         directions and magnitudes spanning the in-budget rebalance and
+    ///         the budget-capped (M-02) residual — `finalizeGraduation` must
+    ///         never revert (brick-resistance) and the pre-seeder's residual
+    ///         LP, valued at the fair curve-close price, must never exceed what
+    ///         they deposited (P&L <= 0).
+    /// forge-config: default.fuzz.runs = 64
+    function testFuzz_hostilePreSeed_neverProfitable_neverBricks(
+        uint256 seedMultiple,
+        bool ltRich
+    ) public {
+        seedMultiple = bound(seedMultiple, 1, 1000);
+
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        // One side held at its LP target, the other over-funded by
+        // `seedMultiple`. Small multiples reach the cached ratio within budget;
+        // large ones exhaust it and exercise the M-02 residual. Both rich
+        // directions are covered by `ltRich`.
+        (uint256 reserveToken, uint256 reserveLt) =
+            ltRich ? (tokensForLP, ltFromPair * seedMultiple) : (tokensForLP * seedMultiple, ltFromPair);
+
+        deal(tokenAddr, griefer, reserveToken);
+        address hyperPair = _grieferMintPreSeed(tokenAddr, reserveToken, reserveLt);
+        uint256 grieferLp = MockHyperswapPair(hyperPair).balanceOf(griefer);
+
+        // Brick-resistance: must succeed for every shape, and lock non-zero LP.
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr), "finalize must succeed for every pre-seed shape");
+        assertGt(
+            MockHyperswapPair(hyperPair).balanceOf(address(lpLockContract)), 0, "lpLock must hold non-zero protocol LP"
+        );
+
+        uint256 claimValue = _lpValueAtCurveClose(hyperPair, tokenAddr, grieferLp, tokensForLP, ltFromPair);
+        uint256 depositValue = _depositValueAtCurveClose(reserveToken, reserveLt, tokensForLP, ltFromPair);
+        // Strict P&L bound; the small absolute slack only absorbs integer
+        // rounding in the LP-claim arithmetic (sub-wei-relative), far below any
+        // economically-meaningful subsidy.
+        assertLe(claimValue, depositValue + 1e9, "pre-seeder LP claim must not exceed deposit (P&L <= 0)");
+    }
+
     // ─── Phase 1 gas budget ──────────────────────────────────────────────
 
     /// @notice The graduating buy must fit in HyperEVM's ~2M small-block gas
