@@ -28,6 +28,7 @@ import xyz_CL from "../../assets/Logos/xyz_CL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
 import xyz_MU from "../../assets/Logos/xyz_MU.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
+import xyz_SKHX from "../../assets/Logos/xyz_SKHX.svg";
 import xyz_XYZ100 from "../../assets/Logos/xyz_XYZ100.svg";
 import zec from "../../assets/Logos/zec.svg";
 import { cn } from "../../utils/format";
@@ -56,6 +57,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:XYZ100": xyz_XYZ100,
   "xyz:BB": xyz_BB,
   "xyz:MU": xyz_MU,
+  "xyz:SKHX": xyz_SKHX,
 };
 
 interface Props {
