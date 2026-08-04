@@ -15,9 +15,18 @@
  * backs the profile's created-token list, the rewards tab, and the
  * transfer-creator tab.
  *
- * Creator *earnings* never depended on this column — they come from the
- * indexer's `FeeAccrued` counters, which carry whichever creator was live at
- * trade time — so this sweep is about ownership display, not money.
+ * No funds move with this column: `FeeVault` keys balances by address, so
+ * `claim()` and the wallet-scoped lifetime/claimable totals behind the profile
+ * header stay correct for both wallets no matter what this sweep writes.
+ *
+ * One *displayed* money figure does follow it, though. The per-token "earned"
+ * stat is `ponder_views.token.creator_fees_usd`, reached via the `?creator=`
+ * filter — and that's a single per-token counter that never partitions by
+ * which creator was live at the time. So after a takeover the incoming
+ * steward's badge attributes the token's whole fee history to them, and the
+ * outgoing creator loses the row entirely. Splitting it properly needs a new
+ * per-(token, creator) counter in the indexer; there is no way to derive it
+ * from what's currently stored.
  *
  * Note the deliberate column mismatch across the two schemas: the indexer's
  * `token.creator` is the *immutable* launch wallet (it backs `/security`'s
@@ -26,11 +35,12 @@
  * indexer's mutable mirror is `fee_recipient`, which is what this sweep reads.
  *
  * ACCEPTED TRADE-OFF, not an oversight: because this column also feeds
- * `ApiToken.creator`, moving it repoints the token page's CREATOR holder badge
- * and the "By" attribution at the incoming steward, while `/security`'s
- * `creatorHoldingPct` keeps measuring the original deployer. After a takeover
- * those two surfaces therefore describe different wallets. Signed off as
- * desired behaviour — the token page should name whoever runs the token today.
+ * `ApiToken.creator`, moving it repoints the token page's CREATOR holder badge,
+ * the "By" attribution, and the per-token "earned" stat described above at the
+ * incoming steward, while `/security`'s `creatorHoldingPct` keeps measuring the
+ * original deployer. After a takeover those surfaces therefore describe
+ * different wallets. Signed off as desired behaviour — the token page should
+ * name whoever runs the token today.
  * Separating them properly needs an immutable `launchCreator` plumbed through
  * to the frontend; do that rather than "fixing" it by making the rug signal
  * follow the steward, which would stop flagging an exiting deployer's bag.
