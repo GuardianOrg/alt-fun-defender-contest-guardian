@@ -25,9 +25,24 @@
  * mid-life), while `public.tokens.creator` tracks the *current* steward. The
  * indexer's mutable mirror is `fee_recipient`, which is what this sweep reads.
  *
- * Idempotent and cheap: the detection query is a single indexed join whose
- * steady-state result is empty, so a normal tick issues one read and zero
- * writes.
+ * ACCEPTED TRADE-OFF, not an oversight: because this column also feeds
+ * `ApiToken.creator`, moving it repoints the token page's CREATOR holder badge
+ * and the "By" attribution at the incoming steward, while `/security`'s
+ * `creatorHoldingPct` keeps measuring the original deployer. After a takeover
+ * those two surfaces therefore describe different wallets. Signed off as
+ * desired behaviour — the token page should name whoever runs the token today.
+ * Separating them properly needs an immutable `launchCreator` plumbed through
+ * to the frontend; do that rather than "fixing" it by making the rug signal
+ * follow the steward, which would stop flagging an exiting deployer's bag.
+ *
+ * Idempotent, and cheap in absolute terms rather than asymptotically: the
+ * drift predicate compares two `lower(...)` expressions, so it can't be
+ * indexed and Postgres walks the whole joined catalogue every tick. That's
+ * fine at current scale — ~6.5k tokens a side against a primary key, single-
+ * digit milliseconds, and the steady-state result is empty so a normal tick
+ * issues one read and zero writes. If the catalogue grows a couple of orders
+ * of magnitude, add a partial index on the drift predicate before reaching
+ * for event-cursor plumbing.
  */
 
 import { and, eq, ne, sql } from "drizzle-orm";

@@ -1480,6 +1480,33 @@ contract ZapTest is DeployHelper {
         assertEq(usdc.balanceOf(newCreator), expectedCreator, "New creator should be able to claim");
     }
 
+    /// @dev The 0.75% fee is deliberately not lifted at graduation, so a
+    ///      taken-over token must keep paying the new creator on the
+    ///      HyperSwap venue too — and on sells, not just buys. Both fee sites
+    ///      resolve `creatorOf` independently, so each needs its own check.
+    function test_adminTransferCreator_redirectsPostGradFeesOnBothSides() public {
+        address tokenAddr = _createToken(_defaultSeedUsdc());
+        _graduateToken(tokenAddr);
+
+        address newCreator = makeAddr("communitySteward");
+        vm.prank(owner);
+        bonding.adminTransferCreator(tokenAddr, newCreator);
+        assertEq(feeVault.creatorBalance(newCreator), 0, "New creator starts empty post-grad");
+
+        // Post-grad buy.
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+        uint256 afterBuy = feeVault.creatorBalance(newCreator);
+        assertGt(afterBuy, 0, "Post-grad buy should accrue to the new creator");
+
+        // Post-grad sell.
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        zap.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+
+        assertGt(feeVault.creatorBalance(newCreator), afterBuy, "Post-grad sell should accrue too");
+    }
+
     /// @dev Trading and selling must keep working for a taken-over token —
     ///      the reassignment touches one storage word and must not disturb
     ///      the curve.
