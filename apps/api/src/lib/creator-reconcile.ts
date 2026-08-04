@@ -30,10 +30,11 @@
  * writes.
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getAddress } from "viem";
 
 import { createDb } from "../db/client.js";
+import { indexerToken } from "../db/indexer-schema.js";
 import { tokens } from "../db/schema.js";
 import type { AppBindings } from "./types.js";
 
@@ -74,24 +75,29 @@ export async function runCreatorReconcile(env: AppBindings): Promise<void> {
     // planner returns. Successful rows drop out of the drift set, so the
     // window advances; a row that keeps failing holds its own slot but no
     // longer shuffles the other 99 out of view from tick to tick.
-    const result = await db.execute(sql`
-      SELECT t.address AS address, pt.fee_recipient AS onchain_creator
-      FROM public.tokens t
-      JOIN ponder_views.token pt ON pt.address = LOWER(t.address)
-      WHERE LOWER(t.creator) <> LOWER(pt.fee_recipient)
-        AND pt.fee_recipient <> ${ZERO_ADDRESS}
-      ORDER BY t.address
-      LIMIT ${MAX_UPDATES_PER_TICK}
-    `);
-    drifted = (
-      result.rows as unknown as Array<{
-        address: string;
-        onchain_creator: string;
-      }>
-    ).map((row) => ({
-      address: row.address,
-      onchainCreator: row.onchain_creator,
-    }));
+    //
+    // Built through Drizzle rather than as a raw string so both column names
+    // are compile-time checked. A typo in hand-written SQL would throw at
+    // runtime, get swallowed by the catch below, and leave the sweep silently
+    // dead — the one failure mode that has no visible symptom.
+    drifted = await db
+      .select({
+        address: tokens.address,
+        onchainCreator: indexerToken.feeRecipient,
+      })
+      .from(tokens)
+      .innerJoin(
+        indexerToken,
+        sql`${indexerToken.address} = lower(${tokens.address})`,
+      )
+      .where(
+        and(
+          ne(sql`lower(${tokens.creator})`, sql`lower(${indexerToken.feeRecipient})`),
+          ne(indexerToken.feeRecipient, ZERO_ADDRESS),
+        ),
+      )
+      .orderBy(tokens.address)
+      .limit(MAX_UPDATES_PER_TICK);
   } catch (err) {
     log("warn", "creator_reconcile_detect_failed", describeError(err));
     return;
