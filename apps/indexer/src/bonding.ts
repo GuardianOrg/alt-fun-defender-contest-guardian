@@ -59,6 +59,7 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       name: event.args.name,
       symbol: event.args.ticker,
       creator: event.args.creator,
+      feeRecipient: event.args.creator,
       ltToken: event.args.ltAddress,
       k: event.args.k,
       curveSupply: 0n,
@@ -74,6 +75,7 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       name: event.args.name,
       symbol: event.args.ticker,
       creator: event.args.creator,
+      feeRecipient: event.args.creator,
       ltToken: event.args.ltAddress,
       k: event.args.k,
       blockNumber: BigInt(event.block.number),
@@ -118,6 +120,7 @@ ponder.on("Factory:PairCreated", async ({ event, context }) => {
       name: "",
       symbol: "",
       creator: ZERO_ADDRESS,
+      feeRecipient: ZERO_ADDRESS,
       ltToken: ltAddr,
       k: 0n,
       curveSupply: 0n,
@@ -128,6 +131,41 @@ ponder.on("Factory:PairCreated", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoUpdate({ bondingPair: event.args.pair });
+});
+
+/**
+ * Move `feeRecipient` when the creator role changes hands. `creator` is
+ * deliberately left alone — see the field docs in `ponder.schema.ts` for why
+ * the launch identity and the current fee earner are separate columns.
+ *
+ * Without these handlers `feeRecipient` would be frozen at the launch wallet,
+ * and the API's `?creator=` filter (which the profile's created-token list,
+ * the rewards tab, and the transfer-creator tab all sit on) would keep
+ * attributing tokens to whoever launched them. Creator *earnings* are
+ * unaffected either way: those come from `FeeVault.FeeAccrued`, which carries
+ * whichever creator was live at trade time.
+ *
+ * `Bonding` emits two events for this one state change — `CreatorTransferred`
+ * when the outgoing creator signs the handover, `CreatorReassigned` when the
+ * protocol owner forces it for a community takeover — and both need the
+ * identical row update. The update is inlined in both rather than extracted
+ * because Ponder's `Db` type isn't exported (see the `MAINTAIN_TOKEN_HOURLY`
+ * note at the top of this file).
+ *
+ * `TokenLaunched` always precedes a transfer, so the row is guaranteed to
+ * exist by the time either event fires — a bare `update` is safe, same as
+ * the `TokenGraduating` handler below.
+ */
+ponder.on("Bonding:CreatorTransferred", async ({ event, context }) => {
+  await context.db
+    .update(token, { address: event.args.token })
+    .set({ feeRecipient: event.args.newCreator });
+});
+
+ponder.on("Bonding:CreatorReassigned", async ({ event, context }) => {
+  await context.db
+    .update(token, { address: event.args.token })
+    .set({ feeRecipient: event.args.newCreator });
 });
 
 ponder.on("Bonding:Trade", async ({ event, context }) => {

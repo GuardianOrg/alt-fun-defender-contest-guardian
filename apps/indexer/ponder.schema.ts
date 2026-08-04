@@ -4,7 +4,29 @@ export const token = onchainTable("token", (t) => ({
   address: t.hex().primaryKey(),
   name: t.text().notNull(),
   symbol: t.text().notNull(),
+  /**
+   * The wallet that launched the token, from `TokenLaunched`. **Immutable** —
+   * deliberately NOT updated when the creator role moves. This is the
+   * historical launch identity, and the consumers that read it all depend on
+   * that: `/security`'s `creatorHoldingPct` rug signal (swapping the subject
+   * mid-life would silently re-point a safety metric at a different wallet)
+   * and the analytics `COUNT(DISTINCT creator)` launcher tally.
+   *
+   * For the wallet that currently earns this token's creator fees, read
+   * `feeRecipient`.
+   */
   creator: t.hex().notNull(),
+  /**
+   * The wallet that currently earns this token's creator fees — mirrors
+   * `Bonding.creatorOf(token)`. Seeded to `creator` at launch, then moved by
+   * `CreatorTransferred` (creator-signed handover) and `CreatorReassigned`
+   * (owner-forced community takeover).
+   *
+   * Split from `creator` because the two answer different questions and only
+   * this one is allowed to move. The API reconciles `public.tokens.creator`
+   * off this column so the `?creator=` filter follows the current steward.
+   */
+  feeRecipient: t.hex().notNull(),
   ltToken: t.hex().notNull(),
   k: t.bigint().notNull(),
   curveSupply: t.bigint().notNull(),

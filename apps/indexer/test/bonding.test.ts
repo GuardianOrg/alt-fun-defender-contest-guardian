@@ -55,6 +55,8 @@ describe("Bonding:TokenLaunched", () => {
       name: "Test Token",
       symbol: "TEST",
       creator: "0xcreator",
+      // Seeded to the launch wallet; only `feeRecipient` moves later.
+      feeRecipient: "0xcreator",
       ltToken: "0xlt1",
       k: 500000n,
       curveSupply: 0n,
@@ -111,6 +113,7 @@ describe("Bonding:TokenLaunched", () => {
       name: "Test",
       symbol: "T",
       creator: "0xc",
+      feeRecipient: "0xc",
       ltToken: "0xlt",
       k: 1n,
       blockNumber: 42n,
@@ -149,6 +152,7 @@ describe("Factory:PairCreated", () => {
       name: "",
       symbol: "",
       creator: "0x0000000000000000000000000000000000000000",
+      feeRecipient: "0x0000000000000000000000000000000000000000",
       ltToken: "0xlt1",
       k: 0n,
       curveSupply: 0n,
@@ -160,6 +164,45 @@ describe("Factory:PairCreated", () => {
     });
     expect(call.conflict).toBe("doUpdate");
     expect(call.conflictValues).toEqual({ bondingPair: "0xbondingpair1" });
+  });
+});
+
+describe("creator reassignment", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  // Both events carry the same payload and must land the same row update —
+  // a voluntary handover and an owner-forced community takeover move the fee
+  // recipient identically.
+  //
+  // Critically, `creator` must NOT move: it's the immutable launch identity
+  // backing `/security`'s `creatorHoldingPct` rug signal and the analytics
+  // launcher tally. Repointing it would silently aim a safety metric at a
+  // different wallet, so the assertion is on the exact update payload.
+  it.each([
+    ["Bonding:CreatorTransferred"],
+    ["Bonding:CreatorReassigned"],
+  ])("%s moves feeRecipient and leaves creator alone", async (eventName) => {
+    const handler = getHandler(eventName);
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        oldCreator: "0xoldcreator",
+        newCreator: "0xnewcreator",
+      },
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(db._updateCalls).toHaveLength(1);
+    const call = db._updateCalls[0];
+    expect(call.table).toBe(token);
+    expect(call.key).toEqual({ address: "0xtoken1" });
+    expect(call.values).toEqual({ feeRecipient: "0xnewcreator" });
+    expect(call.values).not.toHaveProperty("creator");
   });
 });
 

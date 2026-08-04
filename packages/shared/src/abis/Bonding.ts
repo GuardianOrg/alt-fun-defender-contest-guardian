@@ -32,6 +32,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "DIRECT_MINT_PRESEED_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "LAUNCH_TRADING_DELAY_BLOCKS",
     "inputs": [],
     "outputs": [
@@ -212,6 +225,24 @@ export const BondingAbi = [
     "inputs": [
       {
         "name": "router_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "adminTransferCreator",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newCreator",
         "type": "address",
         "internalType": "address"
       }
@@ -1041,6 +1072,31 @@ export const BondingAbi = [
   },
   {
     "type": "event",
+    "name": "CreatorReassigned",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldCreator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newCreator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "CreatorTransferred",
     "inputs": [
       {
@@ -1395,6 +1451,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "ERC1967NonPayable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExchangeRateTooLow",
     "inputs": []
   },
   {

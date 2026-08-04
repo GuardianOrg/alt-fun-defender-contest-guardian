@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
@@ -616,6 +617,87 @@ contract BondingTest is DeployHelper {
         vm.prank(trader);
         vm.expectRevert(Bonding.NotCreator.selector);
         bonding.transferCreator(tokenAddr, trader);
+    }
+
+    /// @dev The takeover path: the outgoing creator never signs, so the owner
+    ///      must be able to move the role over their head.
+    function test_adminTransferCreator() public {
+        (address tokenAddr,) = _launchToken();
+
+        vm.expectEmit(true, true, true, false, address(bonding));
+        emit Bonding.CreatorReassigned(tokenAddr, creator, trader);
+        bonding.adminTransferCreator(tokenAddr, trader);
+
+        assertEq(bonding.creatorOf(tokenAddr), trader);
+    }
+
+    function test_adminTransferCreator_onlyOwner() public {
+        (address tokenAddr,) = _launchToken();
+
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, creator));
+        bonding.adminTransferCreator(tokenAddr, trader);
+    }
+
+    /// @dev Guards against writing a creator into an unwritten slot, which
+    ///      would fabricate a token that passes every `creator != 0`
+    ///      existence check.
+    function test_adminTransferCreator_unknownToken() public {
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.adminTransferCreator(address(0xdead), trader);
+
+        assertFalse(bonding.isTrading(address(0xdead)));
+    }
+
+    /// @dev Zeroing the creator would invert the `creator != 0` existence
+    ///      sentinel and un-launch a live token.
+    function test_adminTransferCreator_rejectsZeroAddress() public {
+        (address tokenAddr,) = _launchToken();
+
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        bonding.adminTransferCreator(tokenAddr, address(0));
+
+        assertEq(bonding.creatorOf(tokenAddr), creator, "Creator must be untouched");
+        assertTrue(bonding.isTrading(tokenAddr), "Token must still be trading");
+    }
+
+    function test_adminTransferCreator_rejectsNoOp() public {
+        (address tokenAddr,) = _launchToken();
+
+        vm.expectRevert(Bonding.InvalidInput.selector);
+        bonding.adminTransferCreator(tokenAddr, creator);
+    }
+
+    /// @dev Fees keep accruing after graduation, so a graduated token stays a
+    ///      valid takeover target — there is deliberately no lifecycle gate.
+    function test_adminTransferCreator_worksAfterGraduation() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        bonding.triggerGraduation(tokenAddr);
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr), "Token should be graduated");
+
+        bonding.adminTransferCreator(tokenAddr, trader);
+
+        assertEq(bonding.creatorOf(tokenAddr), trader);
+    }
+
+    /// @dev The `Graduating` window freezes trading but must not freeze a
+    ///      takeover, and must not disturb the cached phase-1 state that
+    ///      `finalizeGraduation` depends on.
+    function test_adminTransferCreator_duringGraduatingDoesNotBrickPhaseTwo() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        bonding.triggerGraduation(tokenAddr);
+        assertTrue(bonding.isGraduating(tokenAddr), "Token should be mid-graduation");
+
+        bonding.adminTransferCreator(tokenAddr, trader);
+        assertEq(bonding.creatorOf(tokenAddr), trader);
+
+        bonding.finalizeGraduation(tokenAddr);
+        assertTrue(bonding.isGraduated(tokenAddr), "Phase 2 must still complete");
     }
 
     // ─── Graduation Tests ────────────────────────────────────────────────
