@@ -125,10 +125,14 @@ describe("cache directives all originate in utils/cache-control.ts", () => {
       .sort();
 
     // `cache-control.ts` is excluded from the scan by construction; these
-    // three legitimately name a header without authoring a TTL — the SWR
-    // fallback, the no-store default, and token detail's private branch.
+    // four legitimately name a header without authoring a TTL — the SWR
+    // fallback, the no-store default, token detail's private branch, and
+    // the temporary per-endpoint killswitch (which only ever writes
+    // `no-store`). Drop the killswitch entry when that module is
+    // deleted, so the list keeps failing on anything unaccounted for.
     expect(writers).toEqual([
       "../middleware/default-no-store.ts",
+      "../middleware/zone-cache-killswitch.ts",
       "../routes/tokens/detail.ts",
       "../utils/swr-cache.ts",
     ]);

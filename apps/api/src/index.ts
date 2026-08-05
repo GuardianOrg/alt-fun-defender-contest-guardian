@@ -37,6 +37,7 @@ import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { defaultNoStore } from "./middleware/default-no-store.js";
 import { serveFromEdgeCache } from "./middleware/edge-cache.js";
+import { zoneCacheKillswitch } from "./middleware/zone-cache-killswitch.js";
 import openApiSpec from "./openapi/spec.js";
 import { validateWebhookPayload } from "./lib/webhook-validators.js";
 
@@ -77,6 +78,13 @@ app.use("*", prettyJSON());
 // `middleware/default-no-store.ts` — `cache.enabled` is Worker-wide, so
 // a headerless admin response must not be left to a platform default.
 app.use("*", defaultNoStore);
+// TEMPORARY. Suspends the declared TTL on individually-listed endpoints
+// — see `middleware/zone-cache-killswitch.ts` for the list and for why
+// a Cloudflare Cache Rule can't do this. Mounted inside `defaultNoStore`
+// so it rewrites the handler's directive first and `defaultNoStore` then
+// sees a policy already in place. Delete both this line and the module
+// to restore PR #1235's behaviour in full.
+app.use("*", zoneCacheKillswitch);
 
 /**
  * Once per Worker isolate, touch the LtTicker DO so its constructor runs and
