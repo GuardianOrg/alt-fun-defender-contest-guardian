@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
-import { neon } from "@neondatabase/serverless";
 import { eq } from "drizzle-orm";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
+import { putWithSwr } from "../utils/swr-cache.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import { tryApiDbRead } from "../lib/api-db-reads.js";
@@ -14,8 +14,14 @@ import {
   fetchTokenChartContext,
 } from "../lib/indexer-reads.js";
 import { fetchTokenChartSnapshotsCached } from "../lib/indexer-cached-reads.js";
+import {
+  fetchLatestLtRate,
+  fetchLtRateSeriesCached,
+  quantiseDown,
+} from "../lib/lt-rate-reads.js";
 
 import type { ChartTokenSnapshotRow } from "../lib/indexer-reads.js";
+import type { LtRateSample } from "../lib/lt-rate-reads.js";
 import type { AppBindings } from "../lib/types.js";
 
 export const VALID_TIMEFRAMES = ["1d", "5d", "1m"] as const;
@@ -56,10 +62,11 @@ export const MAX_CANDLES = 500;
 
 /**
  * Per-POP edge-cache TTL for `GET /chart/:address`. The chart route's
- * cost is dominated by the BounceTech `generate_series` LT-rate scan and
- * the indexer-side snapshot fetch — both bounded but each round-trips
- * Neon, so concurrent viewers of the same `(token, interval/timeframe)`
- * pair multiply origin compute and Neon-HTTP load.
+ * cost is dominated by the BounceTech `generate_series` LT-rate scan —
+ * measured against production, the indexer-side snapshot fetch barely
+ * registers next to it — so concurrent viewers of the same
+ * `(token, interval/timeframe)` pair multiply origin compute and
+ * Neon-HTTP load.
  *
  * **1 second** matches `TRADES_LIVE_TAIL_TTL_SECONDS` in `routes/trades.ts`
  * (the existing project convention for live-feed endpoints) and is
@@ -76,8 +83,11 @@ export const MAX_CANDLES = 500;
  *
  * 1 s still collapses bursts of concurrent miss-traffic for the same
  * canonical URL into one origin compute per POP per window — chart
- * compute runs ~600-1000 ms per origin call so even sub-second TTLs
- * absorb the bulk of a thundering-herd reload (issue #973).
+ * compute runs ~1-2.5 s per origin call (measured on production; it
+ * scales with how far back the requested interval's history window
+ * reaches) so even sub-second TTLs absorb the bulk of a thundering-herd
+ * reload (issue #973). The `stale-while-revalidate` companion is what
+ * keeps a caller off that cold path at the TTL boundary itself.
  *
  * Why not 3 s (the issue's original suggestion): the chart's REST
  * response feeds the frontend's in-progress-candle anchor
@@ -126,10 +136,7 @@ export interface Candle {
   close: number;
 }
 
-export interface LtSnapshotRow {
-  ts: string;
-  exchange_rate: string;
-}
+export type LtSnapshotRow = LtRateSample;
 
 /**
  * Virtual `reserve0` at launch (= `Pair.mint`'s `TOTAL_SUPPLY`, 1B × 1e18).
@@ -430,34 +437,38 @@ chart.get("/:address", async (c) => {
    *
    * The cache key matches the read key the middleware uses
    * (`new Request(c.req.url, { method: "GET" })`), so writes here are
-   * picked up verbatim on the next request. `response.clone()` is
-   * required because a `Response` body can only be consumed once and the
-   * original is about to be returned to the caller.
+   * picked up verbatim on the next request.
+   *
+   * Via `putWithSwr`, not a bare `cache.put`: the Workers cache ignores
+   * `stale-while-revalidate` for retention, so without the sibling entry
+   * it writes, every TTL boundary lands a caller on the full sampling
+   * grid.
    */
   const respondWithEdgeCache = async (body: ChartSuccessBody) => {
     const response = c.json(body);
     applyEdgeCacheHeaders(response, CHART_CACHE_TTL_SECONDS);
     const cache = getCache();
     if (cache) {
-      // Best-effort write — a `cache.put` rejection (e.g. response
-      // body exceeding the per-entry size limit, or a transient
-      // Cache API hiccup) must NOT turn a perfectly good 200 into a
-      // 500. Swallow the rejection, log structured for ops triage,
-      // and return the response anyway. CodeRabbit feedback on PR
-      // #984.
-      await cache
-        .put(new Request(c.req.url, { method: "GET" }), response.clone())
-        .catch((err: unknown) => {
-          console.log(
-            JSON.stringify({
-              level: "warn",
-              event: "chart_cache_put_failed",
-              error: err instanceof Error ? err.message : String(err),
-              url: c.req.url,
-              timestamp: new Date().toISOString(),
-            }),
-          );
-        });
+      // Best-effort write — a cache rejection (e.g. response body
+      // exceeding the per-entry size limit, or a transient Cache API
+      // hiccup) must NOT turn a perfectly good 200 into a 500. Swallow
+      // the rejection, log structured for ops triage, and return the
+      // response anyway. CodeRabbit feedback on PR #984.
+      await putWithSwr(
+        cache,
+        new Request(c.req.url, { method: "GET" }),
+        response,
+      ).catch((err: unknown) => {
+        console.log(
+          JSON.stringify({
+            level: "warn",
+            event: "chart_cache_put_failed",
+            error: err instanceof Error ? err.message : String(err),
+            url: c.req.url,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      });
     }
     return response;
   };
@@ -599,15 +610,34 @@ chart.get("/:address", async (c) => {
   // old tokens on fine intervals. The viewport window is purely a frontend
   // concern — see `apps/web/src/hooks/useChart.ts` setVisibleRange.
   const historySec = candleSec * MAX_HISTORY_CANDLES;
-  const earliestFromSec = nowSec - historySec;
+  // Both window ends must hold still across requests or the memo below
+  // never hits — taken raw from `Date.now()` they shifted every second.
+  // Snapping to a `sampleSec` lattice is one way to get that;
+  // `launchTimestamp` is another, being immutable per token. The bounds
+  // here are whichever of the two applies, so they are stable but NOT
+  // always lattice-aligned.
+  //
+  // The launch floor is applied AFTER the snap, never before: a sample
+  // predating launch still assigns its rate inside `buildPriceTimeline`
+  // before being skipped, so the launch anchor would be priced at a
+  // pre-launch rate.
+  const latticeEndSec = quantiseDown(nowSec, sampleSec);
+  const earliestFromSec = quantiseDown(latticeEndSec - historySec, sampleSec);
   const fromSec =
     launchTimestamp > 0
       ? Math.max(earliestFromSec, launchTimestamp)
       : earliestFromSec;
+  // A token launched inside the current lattice cell sits past the
+  // snapped end, which would make `generate_series` empty and leave the
+  // launch ratio with no rate to price against — costing the token its
+  // opening candle until the cell rolls over. Widening the end to
+  // `fromSec` yields a single sample at launch, which is the anchor.
+  const gridToSec = Math.max(latticeEndSec, fromSec);
 
   const checksummedLt = getAddress(ltAddress);
 
-  if (!c.env.BOUNCETECH_DATABASE_URL) {
+  const bounceTechUrl = c.env.BOUNCETECH_DATABASE_URL;
+  if (!bounceTechUrl) {
     // Log the specific binding name server-side for ops triage, but
     // return a generic error to the client — the binding name is an
     // internal deployment detail (see project rule: never expose
@@ -617,34 +647,48 @@ chart.get("/:address", async (c) => {
     );
     return c.json(formatError("Internal server error"), 500);
   }
-  const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
 
-  const [ltRows, snapshotItems] = await Promise.all([
-    btSql`
-      SELECT
-        extract(epoch from s.t)::bigint AS ts,
-        t.exchange_rate::text AS exchange_rate
-      FROM generate_series(
-        to_timestamp(${fromSec}),
-        to_timestamp(${nowSec}),
-        make_interval(secs => ${sampleSec})
-      ) AS s(t)
-      CROSS JOIN LATERAL (
-        SELECT exchange_rate
-        FROM token_snapshots_v1
-        WHERE token_address = ${checksummedLt}
-          AND tick_timestamp <= s.t
-        ORDER BY tick_timestamp DESC
-        LIMIT 1
-      ) t
-      ORDER BY s.t
-    ` as unknown as Promise<LtSnapshotRow[]>,
+  const [gridRows, latestLtRate, snapshotItems] = await Promise.all([
+    // The expensive read — one seek per sample across the whole window.
+    // Memoisable only because the lattice above pinned both ends.
+    fetchLtRateSeriesCached(
+      bounceTechUrl,
+      checksummedLt,
+      fromSec,
+      gridToSec,
+      sampleSec,
+    ),
+    fetchLatestLtRate(bounceTechUrl, checksummedLt),
     // Per-isolate memo (issue #1125, solution #3) — multiple concurrent
     // chart loads for the hot token in the same PoP collapse to one
     // Postgres round-trip per `(address, fromSec)` per
     // `HOT_TOKEN_READ_TTL_MS` window.
     fetchTokenChartSnapshotsCached(db, address, fromSec),
   ]);
+
+  // A failed rate read is retryable, so answer 503 rather than letting the
+  // rejection escape as a 500. Distinct from an LT that simply has no
+  // ticks, which is a legitimate empty chart.
+  if (gridRows === null || latestLtRate === "unavailable") {
+    return c.json(
+      formatError(
+        "Exchange-rate data unavailable — chart data cannot be loaded",
+      ),
+      503,
+    );
+  }
+
+  // Carry the newest tick to `nowSec`: the grid ends at `gridToSec`, so
+  // the frontend's candle anchor would otherwise trail by up to
+  // `sampleSec` — 20 minutes on the 1h interval. Appended even against an
+  // empty grid, which is what an LT whose first tick landed inside the
+  // current lattice cell looks like.
+  const ltRows: LtSnapshotRow[] = latestLtRate
+    ? [
+        ...gridRows,
+        { ts: String(nowSec), exchange_rate: latestLtRate.exchange_rate },
+      ]
+    : gridRows;
 
   if (ltRows.length === 0) {
     return respondWithEdgeCache(

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 
 import {
   SWR_REVALIDATE_HEADER,
+  _resetRevalidationTracking,
   isRevalidationRequest,
   matchSwr,
   putWithSwr,
@@ -298,5 +299,174 @@ describe("revalidateInBackground", () => {
     } finally {
       (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
     }
+  });
+
+  it("runs one refresh per URL at a time", async () => {
+    // Every stale serve schedules its own refresh, so a burst at one TTL
+    // boundary would otherwise fan out into N cold paths for the same URL.
+    _resetRevalidationTracking();
+    const originalFetch = globalThis.fetch;
+    let inFlight = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (globalThis as { fetch: typeof fetch }).fetch = (async () => {
+      inFlight += 1;
+      await gate;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.get("/api/v1/tokens", async (c) => {
+        await revalidateInBackground(c);
+        return c.json({ ok: true });
+      });
+
+      const burst = Promise.all([
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+      ]);
+      release!();
+      await burst;
+
+      expect(inFlight).toBe(1);
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+      _resetRevalidationTracking();
+    }
+  });
+
+  it("refreshes a different URL independently", async () => {
+    // Both refreshes have to overlap for this to mean anything. Run them
+    // sequentially and the guard clears between calls, so the assertion
+    // holds even if tracking were one global flag rather than per-URL.
+    _resetRevalidationTracking();
+    const originalFetch = globalThis.fetch;
+    const seen: string[] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (globalThis as { fetch: typeof fetch }).fetch = (async (
+      input: RequestInfo | URL,
+    ) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      seen.push(req.url);
+      await gate;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.get("/api/v1/tokens", async (c) => {
+        await revalidateInBackground(c);
+        return c.json({ ok: true });
+      });
+
+      const burst = Promise.all([
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=new", {}, makeEnv()),
+      ]);
+
+      await vi.waitFor(() => expect(seen).toHaveLength(2));
+      expect(new Set(seen).size).toBe(2);
+
+      release!();
+      await burst;
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+      _resetRevalidationTracking();
+    }
+  });
+});
+
+describe("reserved stale-marker parameter", () => {
+  it("does not let a caller-supplied marker read the stale sibling as fresh", async () => {
+    // `?__swr_stale=1` is the internal key for the deliberately-stretched
+    // fallback copy. A request carrying it must not key onto that entry
+    // and be served a three-second-old body with no revalidation.
+    const cache = makeFakeCache();
+    const primary = new Request("http://localhost/api/v1/tokens?sort=trending");
+    await putWithSwr(cache, primary, makeJsonResponse({ page: 1 }));
+
+    const spoofed = new Request(
+      "http://localhost/api/v1/tokens?sort=trending&__swr_stale=1",
+    );
+    const result = await matchSwr(cache, spoofed);
+
+    expect(result.kind).toBe("fresh");
+    if (result.kind !== "miss") {
+      expect(result.response.headers.get("Cache-Control")).toBe(
+        edgeCacheableJsonHeader(5),
+      );
+    }
+  });
+
+  it("single-flights refreshes that differ only by the marker", async () => {
+    // The cache canonicalises the marker away, so these all refresh one
+    // shared entry — the single-flight key has to canonicalise too, or
+    // varying the marker walks straight past the guard.
+    _resetRevalidationTracking();
+    const originalFetch = globalThis.fetch;
+    const seen: string[] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (globalThis as { fetch: typeof fetch }).fetch = (async (
+      input: RequestInfo | URL,
+    ) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      seen.push(req.url);
+      await gate;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.get("/api/v1/tokens", async (c) => {
+        await revalidateInBackground(c);
+        return c.json({ ok: true });
+      });
+
+      const burst = Promise.all([
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request(
+          "/api/v1/tokens?sort=trending&__swr_stale=1",
+          {},
+          makeEnv(),
+        ),
+        app.request(
+          "/api/v1/tokens?sort=trending&__swr_stale=2",
+          {},
+          makeEnv(),
+        ),
+      ]);
+      release!();
+      await burst;
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).not.toContain("__swr_stale");
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+      _resetRevalidationTracking();
+    }
+  });
+
+  it("folds a caller-supplied marker away on write", async () => {
+    const cache = makeFakeCache();
+    const spoofed = new Request(
+      "http://localhost/api/v1/tokens?sort=trending&__swr_stale=1",
+    );
+    await putWithSwr(cache, spoofed, makeJsonResponse({ page: 1 }));
+
+    // The canonical body lands under the marker-free URL, so a normal
+    // request still finds it and the fallback is not clobbered.
+    const normal = new Request("http://localhost/api/v1/tokens?sort=trending");
+    const result = await matchSwr(cache, normal);
+    expect(result.kind).toBe("fresh");
   });
 });

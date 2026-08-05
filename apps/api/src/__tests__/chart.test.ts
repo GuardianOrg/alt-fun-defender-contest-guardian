@@ -33,10 +33,23 @@ vi.mock("../db/client.js", () => ({
   createDb: () => ({ select: mockDbSelect }),
 }));
 
-// --- BounceTech Neon mock (LT exchange rate `generate_series`) ---
+// --- BounceTech Neon mock (LT exchange rate reads) ---
+//
+// The route makes two reads against this database: the `generate_series`
+// sampling grid, and a newest-tick seek that keeps `currentExchangeRate`
+// current after the grid's far end was pinned to a `sampleSec` boundary.
+// Cases below set up the grid via `mockNeonQuery`; the seek is derived
+// from the grid's newest sample, which is the row production returns for
+// it (the last grid sample forward-fills exactly that tick).
 const mockNeonQuery = vi.fn();
 vi.mock("@neondatabase/serverless", () => ({
-  neon: () => mockNeonQuery,
+  neon:
+    () =>
+    async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const rows = (await mockNeonQuery(strings, ...values)) as unknown[];
+      if (strings.join("").includes("generate_series")) return rows;
+      return rows.slice(-1);
+    },
 }));
 
 const { default: chartRoute, buildPriceTimeline } =
@@ -924,15 +937,25 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
-    // Cache write happens under the same URL the pre-auth
-    // `serveFromEdgeCache` middleware will read from on the next
-    // request — so a warm-cache request short-circuits before any
-    // origin work runs.
-    expect(cachePut).toHaveBeenCalledTimes(1);
+    // Two writes: the canonical entry under the same URL the pre-auth
+    // `serveFromEdgeCache` middleware reads from, plus the longer-lived
+    // stale-fallback sibling that makes the declared
+    // `stale-while-revalidate` window actually usable at the Worker tier.
+    expect(cachePut).toHaveBeenCalledTimes(2);
     const [putReq] = cachePut.mock.calls[0]!;
     expect((putReq as Request).method).toBe("GET");
     expect((putReq as Request).url).toContain(VALID_ADDRESS);
     expect((putReq as Request).url).toContain("interval=60");
+    expect((putReq as Request).url).not.toContain("__swr_stale");
+
+    const [staleReq, staleRes] = cachePut.mock.calls[1]!;
+    expect((staleReq as Request).url).toContain("__swr_stale=1");
+    // `s-maxage = ttl + swr`, because `caches.default` evicts strictly on
+    // `s-maxage` and that sum is what keeps the fallback alive for the
+    // whole stale window.
+    expect((staleRes as Response).headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=3",
+    );
   });
 
   it("caches the empty-LT-window 200 success branch", async () => {
@@ -956,7 +979,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
-    expect(cachePut).toHaveBeenCalledTimes(1);
+    expect(cachePut).toHaveBeenCalledTimes(2);
   });
 
   it("caches the empty-ratio-timeline 200 success branch", async () => {
@@ -985,7 +1008,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
-    expect(cachePut).toHaveBeenCalledTimes(1);
+    expect(cachePut).toHaveBeenCalledTimes(2);
   });
 
   it("does NOT cache 400 invalid-address responses", async () => {
@@ -1443,5 +1466,265 @@ describe("buildPriceTimeline", () => {
     // The real LT@200 tick uses the new rate.
     const lt200 = out.find((p) => p.ts === 200);
     expect(lt200!.price).toBe(2);
+  });
+});
+
+describe("GET /chart/:address — LT-rate window quantisation", () => {
+  /** How many of the BounceTech reads were the expensive sampling grid. */
+  function gridCallCount(): number {
+    return mockNeonQuery.mock.calls.filter(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("generate_series"),
+    ).length;
+  }
+
+  // 1m candles → `sampleSec = ceil(60 / 3) = 20`, so the window ends snap
+  // onto a 20-second lattice. `T0` is deliberately NOT a multiple of that:
+  // on a lattice-aligned clock `gridToSec === nowSec` and the tests below
+  // could not tell a tick beyond the grid's end from one on its boundary.
+  const SAMPLE_SEC = 20;
+  const T0 = 1_800_000_007;
+  const GRID_END = T0 - (T0 % SAMPLE_SEC);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0 * 1000);
+    vi.clearAllMocks();
+    mockCheckIndexerHealth.mockResolvedValue(true);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(T0 - 3600),
+    });
+    mockFetchTokenChartSnapshots.mockResolvedValue([
+      {
+        curveSupply: "500000000000000000000000000",
+        ltReserve: "2000000000000000000",
+        timestamp: String(T0 - 3500),
+      },
+    ]);
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(T0 - 600), exchange_rate: "2000000000000000000" },
+      { ts: String(T0 - 100), exchange_rate: "2100000000000000000" },
+    ]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function requestChart() {
+    return createApp().request(
+      `/chart/${VALID_ADDRESS}?interval=60`,
+      {},
+      makeEnv(),
+    );
+  }
+
+  it("reuses one sampling grid across requests inside the same lattice cell", async () => {
+    // The regression this guards: the window was derived straight from
+    // `Date.now()`, so a request one tick later asked for a window nothing
+    // had cached and paid for the whole grid again.
+    expect((await requestChart()).status).toBe(200);
+    expect(gridCallCount()).toBe(1);
+
+    vi.setSystemTime((T0 + 5) * 1000);
+    expect((await requestChart()).status).toBe(200);
+
+    expect(gridCallCount()).toBe(1);
+  });
+
+  it("re-reads the grid once the lattice cell rolls over", async () => {
+    await requestChart();
+    vi.setSystemTime((T0 + SAMPLE_SEC) * 1000);
+    await requestChart();
+
+    expect(gridCallCount()).toBe(2);
+  });
+
+  it("still seeks the newest tick on every request", async () => {
+    // The grid is shared; the anchor rate is not.
+    await requestChart();
+    vi.setSystemTime((T0 + 5) * 1000);
+    await requestChart();
+
+    expect(mockNeonQuery.mock.calls.length - gridCallCount()).toBe(2);
+  });
+
+  it("reports the newest tick as currentExchangeRate, not the grid's last sample", async () => {
+    // The tick sits strictly after `GRID_END`, so no `generate_series`
+    // sample could have picked it up. It must still reach the frontend,
+    // which folds this value with the live `price` WebSocket feed to move
+    // the in-progress candle.
+    expect(T0).toBeGreaterThan(GRID_END);
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        strings.join("").includes("generate_series")
+          ? [{ ts: String(GRID_END), exchange_rate: "2100000000000000000" }]
+          : [{ ts: String(T0), exchange_rate: "2500000000000000000" }],
+      ),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { currentExchangeRate: number; candles: unknown[] };
+    };
+
+    expect(body.data.currentExchangeRate).toBeCloseTo(2.5, 5);
+    expect(body.data.candles.length).toBeGreaterThan(0);
+  });
+
+  it("never samples the rate from before a token launched", async () => {
+    // A grid sample predating launch is skipped for emission, but only
+    // AFTER it has assigned its rate — so a window floored below launch
+    // prices the launch anchor at a pre-launch rate. The floor is clamped
+    // to `launchTimestamp` to stop that; this pins the resulting SQL.
+    const launchSec = T0 - 3600;
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(launchSec),
+    });
+
+    await createApp().request(
+      // 1D candles: `sampleSec` is 28800, so an unclamped floor would
+      // reach up to eight hours before this token existed.
+      `/chart/${VALID_ADDRESS}?interval=86400`,
+      {},
+      makeEnv(),
+    );
+
+    const gridCall = mockNeonQuery.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("generate_series"),
+    );
+    const fromSec = (gridCall as unknown[]).slice(1)[0] as number;
+    expect(fromSec).toBe(launchSec);
+  });
+
+  it("still anchors a token launched inside the current lattice cell", async () => {
+    // Launch sits past the snapped grid end, so a naive window would be
+    // backwards and `generate_series` would return nothing — leaving the
+    // launch ratio with no rate to price against and costing the token
+    // its opening candle until the cell rolled over.
+    const launchSec = T0 - 2;
+    expect(launchSec).toBeGreaterThan(GRID_END);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(launchSec),
+    });
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+    // Distinct rates so the candle itself proves which sample opened it:
+    // 2.0 at launch (grid), 3.0 now (newest tick).
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        strings.join("").includes("generate_series")
+          ? [{ ts: String(launchSec), exchange_rate: "2000000000000000000" }]
+          : [{ ts: String(T0), exchange_rate: "3000000000000000000" }],
+      ),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { candles: { time: number; open: number; close: number }[] };
+    };
+
+    // The grid end is pulled up to launch exactly — not merely to
+    // something ordered, which a wrong later endpoint would also satisfy.
+    const gridCall = mockNeonQuery.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("generate_series"),
+    )!;
+    const [, boundFrom, boundTo] = gridCall as unknown[];
+    expect(boundFrom).toBe(launchSec);
+    expect(boundTo).toBe(launchSec);
+
+    expect(res.status).toBe(200);
+    // Both ticks fall in one bucket, so `open` comes from the launch
+    // sample and `close` from the newest tick. Their 3:2 ratio is what
+    // shows the launch sample survived; a candle built only from the
+    // newest tick would open and close at the same price.
+    expect(body.data.candles).toHaveLength(1);
+    const [candle] = body.data.candles;
+    expect(candle.time).toBe(launchSec - (launchSec % 60));
+    expect(candle.close / candle.open).toBeCloseTo(1.5, 6);
+  });
+
+  it("returns the empty chart only when the LT has no ticks at all", async () => {
+    mockNeonQuery.mockResolvedValue([]);
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { candles: unknown[]; currentExchangeRate: number };
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.data.candles).toEqual([]);
+    expect(body.data.currentExchangeRate).toBe(0);
+  });
+
+  it("still charts an LT whose first tick landed inside the current cell", async () => {
+    // The grid is empty because every tick postdates its quantised end.
+    // Dropping the newest tick here would blank the chart for up to
+    // `sampleSec` — 20 minutes on the 1h interval.
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        strings.join("").includes("generate_series")
+          ? []
+          : [{ ts: String(T0), exchange_rate: "2500000000000000000" }],
+      ),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { candles: unknown[]; currentExchangeRate: number };
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.data.currentExchangeRate).toBeCloseTo(2.5, 5);
+    expect(body.data.candles.length).toBeGreaterThan(0);
+  });
+
+  it("answers 503 when the sampling grid read fails", async () => {
+    // Retryable upstream failure — must not escape as a 500, and must not
+    // be cached under the success path's TTL.
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      strings.join("").includes("generate_series")
+        ? Promise.reject(new Error("neon down"))
+        : Promise.resolve([
+            { ts: String(T0), exchange_rate: "2000000000000000000" },
+          ]),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as { status: string; error: string | null };
+
+    expect(res.status).toBe(503);
+    expect(body.status).toBe("error");
+    expect(body.error).toContain("Exchange-rate data unavailable");
+    expect(body.error).not.toContain("neon down");
+  });
+
+  it("answers 503 when the newest-tick read fails", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      strings.join("").includes("generate_series")
+        ? Promise.resolve([
+            { ts: String(T0 - 100), exchange_rate: "2000000000000000000" },
+          ])
+        : Promise.reject(new Error("neon down")),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as { status: string; error: string | null };
+
+    expect(res.status).toBe(503);
+    expect(body.error).toContain("Exchange-rate data unavailable");
+    expect(body.error).not.toContain("neon down");
   });
 });
