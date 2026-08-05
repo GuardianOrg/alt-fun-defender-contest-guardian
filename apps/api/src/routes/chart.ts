@@ -619,12 +619,18 @@ chart.get("/:address", async (c) => {
   // before being skipped, so the launch anchor would be priced at a
   // pre-launch rate. `launchTimestamp` is fixed per token, so clamping
   // here keeps the window just as reusable.
-  const gridToSec = quantiseDown(nowSec, sampleSec);
-  const earliestFromSec = quantiseDown(gridToSec - historySec, sampleSec);
+  const latticeEndSec = quantiseDown(nowSec, sampleSec);
+  const earliestFromSec = quantiseDown(latticeEndSec - historySec, sampleSec);
   const fromSec =
     launchTimestamp > 0
       ? Math.max(earliestFromSec, launchTimestamp)
       : earliestFromSec;
+  // A token launched inside the current lattice cell sits past the
+  // snapped end, which would make `generate_series` empty and leave the
+  // launch ratio with no rate to price against — costing the token its
+  // opening candle until the cell rolls over. Widening the end to
+  // `fromSec` yields a single sample at launch, which is the anchor.
+  const gridToSec = Math.max(latticeEndSec, fromSec);
 
   const checksummedLt = getAddress(ltAddress);
 

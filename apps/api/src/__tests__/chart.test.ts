@@ -1604,6 +1604,46 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
     expect(fromSec).toBe(launchSec);
   });
 
+  it("still anchors a token launched inside the current lattice cell", async () => {
+    // Launch sits past the snapped grid end, so a naive window would be
+    // backwards and `generate_series` would return nothing — leaving the
+    // launch ratio with no rate to price against and costing the token
+    // its opening candle until the cell rolled over.
+    const launchSec = T0 - 2;
+    expect(launchSec).toBeGreaterThan(GRID_END);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(launchSec),
+    });
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        strings.join("").includes("generate_series")
+          ? [{ ts: String(launchSec), exchange_rate: "2000000000000000000" }]
+          : [{ ts: String(T0), exchange_rate: "2000000000000000000" }],
+      ),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { candles: unknown[]; currentExchangeRate: number };
+    };
+
+    // The window is ordered, so the grid can return the launch sample.
+    const gridCall = mockNeonQuery.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("generate_series"),
+    )!;
+    const [, boundFrom, boundTo] = gridCall as unknown[];
+    expect(boundFrom).toBe(launchSec);
+    expect(boundTo as number).toBeGreaterThanOrEqual(boundFrom as number);
+
+    expect(res.status).toBe(200);
+    expect(body.data.candles.length).toBeGreaterThan(0);
+  });
+
   it("returns the empty chart only when the LT has no ticks at all", async () => {
     mockNeonQuery.mockResolvedValue([]);
 
