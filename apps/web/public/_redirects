@@ -14,9 +14,9 @@
 #     written by `scripts/post-build.mjs`, so the SPA shell still
 #     renders the styled `NotFound` component.
 #
-# Static assets (favicons, OG image, /altfun-*.html docs, /audit.pdf,
-# /whitepaper.pdf, hashed `/assets/*` bundles, …) are served from the
-# static-asset layer before `_redirects` is consulted — no need to
+# Static assets (favicons, OG image, /altfun-*.html docs, the audit
+# PDFs, /whitepaper.pdf, hashed `/assets/*` bundles, …) are served from
+# the static-asset layer before `_redirects` is consulted — no need to
 # whitelist them here.
 #
 # Add a new entry whenever a new top-level SPA route is added in
@@ -27,5 +27,11 @@
 /create          /index.html  200
 /profile         /index.html  200
 /token/*         /index.html  200
+
+# `/audit.pdf` was the Phage Security review's path back when it was the
+# only audit. Externally linked (X posts, docs.alt.fun, listing sites),
+# so the old path keeps resolving. Must stay above the `/*` catch-all —
+# Pages applies the top-most rule matching a source path.
+/audit.pdf       /audit-phage-security.pdf  301
 
 /*               /404.html    404
