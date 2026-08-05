@@ -284,6 +284,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 unsoldBurned
     );
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
+    /// @notice Creator role moved by the owner rather than by the outgoing
+    ///         creator. Distinct from `CreatorTransferred` so indexers can
+    ///         tell a forced reassignment from a creator-signed handover.
+    event CreatorReassigned(address indexed token, address indexed oldCreator, address indexed newCreator);
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
@@ -745,6 +749,39 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (newCreator == info.creator) revert InvalidInput();
         info.creator = newCreator;
         emit CreatorTransferred(tokenAddress, msg.sender, newCreator);
+    }
+
+    /// @notice Reassign the creator role without the outgoing creator's
+    ///         signature, so a community can take over an abandoned token.
+    /// @dev    Deliberately drops the `msg.sender == info.creator` check that
+    ///         gates `transferCreator`: a takeover is only ever needed once
+    ///         the original creator has walked away or lost their keys, which
+    ///         is exactly when their signature is unobtainable.
+    ///
+    ///         The owner is trusted here, but the blast radius is one storage
+    ///         word. The creator role carries no authority over the curve, the
+    ///         LP, the token supply, or the metadata — every fee path resolves
+    ///         `creatorOf(token)` at trade time, so the sole effect is where
+    ///         subsequent creator fees land. USDC already accrued to the
+    ///         outgoing creator is keyed by address in the fee vault and stays
+    ///         claimable by them.
+    ///
+    ///         Rejects unknown tokens: writing a creator into an unwritten
+    ///         slot would fabricate a token that passes the `creator != 0`
+    ///         existence check every lifecycle view relies on. No lifecycle
+    ///         gate otherwise — fees keep accruing after graduation, so a
+    ///         graduated token is still a valid takeover target.
+    function adminTransferCreator(
+        address tokenAddress,
+        address newCreator
+    ) external onlyOwner {
+        if (newCreator == address(0)) revert ZeroAddress();
+        TokenInfo storage info = _s().tokenInfo[tokenAddress];
+        address oldCreator = info.creator;
+        if (oldCreator == address(0)) revert TokenNotTrading();
+        if (newCreator == oldCreator) revert InvalidInput();
+        info.creator = newCreator;
+        emit CreatorReassigned(tokenAddress, oldCreator, newCreator);
     }
 
     // ─── Public storage accessors (mirror pre-ERC-7201 ABI) ──────────────

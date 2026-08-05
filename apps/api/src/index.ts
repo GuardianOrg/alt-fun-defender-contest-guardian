@@ -7,6 +7,7 @@ import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
 import { runAutoGraduationBuyer } from "./lib/auto-graduation-buyer.js";
 import { runBuybackBurnKeeper } from "./lib/buyback-burn-keeper.js";
+import { runCreatorReconcile } from "./lib/creator-reconcile.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
 import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
@@ -340,7 +341,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Seven jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Eight jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -381,6 +382,13 @@ export default {
    *      sequentially with receipt awaits. Self-gating + threshold
    *      randomisation means the cron is free to run every tick — most
    *      ticks return immediately. See `lib/buyback-burn-keeper.ts`.
+   *   8. Repoint `tokens.creator` at the on-chain creator for any token
+   *      whose role has moved since registration (creator-signed handover
+   *      or an owner-forced community takeover). The registration insert
+   *      never updates the column, so without this the `?creator=` filter
+   *      keeps attributing tokens to the wallet that launched them. One
+   *      indexed join per tick, zero writes in steady state. See
+   *      `lib/creator-reconcile.ts`.
    */
   async scheduled(
     _controller: ScheduledController,
@@ -509,6 +517,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "buyback_burn_keeper_uncaught",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runCreatorReconcile(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "creator_reconcile_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

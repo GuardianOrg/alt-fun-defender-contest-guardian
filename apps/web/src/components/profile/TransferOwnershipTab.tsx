@@ -14,11 +14,12 @@ import { useToast, buildTxAction } from "../shared/toast-context";
 import type { CreatedToken } from "../../services/types";
 
 export interface TransferOwnershipTabProps {
-  /** Tokens the connected wallet has launched (per the Postgres `creator`
-   *  column). The list is intentionally allowed to include tokens whose
-   *  on-chain creator has already been transferred away — the contract is
-   *  the source of truth and will revert with `NotCreator` in that case;
-   *  the toast then surfaces a clean message. */
+  /** Tokens the connected wallet currently holds the creator role for (per
+   *  the Postgres `creator` column, which a cron sweep repoints at the chain
+   *  within ~60s of a handover or a community takeover). The list is still
+   *  intentionally allowed to lag inside that window — the contract is the
+   *  source of truth and will revert with `NotCreator`; the toast then
+   *  surfaces a clean message. */
   tokens: readonly CreatedToken[] | undefined;
   /** True while the parent's first `useCreatorEarnings` fetch is in flight
    *  and we don't yet know whether the wallet has any tokens. Drives a

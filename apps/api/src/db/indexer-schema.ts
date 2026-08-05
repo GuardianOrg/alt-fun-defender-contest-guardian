@@ -49,7 +49,10 @@ export const indexerToken = ponderSchema.table(
     address: text("address").primaryKey(),
     name: text("name").notNull(),
     symbol: text("symbol").notNull(),
+    /** Immutable launch wallet. For the current fee earner see `feeRecipient`. */
     creator: text("creator").notNull(),
+    /** Mirrors `Bonding.creatorOf(token)` — moves on creator handover / takeover. */
+    feeRecipient: text("fee_recipient").notNull(),
     ltToken: text("lt_token").notNull(),
     k: numeric("k").notNull(),
     curveSupply: numeric("curve_supply").notNull(),

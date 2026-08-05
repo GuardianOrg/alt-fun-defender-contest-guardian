@@ -1444,6 +1444,88 @@ contract ZapTest is DeployHelper {
         );
     }
 
+    /// @dev The end-to-end community-takeover claim: an owner-forced creator
+    ///      reassignment redirects *future* creator fees to the new wallet
+    ///      while the outgoing creator keeps everything already accrued.
+    ///      `Zap` resolves `creatorOf` at trade time, so no vault migration
+    ///      is needed — this test is what pins that down.
+    function test_adminTransferCreator_redirectsFutureCreatorFees() public {
+        address tokenAddr = _createToken(_defaultSeedUsdc());
+        address newCreator = makeAddr("communitySteward");
+
+        // The outgoing creator's accrued balance is non-zero going in (the
+        // seed buy paid them), so "unchanged" is a meaningful assertion.
+        uint256 oldCreatorAccrued = feeVault.creatorBalance(creator);
+        assertGt(oldCreatorAccrued, 0, "Seed buy should have accrued to the launch creator");
+        assertEq(feeVault.creatorBalance(newCreator), 0, "New creator starts empty");
+
+        vm.prank(owner);
+        bonding.adminTransferCreator(tokenAddr, newCreator);
+
+        uint256 usdcIn = _smallBuyUsdc();
+        _buyViaRouter(tokenAddr, trader, usdcIn);
+
+        uint256 expectedFee = (usdcIn * 75) / 10_000;
+        uint256 expectedCreator = (expectedFee * 3333) / 10_000;
+
+        assertEq(feeVault.creatorBalance(newCreator), expectedCreator, "New creator should earn the creator share");
+        assertEq(
+            feeVault.creatorBalance(creator), oldCreatorAccrued, "Outgoing creator's accrued balance must not move"
+        );
+
+        // And the new creator can actually withdraw it — the reassignment is
+        // worthless if the balance isn't claimable.
+        vm.prank(newCreator);
+        feeVault.claim();
+        assertEq(usdc.balanceOf(newCreator), expectedCreator, "New creator should be able to claim");
+    }
+
+    /// @dev The 0.75% fee is deliberately not lifted at graduation, so a
+    ///      taken-over token must keep paying the new creator on the
+    ///      HyperSwap venue too — and on sells, not just buys. Both fee sites
+    ///      resolve `creatorOf` independently, so each needs its own check.
+    function test_adminTransferCreator_redirectsPostGradFeesOnBothSides() public {
+        address tokenAddr = _createToken(_defaultSeedUsdc());
+        _graduateToken(tokenAddr);
+
+        address newCreator = makeAddr("communitySteward");
+        vm.prank(owner);
+        bonding.adminTransferCreator(tokenAddr, newCreator);
+        assertEq(feeVault.creatorBalance(newCreator), 0, "New creator starts empty post-grad");
+
+        // Post-grad buy.
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+        uint256 afterBuy = feeVault.creatorBalance(newCreator);
+        assertGt(afterBuy, 0, "Post-grad buy should accrue to the new creator");
+
+        // Post-grad sell.
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        zap.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+
+        assertGt(feeVault.creatorBalance(newCreator), afterBuy, "Post-grad sell should accrue too");
+    }
+
+    /// @dev Trading and selling must keep working for a taken-over token —
+    ///      the reassignment touches one storage word and must not disturb
+    ///      the curve.
+    function test_adminTransferCreator_tradingUnaffected() public {
+        address tokenAddr = _createToken(_defaultSeedUsdc());
+
+        vm.prank(owner);
+        bonding.adminTransferCreator(tokenAddr, makeAddr("communitySteward"));
+
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+        assertGt(tokensOut, 0, "Buy should still work after a takeover");
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcBack = zap.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+        assertGt(usdcBack, 0, "Sell should still work after a takeover");
+    }
+
     function test_sell_feeAccruesToVault() public {
         address tokenAddr = _createToken(0);
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
