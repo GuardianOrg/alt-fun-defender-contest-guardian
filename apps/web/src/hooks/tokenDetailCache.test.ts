@@ -31,6 +31,7 @@ function token(address: string, ticker: string): Token {
     change24h: null,
     status: "active",
     creatorAddress: "0xcreator",
+    communityTakeoverAt: null,
     createdAt: "2026-01-01T00:00:00Z",
     isHidden: false,
   };

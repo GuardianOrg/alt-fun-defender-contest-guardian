@@ -40,6 +40,8 @@ export interface Token {
   change24h: number | null;
   status: TokenStatus;
   creatorAddress: string;
+  /** ISO timestamp of a community takeover; null when the original creator remains. */
+  communityTakeoverAt: string | null;
   createdAt: string;
   /** Admin-hidden; holders can still view/sell, but public buy paths are disabled. */
   isHidden: boolean;

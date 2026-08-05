@@ -23,6 +23,18 @@ const baseApiToken: ApiToken = {
   createdAt: "2025-01-01T00:00:00Z",
 };
 
+describe("fromApiToken community takeover", () => {
+  it("preserves the takeover timestamp and defaults an omitted value to null", () => {
+    expect(
+      fromApiToken({
+        ...baseApiToken,
+        communityTakeoverAt: "2026-08-05T12:31:04.000Z",
+      }).communityTakeoverAt,
+    ).toBe("2026-08-05T12:31:04.000Z");
+    expect(fromApiToken(baseApiToken).communityTakeoverAt).toBeNull();
+  });
+});
+
 describe("fromApiToken socialLinks", () => {
   it("expands bare Twitter / Telegram handles + bare website to fully-qualified URLs", () => {
     // Mirrors what the API actually stores (see
