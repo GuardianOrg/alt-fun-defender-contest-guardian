@@ -75,17 +75,25 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
 // `value (USDC 6dp) = balance (token 18dp) × priceUsdc18dp / 1e30`.
 const PRICE_VALUE_SCALE = 10n ** 30n;
 
+/**
+ * `degraded` means the live re-mark couldn't be computed, so callers are
+ * about to serve the indexer's snapshot valuation instead of a current
+ * one. The response looks completely normal in that case, which is
+ * exactly why the flag has to travel with it.
+ */
 const fetchCurrentPricesUsdc18dp = async (
   databaseUrl: string,
   addresses: string[],
-): Promise<Map<string, bigint>> => {
-  if (addresses.length === 0) return new Map();
+): Promise<{ prices: Map<string, bigint>; degraded: boolean }> => {
+  if (addresses.length === 0) {
+    return { prices: new Map(), degraded: false };
+  }
   const [tokens, ltRates] = await Promise.all([
     fetchTokensOnchainByAddresses(databaseUrl, addresses),
     fetchLiveLtRates(databaseUrl),
   ]);
   const out = new Map<string, bigint>();
-  if (!tokens || !ltRates) return out;
+  if (!tokens || !ltRates) return { prices: out, degraded: true };
   for (const t of tokens) {
     const ltRate = ltRates.get(t.ltToken.toLowerCase()) ?? 0;
     if (ltRate <= 0) continue;
@@ -99,7 +107,7 @@ const fetchCurrentPricesUsdc18dp = async (
     if (priceUsdc18dp <= 0n) continue;
     out.set(t.address.toLowerCase(), priceUsdc18dp);
   }
-  return out;
+  return { prices: out, degraded: false };
 };
 
 /**
@@ -204,12 +212,19 @@ const fetchPositions = async (
     }
 
     // Live-mark refresh. Wrapped so a thrown error doesn't collapse the
-    // already-built arrays back to EMPTY (matches v1 behaviour).
+    // already-built arrays back to EMPTY (matches v1 behaviour) — but a
+    // failure here still means the valuations are the indexer's snapshot,
+    // not current, so it degrades the response.
+    let liveMarkDegraded = false;
     try {
       const openTokens = Array.from(
         new Set(open.map((p) => p.token.toLowerCase())),
       );
-      const liveMark = await fetchCurrentPricesUsdc18dp(databaseUrl, openTokens);
+      const { prices: liveMark, degraded } = await fetchCurrentPricesUsdc18dp(
+        databaseUrl,
+        openTokens,
+      );
+      liveMarkDegraded = degraded;
       for (const p of open) {
         const priceUsdc18dp = liveMark.get(p.token.toLowerCase());
         if (priceUsdc18dp === undefined) continue;
@@ -221,6 +236,7 @@ const fetchPositions = async (
         p.unrealisedPnlPct = pctOrNull(value - cost, cost);
       }
     } catch (err) {
+      liveMarkDegraded = true;
       console.log(
         JSON.stringify({
           level: "warn",
@@ -248,7 +264,10 @@ const fetchPositions = async (
       return av > bv ? -1 : 1;
     });
 
-    return { positions: { open, realised }, degraded: balancesDegraded };
+    return {
+      positions: { open, realised },
+      degraded: balancesDegraded || liveMarkDegraded,
+    };
   } catch (err) {
     console.log(
       JSON.stringify({

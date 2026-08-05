@@ -80,7 +80,7 @@ Two routes therefore pick their TTL per outcome, and new routes with a miss case
 
 The same rule covers routes that answer a failed upstream read with a neutral-looking body instead of a 503. `/security/:addr` is the sharpest: its fallback reports `creatorHoldingPct: 0, contractVerified: true`, which reads as *reassuring*, so caching it for the full window would publish a safety signal nobody measured. `/creators/:addr`, `/bot/positions-v2/:wallet` and `/bot/referrals-v2/:wallet` degrade to zeroed bodies the same way and also drop to 5s.
 
-The zone tier and the Worker's own `caches.default` compose rather than compete: the zone saves the whole Worker invocation, and `putWithSwr` gives sub-millisecond stale serves on the routes that use it when the zone misses. The stale-fallback copy deliberately drops the zone directive so a body past its freshness window can't be re-admitted upstream for another full TTL.
+The zone tier and the Worker's own `caches.default` compose rather than compete: the zone saves the whole Worker invocation, and `putWithSwr` gives sub-millisecond stale serves on the routes that use it when the zone misses. The stale-fallback copy sets the zone directive to `no-store` — explicitly, not merely omitting it, because its `s-maxage` is deliberately stretched to cover the SWR window and must never become a zone policy that re-admits an already-stale body for another full TTL.
 
 ## Analytics (`/api/v1/analytics/*`)
 

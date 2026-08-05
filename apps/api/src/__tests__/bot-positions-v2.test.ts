@@ -100,6 +100,35 @@ describe("GET /bot/positions-v2/:wallet", () => {
     );
   });
 
+  it("shortens the window when the live-mark re-mark fails", async () => {
+    // Positions and balances both succeed, so the response looks
+    // healthy — but with no live prices the valuations are the indexer's
+    // snapshot rather than current ones. Codex review on PR #1235.
+    mockFetchWalletBotPositions.mockResolvedValue([
+      {
+        token: TOKEN,
+        ticker: "PURR",
+        tokenBalance: (1_000n * 10n ** 18n).toString(),
+        costBasisUsdc: "100000000",
+        currentValueUsdc: "120000000",
+        realisedPnlUsdc: "0",
+        totalCostUsdc: "100000000",
+        totalProceedsUsdc: "0",
+      },
+    ]);
+    mockFetchTokenBalancesByWalletAndTokens.mockResolvedValue([
+      { tokenAddress: TOKEN, balance: (1_000n * 10n ** 18n).toString() },
+    ]);
+    mockFetchTokensOnchainByAddresses.mockResolvedValue(null);
+
+    const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
+  });
+
   it("gives a fully successful read the full window", async () => {
     mockFetchWalletBotPositions.mockResolvedValue([]);
 

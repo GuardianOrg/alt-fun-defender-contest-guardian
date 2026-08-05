@@ -99,6 +99,36 @@ describe("cache directives all originate in utils/cache-control.ts", () => {
     expect(paths).not.toContain(ALLOWED_SOURCE);
   });
 
+  it("only a known set of files writes a cache header at all", () => {
+    // Enumerating who may name a cache header catches what value-shape
+    // scanning can't: `c.header("Cache-Control", buildIt(30))` has no
+    // directive literal to find. Codex review on this PR.
+    //
+    // Known limit: splitting the header NAME itself
+    // (`["Cache","-Control"].join("")`) evades this too. Only an AST rule
+    // would close that, and no accidental regression looks like it — the
+    // shapes below are the ones reachable by mistake.
+    const writers = Object.entries(productionSources)
+      .filter(([, source]) =>
+        /(["'`])(?:Cloudflare-CDN-)?Cache-Control\1/i.test(
+          source
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .replace(/(^|[^:])\/\/.*$/gm, "$1"),
+        ),
+      )
+      .map(([path]) => path)
+      .sort();
+
+    // `cache-control.ts` is excluded from the scan by construction; these
+    // three legitimately name a header without authoring a TTL — the SWR
+    // fallback, the no-store default, and token detail's private branch.
+    expect(writers).toEqual([
+      "../middleware/default-no-store.ts",
+      "../routes/tokens/detail.ts",
+      "../utils/swr-cache.ts",
+    ]);
+  });
+
   it("flags a case-variant directive, since HTTP directives are case-insensitive", () => {
     const sample = `c.header("Cache-Control", "public, S-Maxage=30");`;
     expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
