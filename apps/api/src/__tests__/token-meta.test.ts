@@ -58,6 +58,32 @@ describe("GET /tokens/:address/meta", () => {
     expect(body.data).toBeNull();
   });
 
+  it("caches a not-indexed-yet miss briefly, not for the label window", async () => {
+    // A `null` is "not indexed yet". Inheriting the 5-minute label window
+    // would leave a freshly-launched token unnamed in the UI long after
+    // the indexer knew its name.
+    mockFetchTokenMeta.mockResolvedValue(null);
+    const res = await createApp().request(`/tokens/${TOKEN}/meta`, {}, makeEnv());
+
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=10, stale-while-revalidate=20",
+    );
+    expect(res.headers.get("Cache-Control")).toContain("s-maxage=10");
+  });
+
+  it("caches a resolved label for the full window", async () => {
+    mockFetchTokenMeta.mockResolvedValue({
+      address: TOKEN.toLowerCase(),
+      name: "PurrFi",
+      symbol: "PURR",
+    });
+    const res = await createApp().request(`/tokens/${TOKEN}/meta`, {}, makeEnv());
+
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=300, stale-while-revalidate=3600",
+    );
+  });
+
   it("returns the row when present", async () => {
     mockFetchTokenMeta.mockResolvedValue({
       address: TOKEN.toLowerCase(),

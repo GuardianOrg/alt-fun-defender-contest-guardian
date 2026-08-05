@@ -65,6 +65,17 @@ Never hand-write a `Cache-Control` string with a positive TTL — `src/__tests__
 
 Caching a wallet- or token-scoped route is safe **only** while that identifier stays in the URL **path**, because the cache key is the URL — `portfolio`, `holders`, `security`, `bot/positions-v2` and `bot/referrals-v2` qualify today. A route taking the wallet from a header, a POST body, or a query param folded out of the key would serve one user's body to the next.
 
+### Never cache a "not yet" for as long as a fact
+
+A negative answer about a freshly-launched token — no `public.tokens` row, no indexed label — means "the write hasn't landed", not "the answer is no". Registration backfill runs ~60s behind launch, so a long window on a negative pins a transient state well past the point the data exists.
+
+Two routes therefore pick their TTL per outcome, and new routes with a miss case should do the same:
+
+| Route | Positive | Negative | Why the negative is short |
+|---|---|---|---|
+| `/tokens/:addr/valid` | 30s | **5s** | The web caches a definitive `false` for the whole page lifetime (`apps/web/src/services/tokenValidity.ts`), so an over-held negative drops that token's trades from the live feed for the rest of the session. |
+| `/tokens/:addr/meta` | 300s | **10s** | A `null` label would otherwise leave a new token unnamed in the UI for five minutes after the indexer knew its name. |
+
 The zone tier and the Worker's own `caches.default` compose rather than compete: the zone saves the whole Worker invocation, and `putWithSwr` gives sub-millisecond stale serves on the routes that use it when the zone misses. The stale-fallback copy deliberately drops the zone directive so a body past its freshness window can't be re-admitted upstream for another full TTL.
 
 ## Analytics (`/api/v1/analytics/*`)

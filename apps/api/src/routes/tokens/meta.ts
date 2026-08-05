@@ -13,6 +13,11 @@ import type { AppBindings } from "../../lib/types.js";
 // wider than the usual 2× convention.
 const META_CACHE_TTL_SECONDS = 300;
 const META_CACHE_SWR_SECONDS = 3600;
+// A `null` means "not indexed yet", so it must not inherit the
+// five-minute window a resolved label gets — that would leave a
+// freshly-launched token unnamed in the UI long after the indexer knew
+// its name.
+const META_MISS_CACHE_TTL_SECONDS = 10;
 
 const tokenMetaRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -44,7 +49,11 @@ tokenMetaRoute.get("/:address/meta", async (c) => {
   // The web's `tokenNames` cache is the dominant caller and re-keys
   // its in-memory cache on the resolved value, so a stale read still
   // produces the right label. CodeRabbit feedback on PR #991.
-  setEdgeCacheHeaders(c, META_CACHE_TTL_SECONDS, META_CACHE_SWR_SECONDS);
+  if (meta === null) {
+    setEdgeCacheHeaders(c, META_MISS_CACHE_TTL_SECONDS);
+  } else {
+    setEdgeCacheHeaders(c, META_CACHE_TTL_SECONDS, META_CACHE_SWR_SECONDS);
+  }
   return c.json(formatSuccess(meta));
 });
 

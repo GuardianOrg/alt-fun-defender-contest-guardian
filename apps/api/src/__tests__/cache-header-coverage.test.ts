@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { describe, it, expect } from "vitest";
 
 /**
@@ -15,16 +16,15 @@ import { describe, it, expect } from "vitest";
 
 /**
  * Route sources as text. Vite's raw glob rather than `node:fs` — this
- * package targets the Workers runtime and has no Node type surface.
+ * package targets the Workers runtime and has no Node type surface. The
+ * triple-slash reference above supplies `ImportMeta.glob`, same as the
+ * source-scan gate in `api-db-503.test.ts`.
  */
-const routeSources = (
-  import.meta as unknown as {
-    glob: (
-      pattern: string,
-      options: { query: string; import: string; eager: true },
-    ) => Record<string, string>;
-  }
-).glob("../routes/**/*.ts", { query: "?raw", import: "default", eager: true });
+const routeSources = import.meta.glob<string>("../routes/**/*.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 
 /** Both spellings matter: the shared directive is `s-maxage`, not `s-max-age`. */
 const AGE_DIRECTIVE = /(?:s-maxage|max-age)\s*=\s*(\d+)/g;
