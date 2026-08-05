@@ -180,6 +180,12 @@ Once a token graduates, `Bonding.Trade` stops firing and the curve pair drains t
 
 The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdown` short-circuits on `graduated === true` (returns `total: 100`, organic/boost null), so the [250M, 1B] virtual range no longer applies — safe to overwrite the columns with HyperSwap's *real* reserves once the token has graduated.
 
+### Chart route latency: the LT-rate grid dominates
+
+The chart's cost is the `generate_series` × `LATERAL` sampling grid in `lib/lt-rate-reads.ts`, not the indexer reads — `MAX_HISTORY_CANDLES × 3` seeks whose per-seek cost rises with how far back the window reaches (~0.1 ms spanning minutes, ~1.6 ms spanning weeks, as the older pages stop being cached). Row count alone predicts nothing; window width is what makes it slow.
+
+Both window ends are therefore snapped onto a `sampleSec` lattice so the read is memoisable per isolate, with the frontend's candle anchor coming from a separate unbounded newest-tick seek. **Don't put a raw `Date.now()` back into either end** — it mints a fresh key every second and silently returns the memo to a 0% hit rate.
+
 ### Chart route post-graduation
 
 `GET /api/v1/chart/:address` builds the ratio timeline from the `tokenSnapshot` table — written by both `Bonding:Trade` (bonding curve) and `HyperSwapPair:Sync` (post-graduation). One direct-Postgres query (`fetchTokenChartSnapshots` in `lib/indexer-reads.ts`) covers both phases with no truncation cap; no special-casing needed in the route handler. The `currentRatio` returned alongside the candles is the latest snapshot's `ltReserve / curveSupply`, which the frontend folds with the live LT rate from the `price` WS channel to keep the in-progress candle moving. See `apps/indexer/AGENTS.md → Post-graduation reserve mirror` for the source-of-truth side.

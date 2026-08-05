@@ -83,6 +83,10 @@ A declared window is emitted for three tiers at once: the browser (always revali
 
 Endpoints that can answer "not found" for a token that was just launched use a much shorter window for that answer than for a real one. A missing row means the registration write hasn't landed yet, so holding the negative would keep a brand-new token looking unregistered — and hidden from the live trade feed — long after it exists.
 
+When a window expires, the caller gets the previous body straight away and the refresh runs behind the response. Otherwise every window boundary lands one unlucky caller on the full cold path, which on the chart endpoint is the slowest read in the API.
+
+The chart endpoint additionally rounds the start and end of its history window to a fixed grid, so everyone viewing the same token at the same candle width shares a single exchange-rate history read instead of each request asking for a window one second off the last. The current rate the chart returns is read separately and unrounded, so sharing history costs no freshness on the live price.
+
 ### Terminal API
 
 All above endpoints mirrored under `/api/v1/` with `X-API-Key` auth for third-party integrators.
