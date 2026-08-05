@@ -26,8 +26,12 @@ const routeSources = import.meta.glob<string>("../routes/**/*.ts", {
   eager: true,
 });
 
-/** Both spellings matter: the shared directive is `s-maxage`, not `s-max-age`. */
-const AGE_DIRECTIVE = /(?:s-maxage|max-age)\s*=\s*(\d+)/g;
+// Both spellings matter: the shared directive is `s-maxage`, not
+// `s-max-age`. Kept as three separate literals rather than one composed
+// from `.source`, so no regex is ever built from a variable.
+const ANY_AGE = /(?:s-maxage|max-age)\s*=/;
+const NUMERIC_AGE = /(?:s-maxage|max-age)\s*=\s*(\d+)/g;
+const INTERPOLATED_AGE = /(?:s-maxage|max-age)\s*=\s*\$\{/;
 
 /** String literals (quoted or backticked) that mention a cache age. */
 function cacheAgeLiterals(source: string): string[] {
@@ -36,15 +40,21 @@ function cacheAgeLiterals(source: string): string[] {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
   const literals = stripped.match(/(["'`])(?:\\.|(?!\1)[\s\S])*\1/g) ?? [];
-  return literals.filter((literal) =>
-    new RegExp(AGE_DIRECTIVE.source).test(literal),
-  );
+  return literals.filter((literal) => ANY_AGE.test(literal));
 }
 
-/** True when a literal asks any cache to retain the body for >0 seconds. */
+/**
+ * True when a literal asks any cache to retain the body for >0 seconds.
+ * An interpolated age (`` `s-maxage=${ttl}` ``) counts: the value can't
+ * be read statically, so it can't be shown to be the zeroed opt-out.
+ * That was the shape `analytics.ts` used before this PR, so the hole is
+ * not hypothetical.
+ */
 function declaresPositiveAge(literal: string): boolean {
-  const ages = [...literal.matchAll(AGE_DIRECTIVE)];
-  return ages.some(([, seconds]) => Number(seconds) > 0);
+  if (INTERPOLATED_AGE.test(literal)) return true;
+  return [...literal.matchAll(NUMERIC_AGE)].some(
+    ([, seconds]) => Number(seconds) > 0,
+  );
 }
 
 describe("cache directives all originate in utils/cache-control.ts", () => {
@@ -66,6 +76,15 @@ describe("cache directives all originate in utils/cache-control.ts", () => {
 
   it("flags a hand-written directive when one is introduced", () => {
     const sample = `c.header("Cache-Control", "public, s-maxage=30");`;
+    expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
+  });
+
+  it("flags an interpolated TTL, which no numeric scan can prove is zero", () => {
+    // The shape `analytics.ts` used before this PR. A scan that only reads
+    // digits sees no value here and waves it through. CodeRabbit review on
+    // this PR.
+    const sample =
+      "c.header(\"Cache-Control\", `public, s-maxage=${ttlSec}, stale-while-revalidate=${ttlSec * 2}`);";
     expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
   });
 

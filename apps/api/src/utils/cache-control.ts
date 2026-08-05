@@ -44,6 +44,11 @@ function defaultSwr(ttlSeconds: number): number {
  * heuristically cache for minutes or hours. That's what produced the
  * "only `Delete browsing data` shows new tokens" bug on the home-page
  * list.
+ *
+ * `stale-while-revalidate` must stay HERE and not move to the zone
+ * directive alone: {@link putWithSwr} parses it off `Cache-Control` to
+ * size the stale-fallback entry it writes to `caches.default`. Drop it
+ * and that whole Worker-side layer silently degrades to a single put.
  */
 export function edgeCacheableJsonHeader(
   ttlSeconds: number,
