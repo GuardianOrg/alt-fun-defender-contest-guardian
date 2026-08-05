@@ -11,10 +11,15 @@ import {
   fetchLiveLtRates,
   fetchTokensOnchainByAddresses,
 } from "../../lib/market-data.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+// Shareable at the edge only because the wallet sits in the URL path,
+// which is what the cache key is built from.
+const POSITIONS_CACHE_TTL_SECONDS = 15;
 
 /**
  * Additive `/api/v1/bot/positions-v2/:wallet`: same `PositionsResponse`
@@ -250,7 +255,7 @@ positionsV2.get("/:wallet", async (c) => {
   }
   const wallet = rawWallet.toLowerCase();
   const data = await fetchPositions(c.env.DATABASE_URL, wallet);
-  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
+  setEdgeCacheHeaders(c, POSITIONS_CACHE_TTL_SECONDS);
   return c.json(formatSuccess(data));
 });
 

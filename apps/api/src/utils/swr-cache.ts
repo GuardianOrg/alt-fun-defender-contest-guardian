@@ -1,5 +1,7 @@
 import type { Context } from "hono";
 
+import { CDN_CACHE_CONTROL_HEADER } from "./cache-control.js";
+
 /**
  * Worker-side stale-while-revalidate for `caches.default`.
  *
@@ -93,7 +95,9 @@ interface ParsedDirective {
 }
 
 /**
- * Tease apart the cache-control directives we care about. Tolerant of
+ * Tease apart the cache-control directives we care about. Reads
+ * `Cache-Control` and never the zone directive — `caches.default`
+ * evicts on `s-maxage` alone. Tolerant of
  * the variants {@link edgeCacheableJsonHeader} can emit; returns `null`
  * for any value that isn't a non-negative integer so a degenerate
  * header (`s-maxage=` empty / `s-maxage=foo`) silently disables SWR
@@ -136,6 +140,10 @@ function buildStaleResponse(
     "Cache-Control",
     `public, max-age=0, s-maxage=${sMaxAge + swr}`,
   );
+  // The zone directive is dropped: this body is only ever served after
+  // its freshness window closed, so re-admitting it upstream for a full
+  // TTL would stretch staleness past what the route declared.
+  headers.delete(CDN_CACHE_CONTROL_HEADER);
   return new Response(source.clone().body, {
     status: source.status,
     statusText: source.statusText,

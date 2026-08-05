@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { createDb } from "../db/client.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { usdcRawToUsd } from "../lib/token-enrich.js";
@@ -43,8 +44,8 @@ const analytics = new Hono<{ Bindings: AppBindings }>();
  * etc. — pulling it into one analytics surface for an internal dashboard
  * doesn't change the sensitivity.
  *
- * Caching: every endpoint sets `Cache-Control: public, s-maxage=…,
- * stale-while-revalidate=…` (see `setAnalyticsCacheHeader`) so the
+ * Caching: every endpoint declares a TTL through the shared cache
+ * helper (see `setAnalyticsCacheHeader`) so the
  * Cloudflare edge absorbs concurrent dashboard polls and Neon never
  * sees more than ~1 request per region per cache window. TTLs are
  * tuned per endpoint — chart series at 60s (numbers move per trade
@@ -137,7 +138,7 @@ const MAX_TOP_TOKENS_LIMIT = 100;
  *
  * Every TTL pairs with a 2× `stale-while-revalidate` window so the
  * Cloudflare edge serves stale-but-cached responses while it refreshes
- * in the background. Same `Cache-Control` shape as `/stats` /
+ * in the background. Same directives as `/stats` /
  * `/creators/:address/earnings`.
  */
 const CACHE_TTL_SEC = {
@@ -152,10 +153,7 @@ function setAnalyticsCacheHeader(
   c: { header: (k: string, v: string) => void },
   ttlSec: number,
 ): void {
-  c.header(
-    "Cache-Control",
-    `public, s-maxage=${ttlSec}, stale-while-revalidate=${ttlSec * 2}`,
-  );
+  setEdgeCacheHeaders(c, ttlSec);
 }
 
 /**

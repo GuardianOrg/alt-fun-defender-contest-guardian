@@ -6,7 +6,7 @@ import {
   computeMarketDataSingle,
   type MarketDataItem,
 } from "../lib/market-data.js";
-import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
+import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 
@@ -128,7 +128,7 @@ marketData.post("/", async (c) => {
     dataSource === "live"
       ? MARKET_DATA_CACHE_TTL_SECONDS
       : MARKET_DATA_DEGRADED_CACHE_TTL_SECONDS;
-  response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttlSeconds));
+  applyEdgeCacheHeaders(response, ttlSeconds);
   if (cache && cacheKey) {
     await cache.put(cacheKey, response.clone());
   }

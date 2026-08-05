@@ -123,7 +123,10 @@ describe("GET /assets/leveraged-tokens — additive on-chain-mirror endpoint", (
       makeEnv(),
     );
     expect(res.headers.get("Cache-Control")).toBe(
-      "public, s-maxage=15, stale-while-revalidate=60",
+      "public, max-age=0, s-maxage=15, stale-while-revalidate=60",
+    );
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=15, stale-while-revalidate=60",
     );
   });
 

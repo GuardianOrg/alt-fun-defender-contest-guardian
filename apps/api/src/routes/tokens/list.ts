@@ -38,7 +38,7 @@ import {
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
-import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
+import { applyEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 import { isRevalidationRequest, putWithSwr } from "../../utils/swr-cache.js";
@@ -449,10 +449,7 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set(
-        "Cache-Control",
-        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
-      );
+      applyEdgeCacheHeaders(empty, LIST_CACHE_TTL_SECONDS);
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -513,10 +510,7 @@ listRoute.get("/", async (c) => {
 
     if (orderedDbRows.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set(
-        "Cache-Control",
-        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
-      );
+      applyEdgeCacheHeaders(empty, LIST_CACHE_TTL_SECONDS);
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -598,7 +592,7 @@ listRoute.get("/", async (c) => {
     const ttl = marketResult.ok
       ? LIST_CACHE_TTL_SECONDS
       : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
+    applyEdgeCacheHeaders(response, ttl);
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
   }
@@ -635,10 +629,7 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set(
-        "Cache-Control",
-        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
-      );
+      applyEdgeCacheHeaders(empty, LIST_CACHE_TTL_SECONDS);
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -705,10 +696,7 @@ listRoute.get("/", async (c) => {
 
     if (candidatesDb.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set(
-        "Cache-Control",
-        edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS),
-      );
+      applyEdgeCacheHeaders(empty, LIST_CACHE_TTL_SECONDS);
       if (cache) await putWithSwr(cache, cacheKey, empty);
       return empty;
     }
@@ -789,7 +777,7 @@ listRoute.get("/", async (c) => {
     const ttl = marketResult.ok
       ? LIST_CACHE_TTL_SECONDS
       : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
+    applyEdgeCacheHeaders(response, ttl);
     if (cache) await putWithSwr(cache, cacheKey, response);
     return response;
   }
@@ -1006,7 +994,7 @@ listRoute.get("/", async (c) => {
     const emptyTtl = emptyIsLive
       ? LIST_CACHE_TTL_SECONDS
       : DEGRADED_CACHE_TTL_SECONDS;
-    empty.headers.set("Cache-Control", edgeCacheableJsonHeader(emptyTtl));
+    applyEdgeCacheHeaders(empty, emptyTtl);
     if (cache) {
       await putWithSwr(cache, cacheKey, empty);
     }
@@ -1095,7 +1083,7 @@ listRoute.get("/", async (c) => {
     formatSuccess(enriched, isLive ? "live" : "degraded"),
   );
   const ttl = isLive ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-  response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
+  applyEdgeCacheHeaders(response, ttl);
   if (cache) {
     await putWithSwr(cache, cacheKey, response);
   }

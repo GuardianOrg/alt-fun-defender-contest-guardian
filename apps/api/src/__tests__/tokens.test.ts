@@ -1458,6 +1458,9 @@ describe("GET /tokens/:address — hidden-token holder bypass (issue #712)", () 
     expect(cacheControl).toMatch(/no-store/i);
     expect(cacheControl).toMatch(/private/i);
     expect(cacheControl).not.toMatch(/s-maxage=[1-9]/);
+    // The zone directive would override `Cache-Control` at the edge, so
+    // its absence is what actually keeps this body out of the zone.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
   });
 });
 

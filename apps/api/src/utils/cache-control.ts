@@ -1,46 +1,112 @@
 /**
- * Build the `Cache-Control` directive used by edge-cacheable list /
- * detail JSON responses on this API.
+ * Cache directives for edge-cacheable responses on this API.
  *
- * Combines four signals so the response is cheap at the CDN tier
- * without ever feeling stale to a user who hits ⌘R / F5:
+ * Every cacheable response carries TWO directives, because two different
+ * caches read two different headers:
  *
- *   - `public`: any cache (Cloudflare edge or browser) may store the
- *     body. Required for the response to be admitted to Cloudflare's
- *     edge cache under the project's default rules.
+ *   - `Cache-Control` — the browser tier, plus the Worker's own
+ *     `caches.default` binding (which evicts strictly on `s-maxage`).
+ *   - `Cloudflare-CDN-Cache-Control` — the Cloudflare zone cache, which
+ *     reads this in preference to `Cache-Control` and strips it before
+ *     the response leaves the edge.
  *
- *   - `max-age=0`: the BROWSER's private cache must revalidate on
- *     every request — no heuristic freshness, no held-over response
- *     after a normal reload. Without this, a response that carries
- *     only `s-maxage` has undefined freshness for the browser, which
- *     RFC 9111 §4.2.2 lets the browser heuristically cache (often
- *     for minutes / hours). That's the exact mechanism that produced
- *     the "only `Delete browsing data` shows new tokens" bug on the
- *     home-page `/tokens` list — `s-maxage` is shared-cache only and
- *     never reaches the browser tier.
+ * **`s-maxage` alone does not admit a Worker response to Cloudflare's
+ * cache.** Nine routes declaring `s-maxage` were measured in production
+ * returning no `cf-cache-status` header at all; the zone needs its own
+ * directive plus `cache.enabled` in `wrangler.json` to engage.
  *
- *   - `s-maxage=${ttlSeconds}`: Cloudflare's edge cache (and the
- *     Worker's `caches.default` binding, which honours the same
- *     header) holds the response for `ttlSeconds` of fresh service —
- *     cheap burst absorption that keeps thundering-herd reloads off
- *     Postgres + Ponder + BounceTech without leaking staleness
- *     past the browser tier.
+ * Wallet- or session-aware responses MUST NOT use these helpers — they
+ * need `private, no-store, max-age=0, s-maxage=0` so no shared cache can
+ * re-serve one user's body to another (see `routes/tokens/detail.ts`).
  *
- *   - `stale-while-revalidate=${ttlSeconds * 2}`: edge keeps serving
- *     the stale body for another `2 * ttl` seconds while it
- *     revalidates in the background, so the request that lands the
- *     instant the entry expires doesn't pay the full origin
- *     round-trip. Length matches the project convention used by
- *     `creators` / `holders` / `portfolio` / `stats` / `security`
- *     (see `apps/api/AGENTS.md`).
- *
- * Use on every list / detail / aggregate JSON response that's safe
- * to share across clients. Wallet- or session-aware responses MUST
- * NOT use this — they need `private, no-store, max-age=0, s-maxage=0`
- * so the edge can't re-serve one user's body to another (see
- * `apps/api/src/routes/tokens/detail.ts` for the wallet-aware
- * branch's directive).
+ * Every TTL literal in this API lives in this file, enforced by
+ * `src/__tests__/cache-header-coverage.test.ts`.
  */
-export function edgeCacheableJsonHeader(ttlSeconds: number): string {
-  return `public, max-age=0, s-maxage=${ttlSeconds}, stale-while-revalidate=${ttlSeconds * 2}`;
+
+/** Header the Cloudflare zone cache reads in preference to `Cache-Control`. */
+export const CDN_CACHE_CONTROL_HEADER = "Cloudflare-CDN-Cache-Control";
+
+/** One year, for content-addressed blobs that can never change. */
+const IMMUTABLE_ASSET_MAX_AGE_SECONDS = 31_536_000;
+
+const IMMUTABLE_ASSET_DIRECTIVE = `public, max-age=${IMMUTABLE_ASSET_MAX_AGE_SECONDS}, immutable`;
+
+/** Default stale window: twice the fresh window, the project convention. */
+function defaultSwr(ttlSeconds: number): number {
+  return ttlSeconds * 2;
+}
+
+/**
+ * Browser- and Worker-tier directive.
+ *
+ * `max-age=0` is load-bearing: a response carrying only `s-maxage` has
+ * undefined freshness for the browser, which RFC 9111 §4.2.2 lets it
+ * heuristically cache for minutes or hours. That's what produced the
+ * "only `Delete browsing data` shows new tokens" bug on the home-page
+ * list.
+ */
+export function edgeCacheableJsonHeader(
+  ttlSeconds: number,
+  swrSeconds: number = defaultSwr(ttlSeconds),
+): string {
+  return `public, max-age=0, s-maxage=${ttlSeconds}, stale-while-revalidate=${swrSeconds}`;
+}
+
+/**
+ * Zone-tier directive. Uses `max-age` rather than `s-maxage` because
+ * Cloudflare disables its own stale-while-revalidate when `s-maxage` is
+ * present — the reason the `stale-while-revalidate` we already declared
+ * never took effect at the zone.
+ */
+export function cdnEdgeCacheHeader(
+  ttlSeconds: number,
+  swrSeconds: number = defaultSwr(ttlSeconds),
+): string {
+  return `public, max-age=${ttlSeconds}, stale-while-revalidate=${swrSeconds}`;
+}
+
+/**
+ * Stamp both directives on a Hono context, for handlers that call
+ * `c.header(...)` before building their response.
+ */
+export function setEdgeCacheHeaders(
+  c: { header: (key: string, value: string) => void },
+  ttlSeconds: number,
+  swrSeconds: number = defaultSwr(ttlSeconds),
+): void {
+  c.header("Cache-Control", edgeCacheableJsonHeader(ttlSeconds, swrSeconds));
+  c.header(CDN_CACHE_CONTROL_HEADER, cdnEdgeCacheHeader(ttlSeconds, swrSeconds));
+}
+
+/**
+ * Stamp both directives on an already-built `Response`, for handlers
+ * that need the response object in hand (e.g. to write it to
+ * `caches.default`).
+ */
+export function applyEdgeCacheHeaders(
+  response: Response,
+  ttlSeconds: number,
+  swrSeconds: number = defaultSwr(ttlSeconds),
+): Response {
+  response.headers.set(
+    "Cache-Control",
+    edgeCacheableJsonHeader(ttlSeconds, swrSeconds),
+  );
+  response.headers.set(
+    CDN_CACHE_CONTROL_HEADER,
+    cdnEdgeCacheHeader(ttlSeconds, swrSeconds),
+  );
+  return response;
+}
+
+/**
+ * Directives for a content-addressed asset that can never change. Here
+ * the browser tier gets the full year too — the key embeds a UUID, so a
+ * changed image is a different URL.
+ */
+export function setImmutableAssetHeaders(c: {
+  header: (key: string, value: string) => void;
+}): void {
+  c.header("Cache-Control", IMMUTABLE_ASSET_DIRECTIVE);
+  c.header(CDN_CACHE_CONTROL_HEADER, IMMUTABLE_ASSET_DIRECTIVE);
 }

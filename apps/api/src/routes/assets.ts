@@ -11,10 +11,16 @@ import {
   readLtDirectory,
   readSupportedLtDirectory,
 } from "../lib/lt-directory-reads.js";
+import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 import type { LiveLeveragedToken } from "@launchpad/shared";
+
+// The Postgres mirror behind this route is itself a cache, so the stale
+// window is deliberately wider than the usual 2× convention.
+const LT_DIRECTORY_CACHE_TTL_SECONDS = 15;
+const LT_DIRECTORY_CACHE_SWR_SECONDS = 60;
 
 let cachedMids: { data: Record<string, string>; ts: number } | null = null;
 let cachedSupportedDirectory:
@@ -297,12 +303,11 @@ assets.get("/leveraged-tokens", async (c) => {
     // field (`degraded` vs `success`).
     return c.json(formatSuccess({ data: [] }, "degraded"));
   }
-  const response = c.json(formatSuccess({ data: directory }));
-  response.headers.set(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=60",
+  return applyEdgeCacheHeaders(
+    c.json(formatSuccess({ data: directory })),
+    LT_DIRECTORY_CACHE_TTL_SECONDS,
+    LT_DIRECTORY_CACHE_SWR_SECONDS,
   );
-  return response;
 });
 
 export default assets;

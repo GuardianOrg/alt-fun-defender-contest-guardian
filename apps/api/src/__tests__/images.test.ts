@@ -756,6 +756,12 @@ describe("GET /images/:prefix/:key — image retrieval", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "public, max-age=31536000, immutable",
     );
+    // Content-addressed blob: without the zone directive every first
+    // view by every visitor was still a Worker invocation plus an R2
+    // read.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
   });
 
   it("falls back to application/octet-stream when no content type", async () => {

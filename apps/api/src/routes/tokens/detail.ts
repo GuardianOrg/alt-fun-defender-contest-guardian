@@ -21,7 +21,7 @@ import {
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
-import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
+import { applyEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 import { zodValidator } from "../../utils/validation.js";
@@ -308,14 +308,13 @@ detailRoute.get("/:address", async (c) => {
   // retains the body.
   //
   // Every other response path — public-lens hits whether or not a
-  // wallet was supplied — uses `edgeCacheableJsonHeader` (`public,
-  // max-age=0, s-maxage=ttl, stale-while-revalidate=2*ttl`). The
-  // `max-age=0` keeps the browser revalidating on every reload (the
-  // bare `s-maxage` form left the browser free to apply heuristic
-  // caching on `Cache-Control` directives meant for shared caches
-  // only, which used to freeze the home-page list until users cleared
-  // browsing data); the `s-maxage` lets a hot token absorb bursts at
-  // the edge.
+  // wallet was supplied — goes through `applyEdgeCacheHeaders`, which
+  // stamps the browser, Worker, and Cloudflare-zone directives from one
+  // TTL. The `max-age=0` in there keeps the browser revalidating on
+  // every reload (the bare `s-maxage` form left the browser free to
+  // apply heuristic caching on directives meant for shared caches only,
+  // which used to freeze the home-page list until users cleared
+  // browsing data).
   if (isHiddenBypass) {
     response.headers.set(
       "Cache-Control",
@@ -323,7 +322,7 @@ detailRoute.get("/:address", async (c) => {
     );
   } else {
     const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
+    applyEdgeCacheHeaders(response, ttl);
     if (cache) {
       await cache.put(cacheKey, response.clone());
     }

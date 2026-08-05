@@ -6,12 +6,14 @@ import {
   fetchTokenAndGraduationForSecurity,
   fetchTokenBalanceById,
 } from "../lib/indexer-reads.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
+const SECURITY_CACHE_TTL_SECONDS = 30;
 
 const securityV2 = new Hono<{ Bindings: AppBindings }>();
 
@@ -71,7 +73,7 @@ securityV2.get("/:address", async (c) => {
 });
 
 function setSecurityCacheHeader(c: { header: (k: string, v: string) => void }) {
-  c.header("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+  setEdgeCacheHeaders(c, SECURITY_CACHE_TTL_SECONDS);
 }
 
 export default securityV2;

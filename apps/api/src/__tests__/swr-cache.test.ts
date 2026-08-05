@@ -8,7 +8,10 @@ import {
   putWithSwr,
   revalidateInBackground,
 } from "../utils/swr-cache.js";
-import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
+import {
+  applyEdgeCacheHeaders,
+  edgeCacheableJsonHeader,
+} from "../utils/cache-control.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -80,6 +83,23 @@ describe("putWithSwr", () => {
     // couldn't return the same response object it just cached.
     const body = (await response.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
+  });
+
+  it("drops the zone directive from the stale-fallback copy", async () => {
+    // The stale body is only ever served past its freshness window;
+    // re-admitting it to the zone for another full TTL would stretch
+    // staleness beyond what the route declared.
+    const cache = makeFakeCache();
+    const primary = new Request("http://localhost/api/v1/tokens?stalecdn=1");
+    const response = makeJsonResponse({ ok: true }, 5);
+    applyEdgeCacheHeaders(response, 5);
+
+    await putWithSwr(cache, primary, response);
+
+    const staleWrite = (cache.put as ReturnType<typeof vi.fn>).mock.calls[1];
+    const staleResponse = staleWrite[1] as Response;
+    expect(staleResponse.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
+    expect(staleResponse.headers.get("Cache-Control")).toContain("s-maxage=15");
   });
 
   it("falls back to a single put when the Cache-Control header has no SWR directive", async () => {

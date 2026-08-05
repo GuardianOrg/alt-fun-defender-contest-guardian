@@ -2,11 +2,16 @@ import { Hono } from "hono";
 import { isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { fetchPortfolioPositions } from "../lib/indexer-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
+
+// Shareable at the edge only because the wallet sits in the URL path,
+// which is what the cache key is built from.
+const PORTFOLIO_CACHE_TTL_SECONDS = 15;
 
 const portfolio = new Hono<{ Bindings: AppBindings }>();
 
@@ -45,10 +50,7 @@ portfolio.get("/:wallet", async (c) => {
     );
   }
 
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=30",
-  );
+  setEdgeCacheHeaders(c, PORTFOLIO_CACHE_TTL_SECONDS);
   return c.json(
     formatSuccess({
       positions: result.positions,

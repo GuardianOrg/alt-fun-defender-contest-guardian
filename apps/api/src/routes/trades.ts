@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
-import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
+import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import {
@@ -173,10 +173,7 @@ trades.get("/", async (c) => {
   const enriched = await enrichTradesWithTokenLabels(rows, db);
 
   const response = c.json(formatSuccess(enriched));
-  response.headers.set(
-    "Cache-Control",
-    edgeCacheableJsonHeader(ttlForOffset(offset)),
-  );
+  applyEdgeCacheHeaders(response, ttlForOffset(offset));
   if (cache) {
     await cache.put(cacheKey, response.clone());
   }
@@ -377,10 +374,7 @@ trades.get("/:address", async (c) => {
   const enriched = await enrichTradesWithTokenLabels(rows, db);
 
   const response = c.json(formatSuccess(enriched));
-  response.headers.set(
-    "Cache-Control",
-    edgeCacheableJsonHeader(ttlForOffset(offset)),
-  );
+  applyEdgeCacheHeaders(response, ttlForOffset(offset));
   if (cache) {
     await cache.put(cacheKey, response.clone());
   }

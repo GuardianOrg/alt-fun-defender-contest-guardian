@@ -5,10 +5,13 @@ import { getAddress, isAddress } from "viem";
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import { tryApiDbRead } from "../../lib/api-db-reads.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+const VALID_CACHE_TTL_SECONDS = 30;
 
 const tokenValidRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -50,7 +53,7 @@ tokenValidRoute.get("/:address/valid", async (c) => {
   // Registration / hidden state flips rarely (cron backfill lands ~60s
   // after launch; manual moderation is uncommon). A short edge TTL absorbs
   // the WS-path burst without pinning a stale negative for long.
-  c.header("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+  setEdgeCacheHeaders(c, VALID_CACHE_TTL_SECONDS);
   return c.json(formatSuccess({ valid }));
 });
 

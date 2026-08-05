@@ -4,6 +4,7 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
 import { tokens, userProfiles } from "../db/schema.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { tryApiDbRead } from "../lib/api-db-reads.js";
@@ -18,6 +19,8 @@ import type { AppBindings } from "../lib/types.js";
 const creators = new Hono<{ Bindings: AppBindings }>();
 
 const VOLUME_QUERY_PAGE_SIZE = 1000;
+const EARNINGS_CACHE_TTL_SECONDS = 15;
+const PROFILE_CACHE_TTL_SECONDS = 30;
 
 /**
  * Per-creator pooled earnings totals. Reads the precomputed
@@ -58,10 +61,7 @@ creators.get("/:address/earnings", async (c) => {
     );
   }
 
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=30",
-  );
+  setEdgeCacheHeaders(c, EARNINGS_CACHE_TTL_SECONDS);
 
   // Steady state for any wallet that's never launched a token (or
   // launched but never accrued a fee): no row yet. Ship a clean
@@ -176,10 +176,7 @@ creators.get("/:address", async (c) => {
     }
   }
 
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=30, stale-while-revalidate=60",
-  );
+  setEdgeCacheHeaders(c, PROFILE_CACHE_TTL_SECONDS);
   return c.json(
     formatSuccess({
       profile: profile ?? null,

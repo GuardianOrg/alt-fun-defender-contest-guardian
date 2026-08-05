@@ -3,10 +3,16 @@ import { isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { fetchTokenMeta } from "../../lib/indexer-reads.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+// Labels flip once per token, so the stale window is deliberately much
+// wider than the usual 2× convention.
+const META_CACHE_TTL_SECONDS = 300;
+const META_CACHE_SWR_SECONDS = 3600;
 
 const tokenMetaRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -38,7 +44,7 @@ tokenMetaRoute.get("/:address/meta", async (c) => {
   // The web's `tokenNames` cache is the dominant caller and re-keys
   // its in-memory cache on the resolved value, so a stale read still
   // produces the right label. CodeRabbit feedback on PR #991.
-  c.header("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
+  setEdgeCacheHeaders(c, META_CACHE_TTL_SECONDS, META_CACHE_SWR_SECONDS);
   return c.json(formatSuccess(meta));
 });
 
