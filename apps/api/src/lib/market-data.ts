@@ -94,6 +94,13 @@ export interface PonderTokenOnchain {
    * `creatorFeesUsd`. Surfaced for symmetry with the admin dashboard.
    */
   protocolFeesUsd: string;
+  /**
+   * Block timestamp (sec) of the most recent owner-forced community takeover,
+   * or `null` for the vast majority of tokens that have never had one. Set
+   * only by `Bonding:CreatorReassigned` — a creator-signed handover
+   * (`CreatorTransferred`) leaves it alone.
+   */
+  communityTakeoverAt: string | null;
   timestamp: string;
 }
 

@@ -866,6 +866,7 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
         hyperswapPair: null,
         organicUsdcRaised: "0",
         volumeUsd: "12500000",
+        communityTakeoverAt: "1700003600",
         timestamp: "1700000000",
       },
     });
@@ -893,6 +894,9 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveFilledLeverageBoost).not.toBeNull();
     expect(body.data.mcapUsd).not.toBeNull();
     expect(body.data.totalVolumeUsd).toBe(12.5);
+    // Raw block seconds are converted to ISO for the client, matching the
+    // treatment of every other timestamp on this response.
+    expect(body.data.communityTakeoverAt).toBe("2023-11-14T23:13:20.000Z");
   });
 
   it("returns totalVolumeUsd = 0 when the token has been indexed but never traded", async () => {
@@ -922,8 +926,13 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     const app = createApp();
     const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
 
-    const body = (await res.json()) as { data: { totalVolumeUsd: number | null } };
+    const body = (await res.json()) as {
+      data: { totalVolumeUsd: number | null; communityTakeoverAt: string | null };
+    };
     expect(body.data.totalVolumeUsd).toBe(0);
+    // The overwhelmingly common case: a token that has never been taken over
+    // reports null rather than omitting the field.
+    expect(body.data.communityTakeoverAt).toBeNull();
   });
 
   it("splits curveFilled into organic USD vs LT boost", async () => {

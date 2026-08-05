@@ -53,6 +53,8 @@ export const indexerToken = ponderSchema.table(
     creator: text("creator").notNull(),
     /** Mirrors `Bonding.creatorOf(token)` — moves on creator handover / takeover. */
     feeRecipient: text("fee_recipient").notNull(),
+    /** Set only by an owner-forced community takeover; null for every other token. */
+    communityTakeoverAt: numeric("community_takeover_at"),
     ltToken: text("lt_token").notNull(),
     k: numeric("k").notNull(),
     curveSupply: numeric("curve_supply").notNull(),

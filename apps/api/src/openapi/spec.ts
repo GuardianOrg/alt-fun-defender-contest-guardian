@@ -171,6 +171,13 @@ const tokenSchema = {
         "Canonical http(s) URL with multi-label ASCII hostname (no userinfo). Empty string when unset or invalid. Pre-#400 rows may still hold legacy / unvalidated values; clients should pass the value through `buildWebsiteUrl` before rendering.",
     },
     creator: { type: "string" },
+    communityTakeoverAt: {
+      type: "string",
+      format: "date-time",
+      nullable: true,
+      description:
+        "Timestamp of the community takeover (CTO) that moved this token's creator role off its original dev; `null` if it never had one (almost every token). Sourced from `Bonding.CreatorReassigned`, which only the protocol multisig can trigger — a creator voluntarily handing the role to another wallet does NOT set this. Also `null` when the indexer is unreachable, so this conflates \"no takeover\" with \"unknown\", the same way `pendingGraduationAt` does.",
+    },
     isHidden: { type: "boolean" },
     createdAt: { type: "string", format: "date-time" },
   },

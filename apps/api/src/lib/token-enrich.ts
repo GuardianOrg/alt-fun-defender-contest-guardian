@@ -352,5 +352,22 @@ export interface EnrichedToken
    * `volume24hUsd` to disambiguate.
    */
   lastTradeAt: string | null;
+  /**
+   * ISO timestamp of the community takeover (CTO) that moved this token's
+   * creator role off its original dev, or `null` if it never had one — which
+   * is the case for almost every token. Clients can treat non-null as "badge
+   * this as community-run" and use the timestamp for "taken over 3d ago".
+   *
+   * Sourced from `Bonding.CreatorReassigned`, which only the protocol
+   * multisig can trigger. A creator voluntarily handing the role to another
+   * wallet (`CreatorTransferred`) does **not** set this — that's a handover,
+   * not a takeover, and badging it as one would misrepresent the creator.
+   *
+   * Also `null` when the indexer is unreachable, so this conflates "no
+   * takeover" with "unknown" exactly as `pendingGraduationAt` above does.
+   * That's deliberate: for a badge, failing closed to "no badge" is the safe
+   * direction, and the alternative pushes a tri-state onto every consumer.
+   */
+  communityTakeoverAt: string | null;
 }
 

@@ -85,6 +85,12 @@ export interface ApiToken {
   protocolFeesUsd?: number | null;
   lastTradeAt?: string | null;
   poolAddress?: string | null;
+  /**
+   * ISO timestamp of the community takeover that moved this token's creator
+   * role off its original dev; `null` when it never had one. A creator
+   * voluntarily handing over to another wallet does not set this.
+   */
+  communityTakeoverAt?: string | null;
 }
 
 export type TokenListSort =
