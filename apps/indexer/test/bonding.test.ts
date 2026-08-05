@@ -174,20 +174,28 @@ describe("creator reassignment", () => {
     db = createMockDb();
   });
 
-  // Both events carry the same payload and must land the same row update —
-  // a voluntary handover and an owner-forced community takeover move the fee
-  // recipient identically.
+  // Both events move the fee recipient identically — a voluntary handover and
+  // an owner-forced community takeover both redirect future creator fees.
   //
-  // Critically, `creator` must NOT move: it's the immutable launch identity
-  // backing `/security`'s `creatorHoldingPct` rug signal and the analytics
-  // launcher tally. Repointing it would silently aim a safety metric at a
-  // different wallet, so the assertion is on the exact update payload.
+  // They diverge on `communityTakeoverAt`: only the forced one stamps it,
+  // because that timestamp is what the UI badges as a CTO. Stamping it on a
+  // voluntary handover would badge a creator who simply moved wallets or sold
+  // the project as having been taken over by the community.
+  //
+  // Critically, `creator` must NOT move for either: it's the immutable launch
+  // identity backing `/security`'s `creatorHoldingPct` rug signal and the
+  // analytics launcher tally. Repointing it would silently aim a safety metric
+  // at a different wallet, so the assertions are on the exact update payload.
   it.each([
-    ["Bonding:CreatorTransferred"],
-    ["Bonding:CreatorReassigned"],
-  ])("%s moves feeRecipient and leaves creator alone", async (eventName) => {
+    ["Bonding:CreatorTransferred", { feeRecipient: "0xnewcreator" }],
+    [
+      "Bonding:CreatorReassigned",
+      { feeRecipient: "0xnewcreator", communityTakeoverAt: 4242n },
+    ],
+  ])("%s lands the expected row update", async (eventName, expectedValues) => {
     const handler = getHandler(eventName);
     const event = createMockEvent({
+      blockTimestamp: 4242n,
       args: {
         token: "0xtoken1",
         oldCreator: "0xoldcreator",
@@ -201,7 +209,7 @@ describe("creator reassignment", () => {
     const call = db._updateCalls[0];
     expect(call.table).toBe(token);
     expect(call.key).toEqual({ address: "0xtoken1" });
-    expect(call.values).toEqual({ feeRecipient: "0xnewcreator" });
+    expect(call.values).toEqual(expectedValues);
     expect(call.values).not.toHaveProperty("creator");
   });
 });
