@@ -62,10 +62,22 @@ export function quantiseDown(sec: number, step: number): number {
  */
 const LT_RATE_SERIES_TTL_MS = 30_000;
 
+/**
+ * Entry cap, set explicitly because the shared default is sized for far
+ * smaller values. One entry here is a whole sampling grid —
+ * `MAX_HISTORY_CANDLES × 3` = 1,500 rows, roughly 230 KB — where
+ * `createIsolateTtlCache`'s default of 1,024 assumes a few KB apiece and
+ * budgets ~2 MB total. At that default this cache alone could retain
+ * ~230 MB, well past the 128 MB Worker isolate ceiling. 64 caps it near
+ * 14 MB; overflow evicts oldest-first and only costs a re-read.
+ */
+const LT_RATE_SERIES_MAX_ENTRIES = 64;
+
 // Flushed between test cases through the registry in
 // `utils/isolate-ttl-cache.ts`, so no reset hook is needed here.
 const ltRateSeriesCache = createIsolateTtlCache<LtRateSample[] | null>({
   ttlMs: LT_RATE_SERIES_TTL_MS,
+  maxEntries: LT_RATE_SERIES_MAX_ENTRIES,
   shouldCache: (value) => value !== null,
 });
 

@@ -1478,9 +1478,12 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
   }
 
   // 1m candles → `sampleSec = ceil(60 / 3) = 20`, so the window ends snap
-  // onto a 20-second lattice.
+  // onto a 20-second lattice. `T0` is deliberately NOT a multiple of that:
+  // on a lattice-aligned clock `gridToSec === nowSec` and the tests below
+  // could not tell a tick beyond the grid's end from one on its boundary.
   const SAMPLE_SEC = 20;
-  const T0 = 1_800_000_000;
+  const T0 = 1_800_000_007;
+  const GRID_END = T0 - (T0 % SAMPLE_SEC);
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -1550,13 +1553,15 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
   });
 
   it("reports the newest tick as currentExchangeRate, not the grid's last sample", async () => {
-    // A tick landing after the grid's quantised end is invisible to the
-    // grid but must still reach the frontend, which folds this value with
-    // the live `price` WebSocket feed to move the in-progress candle.
+    // The tick sits strictly after `GRID_END`, so no `generate_series`
+    // sample could have picked it up. It must still reach the frontend,
+    // which folds this value with the live `price` WebSocket feed to move
+    // the in-progress candle.
+    expect(T0).toBeGreaterThan(GRID_END);
     mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
       Promise.resolve(
         strings.join("").includes("generate_series")
-          ? [{ ts: String(T0 - 100), exchange_rate: "2100000000000000000" }]
+          ? [{ ts: String(GRID_END), exchange_rate: "2100000000000000000" }]
           : [{ ts: String(T0), exchange_rate: "2500000000000000000" }],
       ),
     );

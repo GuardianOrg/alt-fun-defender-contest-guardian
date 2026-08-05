@@ -72,6 +72,24 @@ function staleKeyFor(primary: Request): Request {
 }
 
 /**
+ * Strip the reserved marker from a caller-supplied URL before it is used
+ * as the canonical key.
+ *
+ * Without this, a request that already carries `?__swr_stale=1` keys
+ * straight onto another URL's stale-fallback entry: the lookup treats a
+ * deliberately-stretched `s-maxage` body as fresh and serves it with no
+ * revalidation, and the matching write clobbers that fallback. Routes
+ * ignore the parameter, so folding it away is also the semantically
+ * correct key.
+ */
+function canonicalKeyFor(primary: Request): Request {
+  const url = new URL(primary.url);
+  if (!url.searchParams.has(SWR_STALE_PARAM)) return primary;
+  url.searchParams.delete(SWR_STALE_PARAM);
+  return new Request(url.toString(), { method: "GET" });
+}
+
+/**
  * Look up a cache entry under both the canonical key and the
  * stale-fallback key. Returns `fresh` only when the canonical entry is
  * still within its `s-maxage` window; falls through to `stale` while the
@@ -83,9 +101,10 @@ export async function matchSwr(
   cache: Cache,
   primary: Request,
 ): Promise<SwrMatch> {
-  const fresh = await cache.match(primary);
+  const canonical = canonicalKeyFor(primary);
+  const fresh = await cache.match(canonical);
   if (fresh) return { kind: "fresh", response: fresh };
-  const stale = await cache.match(staleKeyFor(primary));
+  const stale = await cache.match(staleKeyFor(canonical));
   if (stale) return { kind: "stale", response: stale };
   return { kind: "miss" };
 }
@@ -172,12 +191,17 @@ export async function putWithSwr(
   const { sMaxAge, staleWhileRevalidate } = parseCacheControl(
     response.headers.get("Cache-Control"),
   );
-  await cache.put(primary, response.clone());
-  if (sMaxAge === null || staleWhileRevalidate === null || staleWhileRevalidate === 0) {
+  const canonical = canonicalKeyFor(primary);
+  await cache.put(canonical, response.clone());
+  if (
+    sMaxAge === null ||
+    staleWhileRevalidate === null ||
+    staleWhileRevalidate === 0
+  ) {
     return;
   }
   await cache.put(
-    staleKeyFor(primary),
+    staleKeyFor(canonical),
     buildStaleResponse(response, sMaxAge, staleWhileRevalidate),
   );
 }
@@ -193,6 +217,24 @@ export async function putWithSwr(
  * monopolise refresh slots.
  */
 const REVALIDATION_TIMEOUT_MS = 8_000;
+
+/**
+ * URLs with a refresh already in flight in this isolate.
+ *
+ * Every stale serve schedules its own refresh, so a burst arriving at one
+ * TTL boundary would otherwise fan out into N concurrent cold paths for
+ * the same URL — the exact stampede the cache exists to prevent, and
+ * worst on the routes whose cold path is slowest. It also let a slower
+ * older refresh land after a newer one and overwrite it. One refresh per
+ * URL at a time fixes both; the entry is dropped in `finally` so a
+ * failure doesn't wedge future refreshes.
+ */
+const revalidationsInFlight = new Set<string>();
+
+/** Test-only: clear in-flight refresh tracking between cases. */
+export function _resetRevalidationTracking(): void {
+  revalidationsInFlight.clear();
+}
 
 /**
  * Trigger a background self-fetch to refresh a stale entry. The
@@ -216,6 +258,10 @@ const REVALIDATION_TIMEOUT_MS = 8_000;
  * user hit just gets another stale serve with another refresh attempt.
  */
 export async function revalidateInBackground(c: Context): Promise<void> {
+  const key = c.req.url;
+  if (revalidationsInFlight.has(key)) return;
+  revalidationsInFlight.add(key);
+
   const headers = new Headers(c.req.raw.headers);
   headers.set(SWR_REVALIDATE_HEADER, "1");
   const controller = new AbortController();
@@ -233,6 +279,7 @@ export async function revalidateInBackground(c: Context): Promise<void> {
     // are absorbed. See JSDoc.
   } finally {
     clearTimeout(timer);
+    revalidationsInFlight.delete(key);
   }
 }
 
