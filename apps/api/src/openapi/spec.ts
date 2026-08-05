@@ -217,6 +217,13 @@ const tokenDetailSchema = {
           description:
             "Live USD value of the curve's real LT reserve (`realLt × currentRate`). Numerator behind `curveFilled`; surfaced separately so clients can render the absolute '$X raised' label without redoing the virtual→real LT subtraction. `null` when degraded or post-graduation.",
         },
+        communityTakeoverAt: {
+          type: "string",
+          format: "date-time",
+          nullable: true,
+          description:
+            "Timestamp of the community takeover (CTO) that moved this token's creator role off its original dev; `null` if it never had one (almost every token). Sourced from `Bonding.CreatorReassigned`, which only the protocol multisig can trigger — a creator voluntarily handing the role to another wallet does NOT set this. Also `null` when the indexer is unreachable, so this conflates \"no takeover\" with \"unknown\", the same way `pendingGraduationAt` does.",
+        },
       },
     },
   ],

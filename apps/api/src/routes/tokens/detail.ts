@@ -110,6 +110,9 @@ function enrich(
     protocolFeesUsd:
       onchain == null ? null : (usdcRawToUsd(onchain.protocolFeesUsd) ?? 0),
     lastTradeAt,
+    communityTakeoverAt: onchain?.communityTakeoverAt
+      ? new Date(Number(onchain.communityTakeoverAt) * 1000).toISOString()
+      : null,
   };
 }
 

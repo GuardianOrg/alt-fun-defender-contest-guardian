@@ -167,6 +167,7 @@ interface IndexerTokenRow {
   volumeUsd: string;
   creatorFeesUsd: string;
   protocolFeesUsd: string;
+  communityTakeoverAt: string | null;
   timestamp: string;
 }
 
@@ -186,6 +187,7 @@ const TOKEN_COLUMNS = {
   volumeUsd: indexerToken.volumeUsd,
   creatorFeesUsd: indexerToken.creatorFeesUsd,
   protocolFeesUsd: indexerToken.protocolFeesUsd,
+  communityTakeoverAt: indexerToken.communityTakeoverAt,
   timestamp: indexerToken.timestamp,
 } as const;
 
@@ -206,6 +208,7 @@ function toPonderTokenOnchain(row: IndexerTokenRow): PonderTokenOnchain {
     volumeUsd: row.volumeUsd,
     creatorFeesUsd: row.creatorFeesUsd,
     protocolFeesUsd: row.protocolFeesUsd,
+    communityTakeoverAt: row.communityTakeoverAt,
     timestamp: row.timestamp,
   };
 }

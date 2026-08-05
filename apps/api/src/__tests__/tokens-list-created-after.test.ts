@@ -189,6 +189,7 @@ function makeOnchain(
     volumeUsd: "0",
     creatorFeesUsd: "0",
     protocolFeesUsd: "0",
+    communityTakeoverAt: null,
     timestamp: "1700000000",
     ...overrides,
   };

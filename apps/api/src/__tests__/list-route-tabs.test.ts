@@ -178,6 +178,7 @@ function makeOnchain(
     volumeUsd: "0",
     creatorFeesUsd: "0",
     protocolFeesUsd: "0",
+    communityTakeoverAt: null,
     timestamp: "1700000000",
     ...overrides,
   };
@@ -271,6 +272,49 @@ describe("GET /tokens?status=graduated", () => {
       data: Array<{ address: string; ticker: string }>;
     };
     expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB", "CCC"]);
+  });
+
+  // The home page badges community takeovers straight off the list response,
+  // so the field has to survive the list path — not just the detail route.
+  it("serialises communityTakeoverAt as ISO on the list response", async () => {
+    const onchainA = makeOnchain(ADDR_A, {
+      graduated: true,
+      graduatedAt: "1700003000",
+      communityTakeoverAt: "1700003600",
+    });
+    const onchainB = makeOnchain(ADDR_B, {
+      graduated: true,
+      graduatedAt: "1700002000",
+    });
+    mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([onchainA, onchainB]);
+
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+    ];
+
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket() },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduated",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string; communityTakeoverAt: string | null }>;
+    };
+    expect(
+      body.data.map((t) => [t.ticker, t.communityTakeoverAt]),
+    ).toEqual([
+      ["AAA", "2023-11-14T23:13:20.000Z"],
+      ["BBB", null],
+    ]);
   });
 
   it("returns 503 when the indexer is unreachable", async () => {

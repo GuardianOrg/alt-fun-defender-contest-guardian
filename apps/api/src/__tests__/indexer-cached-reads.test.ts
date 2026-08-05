@@ -63,6 +63,7 @@ function makeTokenOnchain(): PonderTokenOnchain {
     volumeUsd: "0",
     creatorFeesUsd: "0",
     protocolFeesUsd: "0",
+    communityTakeoverAt: null,
     timestamp: "0",
   };
 }
