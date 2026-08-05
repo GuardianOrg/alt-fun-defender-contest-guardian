@@ -327,7 +327,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
     if (step === "confirmed") return "CONFIRMED";
     if (step === "error") return "RETRY";
-    return `${mode === "buy" ? "BUY" : "SELL"} ${token.name}`;
+    return `${mode === "buy" ? "BUY" : "SELL"} ${token.ticker}`;
   };
 
   const ticker = token.ticker;
