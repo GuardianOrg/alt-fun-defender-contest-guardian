@@ -160,19 +160,18 @@ let liveLtRatesCache: {
   map: Map<string, number>;
   expiresAt: number;
 } | null = null;
-let liveLtRatesInflight: Promise<Map<string, number> | null> | null = null;
-/**
- * Whether the last resolved read fell back to the expired cache. Read
- * immediately after awaiting the in-flight promise, so coalesced callers
- * of the same read all see that read's provenance.
- */
-let liveLtRatesLastWasStale = false;
+/** Rates plus whether they came from the expired-cache fail-open. */
+export interface LiveLtRatesResult {
+  rates: Map<string, number> | null;
+  stale: boolean;
+}
+
+let liveLtRatesInflight: Promise<LiveLtRatesResult> | null = null;
 
 /** Reset hook for tests. Mirrors `_resetLtAvailabilityCache`. */
 export function _resetLiveLtRatesCache(): void {
   liveLtRatesCache = null;
   liveLtRatesInflight = null;
-  liveLtRatesLastWasStale = false;
 }
 
 /**
@@ -212,35 +211,33 @@ export async function fetchLiveLtRates(
  */
 export async function fetchLiveLtRatesWithProvenance(
   databaseUrl: string,
-): Promise<{ rates: Map<string, number> | null; stale: boolean }> {
+): Promise<LiveLtRatesResult> {
   const now = Date.now();
   if (liveLtRatesCache && liveLtRatesCache.expiresAt > now) {
     return { rates: liveLtRatesCache.map, stale: false };
   }
-  if (liveLtRatesInflight) {
-    return { rates: await liveLtRatesInflight, stale: liveLtRatesLastWasStale };
-  }
+  if (liveLtRatesInflight) return liveLtRatesInflight;
 
-  liveLtRatesInflight = (async () => {
+  // Provenance rides inside the promise rather than in a module-level
+  // flag. A flag would be correct only while no `await` sits between
+  // resolving the read and reading it — true today, silently breakable by
+  // any future edit.
+  liveLtRatesInflight = (async (): Promise<LiveLtRatesResult> => {
     try {
       const map = await readLiveLtRates(databaseUrl);
       if (map === null) {
-        liveLtRatesLastWasStale = liveLtRatesCache != null;
-        return liveLtRatesCache?.map ?? null;
+        return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
       }
       liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
-      liveLtRatesLastWasStale = false;
-      return map;
+      return { rates: map, stale: false };
     } catch {
-      liveLtRatesLastWasStale = liveLtRatesCache != null;
-      return liveLtRatesCache?.map ?? null;
+      return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
     } finally {
       liveLtRatesInflight = null;
     }
   })();
 
-  const rates = await liveLtRatesInflight;
-  return { rates, stale: liveLtRatesLastWasStale };
+  return liveLtRatesInflight;
 }
 
 /**

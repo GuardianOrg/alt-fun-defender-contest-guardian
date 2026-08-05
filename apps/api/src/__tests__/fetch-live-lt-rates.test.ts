@@ -194,6 +194,29 @@ describe("fetchLiveLtRates — caching", () => {
     expect(recovered.stale).toBe(false);
   });
 
+  it("gives every coalesced caller the same provenance", async () => {
+    // Provenance travels inside the in-flight promise rather than in a
+    // module-level flag, so callers that fan into one read can't observe
+    // a later read's outcome.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+    mockReadLiveLtRates.mockResolvedValueOnce(rateMap({ [LT_A]: 2 }));
+    await fetchLiveLtRatesWithProvenance(DB_URL);
+
+    vi.setSystemTime(new Date("2024-01-01T00:00:30Z"));
+    mockReadLiveLtRates.mockResolvedValueOnce(null);
+
+    const [a, b, c] = await Promise.all([
+      fetchLiveLtRatesWithProvenance(DB_URL),
+      fetchLiveLtRatesWithProvenance(DB_URL),
+      fetchLiveLtRatesWithProvenance(DB_URL),
+    ]);
+
+    // One read served all three, and all three know it was stale.
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(2);
+    expect([a.stale, b.stale, c.stale]).toEqual([true, true, true]);
+  });
+
   it("reports a cold failure with no cache as not-stale, since there is no body", async () => {
     // `stale` means "this map is older than it looks". A null map isn't
     // stale, it's absent — the caller already treats null as degraded.
