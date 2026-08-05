@@ -654,17 +654,29 @@ chart.get("/:address", async (c) => {
     fetchTokenChartSnapshotsCached(db, address, fromSec),
   ]);
 
+  // A failed rate read is retryable, so answer 503 rather than letting the
+  // rejection escape as a 500. Distinct from an LT that simply has no
+  // ticks, which is a legitimate empty chart.
+  if (gridRows === null || latestLtRate === "unavailable") {
+    return c.json(
+      formatError(
+        "Exchange-rate data unavailable — chart data cannot be loaded",
+      ),
+      503,
+    );
+  }
+
   // Carry the newest tick to `nowSec`: the grid ends at `gridToSec`, so
   // the frontend's candle anchor would otherwise trail by up to
-  // `sampleSec` — 20 minutes on the 1h interval. Skipped on an empty grid
-  // so the "no rate data at all" branch below still fires.
-  const ltRows: LtSnapshotRow[] =
-    gridRows.length > 0 && latestLtRate
-      ? [
-          ...gridRows,
-          { ts: String(nowSec), exchange_rate: latestLtRate.exchange_rate },
-        ]
-      : gridRows;
+  // `sampleSec` — 20 minutes on the 1h interval. Appended even against an
+  // empty grid, which is what an LT whose first tick landed inside the
+  // current lattice cell looks like.
+  const ltRows: LtSnapshotRow[] = latestLtRate
+    ? [
+        ...gridRows,
+        { ts: String(nowSec), exchange_rate: latestLtRate.exchange_rate },
+      ]
+    : gridRows;
 
   if (ltRows.length === 0) {
     return respondWithEdgeCache(

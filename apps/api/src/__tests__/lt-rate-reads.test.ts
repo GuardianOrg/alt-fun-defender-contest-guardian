@@ -114,13 +114,36 @@ describe("fetchLtRateSeriesCached", () => {
   it("does not pin a failed read — the next caller retries", async () => {
     mockNeonQuery.mockRejectedValueOnce(new Error("neon down"));
 
-    await expect(
-      fetchLtRateSeriesCached(DB_URL, LT, 1_000, 2_000, 20),
-    ).rejects.toThrow("neon down");
+    expect(
+      await fetchLtRateSeriesCached(DB_URL, LT, 1_000, 2_000, 20),
+    ).toBeNull();
 
     const rows = await fetchLtRateSeriesCached(DB_URL, LT, 1_000, 2_000, 20);
     expect(rows).toHaveLength(1);
     expect(mockNeonQuery).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("fetchLtRateSeries error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns null and logs structured rather than throwing", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockRejectedValue(new Error("neon down"));
+
+    expect(await fetchLtRateSeries(DB_URL, LT, 1_000, 2_000, 20)).toBeNull();
+
+    const payload = JSON.parse(logSpy.mock.calls[0]![0] as string) as {
+      level: string;
+      event: string;
+      helper: string;
+    };
+    expect(payload.level).toBe("error");
+    expect(payload.event).toBe("lt_rate_read_failed");
+    expect(payload.helper).toBe("fetchLtRateSeries");
+    logSpy.mockRestore();
   });
 });
 
@@ -147,6 +170,15 @@ describe("fetchLatestLtRate", () => {
     mockNeonQuery.mockResolvedValue([]);
 
     expect(await fetchLatestLtRate(DB_URL, LT)).toBeNull();
+  });
+
+  it("separates a failed read from an LT with no ticks", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockRejectedValue(new Error("neon down"));
+
+    expect(await fetchLatestLtRate(DB_URL, LT)).toBe("unavailable");
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    logSpy.mockRestore();
   });
 
   it("is not memoised — the anchor rate must reflect the latest write", async () => {

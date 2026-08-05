@@ -18,11 +18,29 @@
 import { neon } from "@neondatabase/serverless";
 
 import { createIsolateTtlCache } from "../utils/isolate-ttl-cache.js";
+import { describeError } from "./log-error.js";
 
 /** One LT exchange-rate sample: unix seconds, plus the raw 18dp rate. */
 export interface LtRateSample {
   ts: string;
   exchange_rate: string;
+}
+
+function logLtRateReadFailure(
+  helper: string,
+  error: unknown,
+  context: Record<string, unknown>,
+): void {
+  console.log(
+    JSON.stringify({
+      level: "error",
+      event: "lt_rate_read_failed",
+      helper,
+      ...context,
+      error: describeError(error),
+      timestamp: new Date().toISOString(),
+    }),
+  );
 }
 
 /**
@@ -46,8 +64,9 @@ const LT_RATE_SERIES_TTL_MS = 30_000;
 
 // Flushed between test cases through the registry in
 // `utils/isolate-ttl-cache.ts`, so no reset hook is needed here.
-const ltRateSeriesCache = createIsolateTtlCache<LtRateSample[]>({
+const ltRateSeriesCache = createIsolateTtlCache<LtRateSample[] | null>({
   ttlMs: LT_RATE_SERIES_TTL_MS,
+  shouldCache: (value) => value !== null,
 });
 
 /**
@@ -60,6 +79,9 @@ const ltRateSeriesCache = createIsolateTtlCache<LtRateSample[]>({
  * most of them missing the page cache. Measured against production, a
  * 1,500-sample grid costs ~0.1 ms per sample reaching back minutes and
  * ~1.6 ms reaching back weeks — 0.3 s against 2.4 s for the same rows.
+ *
+ * `null` on a caught read error, matching the `indexer-reads.ts` contract
+ * so the route can answer 503 rather than leaking a 500.
  */
 export async function fetchLtRateSeries(
   databaseUrl: string,
@@ -67,27 +89,37 @@ export async function fetchLtRateSeries(
   fromSec: number,
   toSec: number,
   sampleSec: number,
-): Promise<LtRateSample[]> {
+): Promise<LtRateSample[] | null> {
   const sql = neon(databaseUrl);
-  return (await sql`
-    SELECT
-      extract(epoch from s.t)::bigint AS ts,
-      t.exchange_rate::text AS exchange_rate
-    FROM generate_series(
-      to_timestamp(${fromSec}),
-      to_timestamp(${toSec}),
-      make_interval(secs => ${sampleSec})
-    ) AS s(t)
-    CROSS JOIN LATERAL (
-      SELECT exchange_rate
-      FROM token_snapshots_v1
-      WHERE token_address = ${ltAddress}
-        AND tick_timestamp <= s.t
-      ORDER BY tick_timestamp DESC
-      LIMIT 1
-    ) t
-    ORDER BY s.t
-  `) as unknown as LtRateSample[];
+  try {
+    return (await sql`
+      SELECT
+        extract(epoch from s.t)::bigint AS ts,
+        t.exchange_rate::text AS exchange_rate
+      FROM generate_series(
+        to_timestamp(${fromSec}),
+        to_timestamp(${toSec}),
+        make_interval(secs => ${sampleSec})
+      ) AS s(t)
+      CROSS JOIN LATERAL (
+        SELECT exchange_rate
+        FROM token_snapshots_v1
+        WHERE token_address = ${ltAddress}
+          AND tick_timestamp <= s.t
+        ORDER BY tick_timestamp DESC
+        LIMIT 1
+      ) t
+      ORDER BY s.t
+    `) as unknown as LtRateSample[];
+  } catch (error) {
+    logLtRateReadFailure("fetchLtRateSeries", error, {
+      ltAddress,
+      fromSec,
+      toSec,
+      sampleSec,
+    });
+    return null;
+  }
 }
 
 /**
@@ -97,7 +129,7 @@ export async function fetchLtRateSeries(
  * ending at an unrounded "now" mints a new key every second and the memo
  * never hits.
  *
- * A rejected read is not stored, so a transient database failure doesn't
+ * A failed read is not stored, so a transient database failure doesn't
  * pin an error for the TTL window.
  */
 export function fetchLtRateSeriesCached(
@@ -106,7 +138,7 @@ export function fetchLtRateSeriesCached(
   fromSec: number,
   toSec: number,
   sampleSec: number,
-): Promise<LtRateSample[]> {
+): Promise<LtRateSample[] | null> {
   const key = `${ltAddress.toLowerCase()}|${fromSec}|${toSec}|${sampleSec}`;
   return ltRateSeriesCache.getOrFetch(key, () =>
     fetchLtRateSeries(databaseUrl, ltAddress, fromSec, toSec, sampleSec),
@@ -120,21 +152,28 @@ export function fetchLtRateSeriesCached(
  * index seek against the table's newest page, so it costs a fraction of a
  * single grid sample.
  *
- * `null` when the LT has no ticks at all.
+ * `null` means the LT genuinely has no ticks; `"unavailable"` means the
+ * read failed. Kept distinct — the first is a legitimate empty chart, the
+ * second is a 503 — matching how `fetchTokenChartContext` splits the two.
  */
 export async function fetchLatestLtRate(
   databaseUrl: string,
   ltAddress: string,
-): Promise<LtRateSample | null> {
+): Promise<LtRateSample | null | "unavailable"> {
   const sql = neon(databaseUrl);
-  const rows = (await sql`
-    SELECT
-      extract(epoch from tick_timestamp)::bigint AS ts,
-      exchange_rate::text AS exchange_rate
-    FROM token_snapshots_v1
-    WHERE token_address = ${ltAddress}
-    ORDER BY tick_timestamp DESC
-    LIMIT 1
-  `) as unknown as LtRateSample[];
-  return rows[0] ?? null;
+  try {
+    const rows = (await sql`
+      SELECT
+        extract(epoch from tick_timestamp)::bigint AS ts,
+        exchange_rate::text AS exchange_rate
+      FROM token_snapshots_v1
+      WHERE token_address = ${ltAddress}
+      ORDER BY tick_timestamp DESC
+      LIMIT 1
+    `) as unknown as LtRateSample[];
+    return rows[0] ?? null;
+  } catch (error) {
+    logLtRateReadFailure("fetchLatestLtRate", error, { ltAddress });
+    return "unavailable";
+  }
 }

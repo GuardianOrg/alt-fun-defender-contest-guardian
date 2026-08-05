@@ -1570,9 +1570,7 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
     expect(body.data.candles.length).toBeGreaterThan(0);
   });
 
-  it("keeps the empty-grid branch when the LT has no rate history", async () => {
-    // An empty grid means no rate data at all, so the newest-tick seek must
-    // not resurrect a chart out of a single sample.
+  it("returns the empty chart only when the LT has no ticks at all", async () => {
     mockNeonQuery.mockResolvedValue([]);
 
     const res = await requestChart();
@@ -1583,5 +1581,66 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
     expect(res.status).toBe(200);
     expect(body.data.candles).toEqual([]);
     expect(body.data.currentExchangeRate).toBe(0);
+  });
+
+  it("still charts an LT whose first tick landed inside the current cell", async () => {
+    // The grid is empty because every tick postdates its quantised end.
+    // Dropping the newest tick here would blank the chart for up to
+    // `sampleSec` — 20 minutes on the 1h interval.
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      Promise.resolve(
+        strings.join("").includes("generate_series")
+          ? []
+          : [{ ts: String(T0), exchange_rate: "2500000000000000000" }],
+      ),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as {
+      data: { candles: unknown[]; currentExchangeRate: number };
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.data.currentExchangeRate).toBeCloseTo(2.5, 5);
+    expect(body.data.candles.length).toBeGreaterThan(0);
+  });
+
+  it("answers 503 when the sampling grid read fails", async () => {
+    // Retryable upstream failure — must not escape as a 500, and must not
+    // be cached under the success path's TTL.
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      strings.join("").includes("generate_series")
+        ? Promise.reject(new Error("neon down"))
+        : Promise.resolve([
+            { ts: String(T0), exchange_rate: "2000000000000000000" },
+          ]),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as { status: string; error: string | null };
+
+    expect(res.status).toBe(503);
+    expect(body.status).toBe("error");
+    expect(body.error).toContain("Exchange-rate data unavailable");
+    expect(body.error).not.toContain("neon down");
+  });
+
+  it("answers 503 when the newest-tick read fails", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
+      strings.join("").includes("generate_series")
+        ? Promise.resolve([
+            { ts: String(T0 - 100), exchange_rate: "2000000000000000000" },
+          ])
+        : Promise.reject(new Error("neon down")),
+    );
+
+    const res = await requestChart();
+    const body = (await res.json()) as { status: string; error: string | null };
+
+    expect(res.status).toBe(503);
+    expect(body.error).toContain("Exchange-rate data unavailable");
+    expect(body.error).not.toContain("neon down");
   });
 });
