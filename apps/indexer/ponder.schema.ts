@@ -27,6 +27,18 @@ export const token = onchainTable("token", (t) => ({
    * off this column so the `?creator=` filter follows the current steward.
    */
   feeRecipient: t.hex().notNull(),
+  /**
+   * Block timestamp of the most recent `CreatorReassigned` — the owner-forced
+   * community takeover. Null for the overwhelming majority of tokens, which
+   * have never been taken over.
+   *
+   * Deliberately NOT stamped by `CreatorTransferred`: that event is a creator
+   * voluntarily handing the role over (moving wallets, selling the project),
+   * which is a different thing from the community taking an abandoned token
+   * off its dev. Only `adminTransferCreator` emits `CreatorReassigned`, so
+   * this column is exactly "the multisig executed a CTO here".
+   */
+  communityTakeoverAt: t.bigint(),
   ltToken: t.hex().notNull(),
   k: t.bigint().notNull(),
   curveSupply: t.bigint().notNull(),

@@ -174,20 +174,20 @@ describe("creator reassignment", () => {
     db = createMockDb();
   });
 
-  // Both events carry the same payload and must land the same row update —
-  // a voluntary handover and an owner-forced community takeover move the fee
-  // recipient identically.
-  //
-  // Critically, `creator` must NOT move: it's the immutable launch identity
-  // backing `/security`'s `creatorHoldingPct` rug signal and the analytics
-  // launcher tally. Repointing it would silently aim a safety metric at a
-  // different wallet, so the assertion is on the exact update payload.
+  // Asserts the exact update payload for both events, which pins the two
+  // invariants documented on `token.creator` / `token.communityTakeoverAt` in
+  // ponder.schema.ts: `creator` never moves, and only the owner-forced event
+  // stamps the takeover timestamp.
   it.each([
-    ["Bonding:CreatorTransferred"],
-    ["Bonding:CreatorReassigned"],
-  ])("%s moves feeRecipient and leaves creator alone", async (eventName) => {
+    ["Bonding:CreatorTransferred", { feeRecipient: "0xnewcreator" }],
+    [
+      "Bonding:CreatorReassigned",
+      { feeRecipient: "0xnewcreator", communityTakeoverAt: 4242n },
+    ],
+  ])("%s lands the expected row update", async (eventName, expectedValues) => {
     const handler = getHandler(eventName);
     const event = createMockEvent({
+      blockTimestamp: 4242n,
       args: {
         token: "0xtoken1",
         oldCreator: "0xoldcreator",
@@ -201,7 +201,7 @@ describe("creator reassignment", () => {
     const call = db._updateCalls[0];
     expect(call.table).toBe(token);
     expect(call.key).toEqual({ address: "0xtoken1" });
-    expect(call.values).toEqual({ feeRecipient: "0xnewcreator" });
+    expect(call.values).toEqual(expectedValues);
     expect(call.values).not.toHaveProperty("creator");
   });
 });
