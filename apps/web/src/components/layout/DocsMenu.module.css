@@ -35,6 +35,10 @@
   text-decoration: none;
   cursor: pointer;
   text-align: left;
+  /* The popover's containing block is the narrow footer trigger, so
+   * shrink-to-fit would wrap the longer audit rows onto three lines
+   * instead of widening the menu. */
+  white-space: nowrap;
   transition:
     color 0.15s ease,
     background-color 0.15s ease;
@@ -58,6 +62,13 @@
 
 .label {
   flex: 1;
+}
+
+.meta {
+  flex-shrink: 0;
+  padding-left: 0.8rem;
+  color: var(--txt-3);
+  font-size: 11px;
 }
 
 /* Legal-doc rows skip the leading icon but indent the label to align

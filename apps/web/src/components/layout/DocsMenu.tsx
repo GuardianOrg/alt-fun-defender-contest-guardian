@@ -16,7 +16,13 @@ interface Props {
 }
 
 const WHITEPAPER_URL = "/whitepaper.pdf";
-const AUDIT_URL = "/audit.pdf";
+// Newest first — the top row is the review users should read as current.
+// `/audit-phage-security.pdf` used to live at `/audit.pdf`; that path is
+// 301'd in `public/_redirects` for externally shared links.
+const AUDITS = [
+  { firm: "Guardian", date: "Jul 2026", url: "/audit-guardian.pdf" },
+  { firm: "Phage Security", date: "May 2026", url: "/audit-phage-security.pdf" },
+] as const;
 // Legal docs are rendered from `apps/web/legal-source/*.md` by
 // `scripts/build-legal-docs.mjs` and copied through Vite's `public/`
 // pipeline. Keep these constants in sync with the output filenames if
@@ -60,10 +66,13 @@ const CheckBadgeIcon = () => (
 /**
  * Anchored popover triggered from the footer "Documents" button. Drops
  * upward (the footer is pinned to the bottom of the viewport, so a
- * downward menu would be clipped). Groups the five document links into
- * two visual sections separated by a divider:
- *   - Product docs: Whitepaper, Audit Report — icon + label, brighter
+ * downward menu would be clipped). Groups the document links into two
+ * visual sections separated by a divider:
+ *   - Product docs: Whitepaper, one row per audit — icon + label, brighter
  *   - Legal docs: Terms, Privacy, DMCA — text-only, dimmer
+ *
+ * Audits stay flat rather than nesting behind a submenu so every document
+ * is one click deep; the trailing date is what distinguishes the rows.
  *
  * Follows the same lightweight popover pattern as `AddressMenu`:
  * outside-click + Esc close, parent owns open state, no scrim, no
@@ -99,17 +108,21 @@ export default function DocsMenu({ anchorRef, onClose }: Props) {
         <DocIcon />
         <span className={styles.label}>Whitepaper</span>
       </a>
-      <a
-        role="menuitem"
-        className={styles.item}
-        href={AUDIT_URL}
-        target="_blank"
-        rel="noreferrer noopener"
-        onClick={onClose}
-      >
-        <CheckBadgeIcon />
-        <span className={styles.label}>Audit Report</span>
-      </a>
+      {AUDITS.map((audit) => (
+        <a
+          key={audit.url}
+          role="menuitem"
+          className={styles.item}
+          href={audit.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={onClose}
+        >
+          <CheckBadgeIcon />
+          <span className={styles.label}>{audit.firm} Audit</span>
+          <span className={styles.meta}>{audit.date}</span>
+        </a>
+      ))}
 
       <div className={styles.separator} role="separator" />
 

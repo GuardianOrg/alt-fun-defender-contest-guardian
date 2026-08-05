@@ -52,7 +52,7 @@ const GitHubIcon = () => (
  * Thin global footer rendered as the last flex child of the app layout.
  * Two groups keep the row scannable in a tight space:
  *   - Left: a single "Documents" dropdown trigger that consolidates
- *     Whitepaper / Audit Report / Terms / Privacy / DMCA into one popover
+ *     Whitepaper / audit reports / Terms / Privacy / DMCA into one popover
  *     to reduce footer noise. See `DocsMenu` for the menu contents.
  *   - Right: GitBook (docs) + GitHub (source) + X + Telegram (icon-only socials)
  * Sticky at the bottom of the viewport on every route — see
