@@ -85,7 +85,7 @@ Endpoints that can answer "not found" for a token that was just launched use a m
 
 When a window expires, the caller gets the previous body straight away and the refresh runs behind the response. Otherwise every window boundary lands one unlucky caller on the full cold path, which on the chart endpoint is the slowest read in the API.
 
-The chart endpoint additionally rounds the start and end of its history window to a fixed grid, so everyone viewing the same token at the same candle width shares a single exchange-rate history read instead of each request asking for a window one second off the last. The current rate the chart returns is read separately and unrounded, so sharing history costs no freshness on the live price.
+The chart endpoint additionally holds the start and end of its history window still between requests — usually by rounding them to a fixed grid, or by pinning them to the token's launch time where the history is shorter than the window. Either way everyone viewing the same token at the same candle width shares a single exchange-rate history read, instead of each request asking for a window one second off the last. The current rate the chart returns is read separately and unrounded, so sharing history costs no freshness on the live price.
 
 ### Terminal API
 

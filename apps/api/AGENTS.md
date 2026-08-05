@@ -184,7 +184,9 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 
 The chart's cost is the `generate_series` × `LATERAL` sampling grid in `lib/lt-rate-reads.ts`, not the indexer reads — `MAX_HISTORY_CANDLES × 3` seeks whose per-seek cost rises with how far back the window reaches (~0.1 ms spanning minutes, ~1.6 ms spanning weeks, as the older pages stop being cached). Row count alone predicts nothing; window width is what makes it slow.
 
-Both window ends are therefore snapped onto a `sampleSec` lattice so the read is memoisable per isolate, with the frontend's candle anchor coming from a separate unbounded newest-tick seek. **Don't put a raw `Date.now()` back into either end** — it mints a fresh key every second and silently returns the memo to a 0% hit rate.
+Both window ends are therefore made stable so the read is memoisable per isolate, with the frontend's candle anchor coming from a separate unbounded newest-tick seek. Stability, not alignment, is the requirement: ends are usually snapped to a `sampleSec` lattice, but a window clamped to `launchTimestamp` uses that unaligned per-token value instead, which is equally immutable. **Don't put a raw `Date.now()` back into either end** — it mints a fresh key every second and silently returns the memo to a 0% hit rate.
+
+The launch clamp is applied after the snap and widens the grid end when needed, because both ends are load-bearing for correctness, not just caching: a sample before launch prices the launch anchor at a pre-launch rate, and a window that ends before launch drops the anchor entirely.
 
 ### Chart route post-graduation
 

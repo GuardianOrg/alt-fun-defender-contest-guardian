@@ -135,11 +135,15 @@ export async function fetchLtRateSeries(
 }
 
 /**
- * Memoised {@link fetchLtRateSeries}. Callers must pass a window whose
- * ends sit on a `sampleSec` lattice (see {@link quantiseDown}) — that's
- * what makes the key stable long enough to be worth caching. A window
- * ending at an unrounded "now" mints a new key every second and the memo
- * never hits.
+ * Memoised {@link fetchLtRateSeries}. What the key needs is not lattice
+ * alignment but *stability*: each bound must hold still across
+ * consecutive requests. A bound taken from an unrounded "now" mints a
+ * new key every second and the memo never hits.
+ *
+ * Snapping via {@link quantiseDown} is the usual way to get that, but a
+ * bound pinned to an immutable per-token value — a launch timestamp —
+ * qualifies just as well while being unaligned. The chart route uses
+ * both.
  *
  * A failed read is not stored, so a transient database failure doesn't
  * pin an error for the TTL window.

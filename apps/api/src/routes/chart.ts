@@ -610,15 +610,17 @@ chart.get("/:address", async (c) => {
   // old tokens on fine intervals. The viewport window is purely a frontend
   // concern — see `apps/web/src/hooks/useChart.ts` setVisibleRange.
   const historySec = candleSec * MAX_HISTORY_CANDLES;
-  // Snap both window ends onto a `sampleSec` lattice. Taken raw from
-  // `Date.now()` they shifted every second, so no request ever reused
-  // another's memoised read.
+  // Both window ends must hold still across requests or the memo below
+  // never hits — taken raw from `Date.now()` they shifted every second.
+  // Snapping to a `sampleSec` lattice is one way to get that;
+  // `launchTimestamp` is another, being immutable per token. The bounds
+  // here are whichever of the two applies, so they are stable but NOT
+  // always lattice-aligned.
   //
   // The launch floor is applied AFTER the snap, never before: a sample
   // predating launch still assigns its rate inside `buildPriceTimeline`
   // before being skipped, so the launch anchor would be priced at a
-  // pre-launch rate. `launchTimestamp` is fixed per token, so clamping
-  // here keeps the window just as reusable.
+  // pre-launch rate.
   const latticeEndSec = quantiseDown(nowSec, sampleSec);
   const earliestFromSec = quantiseDown(latticeEndSec - historySec, sampleSec);
   const fromSec =
