@@ -128,12 +128,17 @@ const fetchPositions = async (
     );
 
     const chainBalanceByToken = new Map<string, bigint>();
+    // A null balances read zeroes every open position, which is
+    // indistinguishable from "sold everything" — so it degrades the
+    // response even though the rest of it succeeded.
+    let balancesDegraded = false;
     if (openTokenAddresses.length > 0) {
       const balances = await fetchTokenBalancesByWalletAndTokens(
         db,
         wallet,
         openTokenAddresses,
       );
+      balancesDegraded = balances === null;
       for (const tb of balances ?? []) {
         if (
           typeof tb.tokenAddress !== "string" ||
@@ -243,7 +248,7 @@ const fetchPositions = async (
       return av > bv ? -1 : 1;
     });
 
-    return { positions: { open, realised }, degraded: false };
+    return { positions: { open, realised }, degraded: balancesDegraded };
   } catch (err) {
     console.log(
       JSON.stringify({

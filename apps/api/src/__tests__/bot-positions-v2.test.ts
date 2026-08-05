@@ -66,6 +66,48 @@ describe("GET /bot/positions-v2/:wallet", () => {
     const body = (await res.json()) as { data: { open: unknown[]; realised: unknown[] } };
     expect(body.data.open).toEqual([]);
     expect(body.data.realised).toEqual([]);
+    // An empty body from a failed read must not hold a real answer's
+    // window — it would tell a trader they hold nothing.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("shortens the window when only the on-chain balance read fails", async () => {
+    // The positions read succeeded, so this path used to look healthy —
+    // but a null balances read zeroes every open position, which is
+    // indistinguishable from having sold everything. Codex review on
+    // PR #1235.
+    mockFetchWalletBotPositions.mockResolvedValue([
+      {
+        token: TOKEN,
+        ticker: "PURR",
+        tokenBalance: (1_000n * 10n ** 18n).toString(),
+        costBasisUsdc: "100000000",
+        currentValueUsdc: "120000000",
+        realisedPnlUsdc: "0",
+        totalCostUsdc: "100000000",
+        totalProceedsUsdc: "0",
+      },
+    ]);
+    mockFetchTokenBalancesByWalletAndTokens.mockResolvedValue(null);
+
+    const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("gives a fully successful read the full window", async () => {
+    mockFetchWalletBotPositions.mockResolvedValue([]);
+
+    const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
+
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=15, stale-while-revalidate=30",
+    );
   });
 
   it("returns an open + realised entry when the wallet has both", async () => {

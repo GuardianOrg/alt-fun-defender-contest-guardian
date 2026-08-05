@@ -31,8 +31,29 @@ export async function defaultNoStore(
   // A WebSocket upgrade has no mutable headers — touching them throws.
   if (c.res.status === 101 || c.res.webSocket) return;
   // Anything that already declared a policy owns it, including the
-  // deliberate `private, no-store` on wallet-aware token detail.
-  if (c.res.headers.has("Cache-Control")) return;
-  c.res.headers.set("Cache-Control", "no-store");
-  c.res.headers.set(CDN_CACHE_CONTROL_HEADER, "no-store");
+  // deliberate `private, no-store` on wallet-aware token detail and a
+  // zone-only directive.
+  if (
+    c.res.headers.has("Cache-Control") ||
+    c.res.headers.has(CDN_CACHE_CONTROL_HEADER)
+  ) {
+    return;
+  }
+  try {
+    c.res.headers.set("Cache-Control", "no-store");
+    c.res.headers.set(CDN_CACHE_CONTROL_HEADER, "no-store");
+  } catch {
+    // A response that came off `fetch()` — e.g. the Durable Object reply
+    // `/ws` passes through verbatim on a non-upgrade error — has
+    // immutable headers. Rewrap rather than let a 500 mask the real
+    // status.
+    const headers = new Headers(c.res.headers);
+    headers.set("Cache-Control", "no-store");
+    headers.set(CDN_CACHE_CONTROL_HEADER, "no-store");
+    c.res = new Response(c.res.body, {
+      status: c.res.status,
+      statusText: c.res.statusText,
+      headers,
+    });
+  }
 }

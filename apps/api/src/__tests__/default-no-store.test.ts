@@ -58,6 +58,32 @@ function createApp() {
     Object.defineProperty(res, "webSocket", { value: {}, configurable: true });
     return res;
   });
+  // Stands in for a Durable Object error passed through verbatim: a
+  // response off `fetch()` has immutable headers, so `set` throws.
+  app.get("/passthrough", () => {
+    const res = new Response("upstream refused", { status: 429 });
+    Object.defineProperty(res, "headers", {
+      value: new Proxy(res.headers, {
+        get(target, prop, receiver) {
+          if (prop === "set") {
+            return () => {
+              throw new TypeError("immutable headers");
+            };
+          }
+          const value = Reflect.get(target, prop, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      configurable: true,
+    });
+    return res;
+  });
+  // Stands in for a zone-only policy: no `Cache-Control`, but a
+  // deliberate Cloudflare directive that must not be overwritten.
+  app.get("/zone-only", (c) => {
+    c.header("Cloudflare-CDN-Cache-Control", "public, max-age=60");
+    return c.json({ ok: true });
+  });
   return app;
 }
 
@@ -95,6 +121,25 @@ describe("defaultNoStore", () => {
     // and would break every `/ws` connection.
     const res = await createApp().request("/ws", {}, makeEnv());
 
+    expect(res.headers.get("Cache-Control")).toBeNull();
+  });
+
+  it("does not mask a passthrough response with immutable headers", async () => {
+    // Writing to a fetched response's headers throws. Before the rewrap
+    // fallback this turned a Durable Object 429 into a 500.
+    const res = await createApp().request("/passthrough", {}, makeEnv());
+
+    expect(res.status).toBe(429);
+    expect(await res.text()).toBe("upstream refused");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("leaves an existing zone-only policy in place", async () => {
+    const res = await createApp().request("/zone-only", {}, makeEnv());
+
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=60",
+    );
     expect(res.headers.get("Cache-Control")).toBeNull();
   });
 

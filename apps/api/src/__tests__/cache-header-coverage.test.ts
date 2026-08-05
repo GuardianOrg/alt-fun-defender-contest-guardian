@@ -40,11 +40,15 @@ const productionSources = Object.fromEntries(
 // Both spellings matter: the shared directive is `s-maxage`, not
 // `s-max-age`. Case-insensitive because HTTP directives are, so
 // `S-Maxage=30` is just as effective and must not slip past. Kept as
-// three separate literals rather than one composed from `.source`, so no
-// regex is ever built from a variable.
+// separate literals rather than composed from `.source`, so no regex is
+// ever built from a variable.
 const ANY_AGE = /(?:s-maxage|max-age)\s*=/i;
-const NUMERIC_AGE = /(?:s-maxage|max-age)\s*=\s*(\d+)/gi;
-const INTERPOLATED_AGE = /(?:s-maxage|max-age)\s*=\s*\$\{/i;
+/**
+ * Captures the digits after an age directive, or nothing when the value
+ * isn't a literal — `${ttl}`, `" + ttl`, or the literal simply ending
+ * there.
+ */
+const AGE_VALUE = /(?:s-maxage|max-age)\s*=\s*(\d+)?/gi;
 
 /** String literals (quoted or backticked) that mention a cache age. */
 function cacheAgeLiterals(source: string): string[] {
@@ -57,16 +61,17 @@ function cacheAgeLiterals(source: string): string[] {
 }
 
 /**
- * True when a literal asks any cache to retain the body for >0 seconds.
- * An interpolated age (`` `s-maxage=${ttl}` ``) counts: the value can't
- * be read statically, so it can't be shown to be the zeroed opt-out.
- * That was the shape `analytics.ts` used before this PR, so the hole is
- * not hypothetical.
+ * True when a literal asks any cache to retain the body for >0 seconds,
+ * OR when the scan can't prove it doesn't. Only an explicit `=0` passes.
+ *
+ * The unprovable cases are the ones that matter: `` `s-maxage=${ttl}` ``
+ * is the shape `analytics.ts` used before this PR, and
+ * `"public, max-age=" + ttl` is the same trick with concatenation. Both
+ * emit a real TTL while containing no readable number.
  */
 function declaresPositiveAge(literal: string): boolean {
-  if (INTERPOLATED_AGE.test(literal)) return true;
-  return [...literal.matchAll(NUMERIC_AGE)].some(
-    ([, seconds]) => Number(seconds) > 0,
+  return [...literal.matchAll(AGE_VALUE)].some(
+    ([, seconds]) => seconds === undefined || Number(seconds) > 0,
   );
 }
 
@@ -101,6 +106,13 @@ describe("cache directives all originate in utils/cache-control.ts", () => {
 
   it("flags a hand-written directive when one is introduced", () => {
     const sample = `c.header("Cache-Control", "public, s-maxage=30");`;
+    expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
+  });
+
+  it("flags a concatenated TTL, which has neither digits nor interpolation", () => {
+    // `"public, max-age=" + ttl` reads as compliant to any scan that
+    // only looks for numbers or `${`. Codex review on this PR.
+    const sample = `c.header("Cache-Control", "public, max-age=" + ttlSec);`;
     expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
   });
 
