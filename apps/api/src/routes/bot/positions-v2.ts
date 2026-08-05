@@ -8,13 +8,21 @@ import {
   fetchWalletBotPositions,
 } from "../../lib/indexer-reads.js";
 import {
-  fetchLiveLtRates,
+  fetchLiveLtRatesWithProvenance,
   fetchTokensOnchainByAddresses,
 } from "../../lib/market-data.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+// Shareable at the edge only because the wallet sits in the URL path,
+// which is what the cache key is built from.
+const POSITIONS_CACHE_TTL_SECONDS = 15;
+// An empty body from a failed read would otherwise tell a trader for 15s
+// that they hold nothing.
+const POSITIONS_DEGRADED_CACHE_TTL_SECONDS = 5;
 
 /**
  * Additive `/api/v1/bot/positions-v2/:wallet`: same `PositionsResponse`
@@ -67,17 +75,29 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
 // `value (USDC 6dp) = balance (token 18dp) × priceUsdc18dp / 1e30`.
 const PRICE_VALUE_SCALE = 10n ** 30n;
 
+/**
+ * `degraded` means the live re-mark couldn't be computed, so callers are
+ * about to serve the indexer's snapshot valuation instead of a current
+ * one. The response looks completely normal in that case, which is
+ * exactly why the flag has to travel with it.
+ */
 const fetchCurrentPricesUsdc18dp = async (
   databaseUrl: string,
   addresses: string[],
-): Promise<Map<string, bigint>> => {
-  if (addresses.length === 0) return new Map();
-  const [tokens, ltRates] = await Promise.all([
+): Promise<{ prices: Map<string, bigint>; degraded: boolean }> => {
+  if (addresses.length === 0) {
+    return { prices: new Map(), degraded: false };
+  }
+  const [tokens, ltRateResult] = await Promise.all([
     fetchTokensOnchainByAddresses(databaseUrl, addresses),
-    fetchLiveLtRates(databaseUrl),
+    fetchLiveLtRatesWithProvenance(databaseUrl),
   ]);
+  const { rates: ltRates, stale: ltRatesStale } = ltRateResult;
   const out = new Map<string, bigint>();
-  if (!tokens || !ltRates) return out;
+  if (!tokens || !ltRates) return { prices: out, degraded: true };
+  // Rates served from the expired cache during a mirror outage price
+  // every position off an arbitrarily old exchange rate.
+  if (ltRatesStale) return { prices: out, degraded: true };
   for (const t of tokens) {
     const ltRate = ltRates.get(t.ltToken.toLowerCase()) ?? 0;
     if (ltRate <= 0) continue;
@@ -91,17 +111,25 @@ const fetchCurrentPricesUsdc18dp = async (
     if (priceUsdc18dp <= 0n) continue;
     out.set(t.address.toLowerCase(), priceUsdc18dp);
   }
-  return out;
+  return { prices: out, degraded: false };
 };
 
+/**
+ * `degraded` rides alongside the response rather than inside it: the
+ * body shape is the bot's contract and must not change, but an empty
+ * body produced by a failed read is indistinguishable from a wallet
+ * holding nothing, so the caller needs to know which it got before
+ * choosing a cache window.
+ */
 const fetchPositions = async (
   databaseUrl: string,
   wallet: string,
-): Promise<PositionsResponse> => {
+): Promise<{ positions: PositionsResponse; degraded: boolean }> => {
   try {
     const db = createDb(databaseUrl);
     const items = await fetchWalletBotPositions(db, wallet);
-    if (items === null || items.length === 0) return EMPTY;
+    if (items === null) return { positions: EMPTY, degraded: true };
+    if (items.length === 0) return { positions: EMPTY, degraded: false };
 
     const openTokenAddresses = Array.from(
       new Set(
@@ -112,12 +140,17 @@ const fetchPositions = async (
     );
 
     const chainBalanceByToken = new Map<string, bigint>();
+    // A null balances read zeroes every open position, which is
+    // indistinguishable from "sold everything" — so it degrades the
+    // response even though the rest of it succeeded.
+    let balancesDegraded = false;
     if (openTokenAddresses.length > 0) {
       const balances = await fetchTokenBalancesByWalletAndTokens(
         db,
         wallet,
         openTokenAddresses,
       );
+      balancesDegraded = balances === null;
       for (const tb of balances ?? []) {
         if (
           typeof tb.tokenAddress !== "string" ||
@@ -183,12 +216,19 @@ const fetchPositions = async (
     }
 
     // Live-mark refresh. Wrapped so a thrown error doesn't collapse the
-    // already-built arrays back to EMPTY (matches v1 behaviour).
+    // already-built arrays back to EMPTY (matches v1 behaviour) — but a
+    // failure here still means the valuations are the indexer's snapshot,
+    // not current, so it degrades the response.
+    let liveMarkDegraded = false;
     try {
       const openTokens = Array.from(
         new Set(open.map((p) => p.token.toLowerCase())),
       );
-      const liveMark = await fetchCurrentPricesUsdc18dp(databaseUrl, openTokens);
+      const { prices: liveMark, degraded } = await fetchCurrentPricesUsdc18dp(
+        databaseUrl,
+        openTokens,
+      );
+      liveMarkDegraded = degraded;
       for (const p of open) {
         const priceUsdc18dp = liveMark.get(p.token.toLowerCase());
         if (priceUsdc18dp === undefined) continue;
@@ -200,6 +240,7 @@ const fetchPositions = async (
         p.unrealisedPnlPct = pctOrNull(value - cost, cost);
       }
     } catch (err) {
+      liveMarkDegraded = true;
       console.log(
         JSON.stringify({
           level: "warn",
@@ -227,7 +268,10 @@ const fetchPositions = async (
       return av > bv ? -1 : 1;
     });
 
-    return { open, realised };
+    return {
+      positions: { open, realised },
+      degraded: balancesDegraded || liveMarkDegraded,
+    };
   } catch (err) {
     console.log(
       JSON.stringify({
@@ -237,7 +281,7 @@ const fetchPositions = async (
         error: err instanceof Error ? err.message : String(err),
       }),
     );
-    return EMPTY;
+    return { positions: EMPTY, degraded: true };
   }
 };
 
@@ -249,9 +293,17 @@ positionsV2.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const data = await fetchPositions(c.env.DATABASE_URL, wallet);
-  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
-  return c.json(formatSuccess(data));
+  const { positions, degraded } = await fetchPositions(
+    c.env.DATABASE_URL,
+    wallet,
+  );
+  setEdgeCacheHeaders(
+    c,
+    degraded
+      ? POSITIONS_DEGRADED_CACHE_TTL_SECONDS
+      : POSITIONS_CACHE_TTL_SECONDS,
+  );
+  return c.json(formatSuccess(positions));
 });
 
 export default positionsV2;

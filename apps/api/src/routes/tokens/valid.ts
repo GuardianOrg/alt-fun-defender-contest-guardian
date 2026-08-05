@@ -5,10 +5,24 @@ import { getAddress, isAddress } from "viem";
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import { tryApiDbRead } from "../../lib/api-db-reads.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+const VALID_CACHE_TTL_SECONDS = 30;
+/**
+ * `valid: false` is the transient answer — a token launched seconds ago
+ * has no row until the backfill lands (~60s), so a negative is a "not
+ * yet", not a fact. The web caches a definitive `false` for the whole
+ * page lifetime (`apps/web/src/services/tokenValidity.ts`), so an
+ * over-held negative drops that token's trades from the live feed for
+ * the rest of the session. Cache it briefly — enough to absorb a burst
+ * of concurrent checks on one address, short enough that the flip to
+ * registered is picked up on the next check.
+ */
+const INVALID_CACHE_TTL_SECONDS = 5;
 
 const tokenValidRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -47,10 +61,13 @@ tokenValidRoute.get("/:address/valid", async (c) => {
   }
 
   const valid = rows.length > 0 && rows[0].isHidden === false;
-  // Registration / hidden state flips rarely (cron backfill lands ~60s
-  // after launch; manual moderation is uncommon). A short edge TTL absorbs
-  // the WS-path burst without pinning a stale negative for long.
-  c.header("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+  // Asymmetric on purpose: a `true` is stable (registration doesn't
+  // un-happen, moderation is rare), a `false` usually means "not indexed
+  // yet" and must expire fast.
+  setEdgeCacheHeaders(
+    c,
+    valid ? VALID_CACHE_TTL_SECONDS : INVALID_CACHE_TTL_SECONDS,
+  );
   return c.json(formatSuccess({ valid }));
 });
 

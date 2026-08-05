@@ -160,7 +160,13 @@ let liveLtRatesCache: {
   map: Map<string, number>;
   expiresAt: number;
 } | null = null;
-let liveLtRatesInflight: Promise<Map<string, number> | null> | null = null;
+/** Rates plus whether they came from the expired-cache fail-open. */
+export interface LiveLtRatesResult {
+  rates: Map<string, number> | null;
+  stale: boolean;
+}
+
+let liveLtRatesInflight: Promise<LiveLtRatesResult> | null = null;
 
 /** Reset hook for tests. Mirrors `_resetLtAvailabilityCache`. */
 export function _resetLiveLtRatesCache(): void {
@@ -189,20 +195,43 @@ export function _resetLiveLtRatesCache(): void {
 export async function fetchLiveLtRates(
   databaseUrl: string,
 ): Promise<Map<string, number> | null> {
+  return (await fetchLiveLtRatesWithProvenance(databaseUrl)).rates;
+}
+
+/**
+ * As {@link fetchLiveLtRates}, but reports whether the map it returned is
+ * an expired copy kept alive by the fail-open path above.
+ *
+ * The fail-open itself is right, but it is invisible to callers, and
+ * "at most a few extra seconds" only holds while refreshes recover — a
+ * sustained mirror outage keeps handing back the same map indefinitely,
+ * since the expiry governs when we retry, not how old the fallback may
+ * get. A caller that edge-caches its response needs to know, or it
+ * publishes an arbitrarily old rate under a fresh TTL.
+ */
+export async function fetchLiveLtRatesWithProvenance(
+  databaseUrl: string,
+): Promise<LiveLtRatesResult> {
   const now = Date.now();
   if (liveLtRatesCache && liveLtRatesCache.expiresAt > now) {
-    return liveLtRatesCache.map;
+    return { rates: liveLtRatesCache.map, stale: false };
   }
   if (liveLtRatesInflight) return liveLtRatesInflight;
 
-  liveLtRatesInflight = (async () => {
+  // Provenance rides inside the promise rather than in a module-level
+  // flag. A flag would be correct only while no `await` sits between
+  // resolving the read and reading it — true today, silently breakable by
+  // any future edit.
+  liveLtRatesInflight = (async (): Promise<LiveLtRatesResult> => {
     try {
       const map = await readLiveLtRates(databaseUrl);
-      if (map === null) return liveLtRatesCache?.map ?? null;
+      if (map === null) {
+        return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
+      }
       liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
-      return map;
+      return { rates: map, stale: false };
     } catch {
-      return liveLtRatesCache?.map ?? null;
+      return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
     } finally {
       liveLtRatesInflight = null;
     }

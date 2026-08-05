@@ -6,12 +6,21 @@ import {
   fetchTokenAndGraduationForSecurity,
   fetchTokenBalanceById,
 } from "../lib/indexer-reads.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
+const SECURITY_CACHE_TTL_SECONDS = 30;
+/**
+ * A degraded or not-yet-indexed read here produces a zeroed body that
+ * reads as *reassuring* — `creatorHoldingPct: 0`, `contractVerified:
+ * true` — so holding it for a real answer's window would publish a
+ * safety signal we never actually measured.
+ */
+const SECURITY_DEGRADED_CACHE_TTL_SECONDS = 5;
 
 const securityV2 = new Hono<{ Bindings: AppBindings }>();
 
@@ -37,7 +46,7 @@ securityV2.get("/:address", async (c) => {
 
   const meta = await fetchTokenAndGraduationForSecurity(db, address);
   if (meta === null || meta === "unavailable") {
-    setSecurityCacheHeader(c);
+    setSecurityCacheHeader(c, true);
     return c.json(
       formatSuccess({
         lpLocked: false,
@@ -57,7 +66,7 @@ securityV2.get("/:address", async (c) => {
   const creatorHoldingPct =
     Number((creatorBalance * 10000n) / TOTAL_SUPPLY) / 100;
 
-  setSecurityCacheHeader(c);
+  setSecurityCacheHeader(c, balanceResult === "unavailable");
   return c.json(
     formatSuccess({
       lpLocked: meta.graduated && meta.graduation != null,
@@ -70,8 +79,16 @@ securityV2.get("/:address", async (c) => {
   );
 });
 
-function setSecurityCacheHeader(c: { header: (k: string, v: string) => void }) {
-  c.header("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+function setSecurityCacheHeader(
+  c: { header: (k: string, v: string) => void },
+  degraded: boolean,
+) {
+  setEdgeCacheHeaders(
+    c,
+    degraded
+      ? SECURITY_DEGRADED_CACHE_TTL_SECONDS
+      : SECURITY_CACHE_TTL_SECONDS,
+  );
 }
 
 export default securityV2;

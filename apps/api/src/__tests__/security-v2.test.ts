@@ -96,6 +96,44 @@ describe("GET /security-v2/:address", () => {
     expect(body.data.creatorHoldingPct).toBe(25);
     expect(body.data.graduated).toBe(true);
     expect(body.data.poolAddress).toBe("0xPAIR");
+    // A real measurement earns the full window.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=30, stale-while-revalidate=60",
+    );
+  });
+
+  it("only briefly caches the zeroed body it returns during an outage", async () => {
+    // The neutral fallback reads as reassuring — creatorHoldingPct 0,
+    // contractVerified true — so holding it for a real answer's window
+    // would publish a safety signal we never measured. Codex review on
+    // PR #1235.
+    mockFetchTokenAndGraduation.mockResolvedValue("unavailable");
+
+    const res = await createApp().request(`/security-v2/${TOKEN}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("shortens the window when only the creator-balance read is degraded", async () => {
+    mockFetchTokenAndGraduation.mockResolvedValue({
+      creator: "0xaaa0000000000000000000000000000000000001",
+      graduated: false,
+      hyperswapPair: null,
+      graduation: null,
+    });
+    mockFetchTokenBalanceById.mockResolvedValue("unavailable");
+
+    const res = await createApp().request(`/security-v2/${TOKEN}`, {}, makeEnv());
+
+    // 0% holdings here is "we couldn't read it", not "the creator sold".
+    // Exact match, not `toContain`: "max-age=5" is a substring of
+    // "max-age=50", so a loose check would accept a 10× longer window.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
   });
 
   it("treats a missing creator balance row as 0% holdings", async () => {

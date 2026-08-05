@@ -8,6 +8,7 @@ import {
   isAllowedImageMimeType,
 } from "@launchpad/shared";
 
+import { setImmutableAssetHeaders } from "../utils/cache-control.js";
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import { createDb } from "../db/client.js";
@@ -189,7 +190,7 @@ async function serveHandler(c: Context<{ Bindings: AppBindings }>) {
     "Content-Type",
     object.httpMetadata?.contentType ?? "application/octet-stream",
   );
-  c.header("Cache-Control", "public, max-age=31536000, immutable");
+  setImmutableAssetHeaders(c);
 
   return c.body(object.body);
 }

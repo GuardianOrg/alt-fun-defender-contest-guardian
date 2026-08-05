@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { createDb } from "../db/client.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatSuccess from "../utils/format-success.js";
 import { fetchPlatformStats } from "../lib/indexer-reads.js";
 
@@ -9,6 +10,7 @@ import type { AppBindings } from "../lib/types.js";
 const stats = new Hono<{ Bindings: AppBindings }>();
 
 const SECONDS_PER_HOUR = 3600;
+const STATS_CACHE_TTL_SECONDS = 30;
 
 /**
  * Platform-wide stats. Two cheap reads replace the old "paginate every token
@@ -87,10 +89,7 @@ stats.get("/", async (c) => {
  * per 30s through to the indexer DB.
  */
 function setStatsCacheHeader(c: { header: (k: string, v: string) => void }) {
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=30, stale-while-revalidate=60",
-  );
+  setEdgeCacheHeaders(c, STATS_CACHE_TTL_SECONDS);
 }
 
 export default stats;

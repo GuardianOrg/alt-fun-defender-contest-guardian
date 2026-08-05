@@ -3,10 +3,16 @@ import { isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { fetchReferrerStatsById } from "../../lib/indexer-reads.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+// Shareable at the edge only because the wallet sits in the URL path,
+// which is what the cache key is built from.
+const REFERRALS_CACHE_TTL_SECONDS = 15;
+const REFERRALS_DEGRADED_CACHE_TTL_SECONDS = 5;
 
 /**
  * Additive `/api/v1/bot/referrals-v2/:wallet`: same response shape as
@@ -95,7 +101,14 @@ referralsV2.get("/:wallet", async (c) => {
         }
       : ZERO_STATS;
 
-  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
+  // Zeroed stats from an outage look identical to a wallet that has
+  // never referred anyone, so don't hold them for a real answer's window.
+  setEdgeCacheHeaders(
+    c,
+    stats === "unavailable"
+      ? REFERRALS_DEGRADED_CACHE_TTL_SECONDS
+      : REFERRALS_CACHE_TTL_SECONDS,
+  );
   return c.json(
     formatSuccess({
       rewardsWallet,

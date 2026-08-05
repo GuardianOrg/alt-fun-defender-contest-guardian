@@ -173,7 +173,15 @@ describe("GET /stats", () => {
     const app = createApp();
     const res = await app.request("/stats", {}, makeEnv());
 
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=30");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=30, stale-while-revalidate=60",
+    );
+    // Without this the Cloudflare zone never treats the response as a
+    // cache candidate, which is how `/stats` stayed uncached in
+    // production despite advertising a 30s TTL.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=30, stale-while-revalidate=60",
+    );
   });
 
   it("sets the Cache-Control header even on the degraded-fallback path", async () => {
@@ -182,6 +190,11 @@ describe("GET /stats", () => {
     const app = createApp();
     const res = await app.request("/stats", {}, makeEnv());
 
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=30");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=30, stale-while-revalidate=60",
+    );
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=30, stale-while-revalidate=60",
+    );
   });
 });

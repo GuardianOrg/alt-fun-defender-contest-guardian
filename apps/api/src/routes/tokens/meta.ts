@@ -3,10 +3,21 @@ import { isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { fetchTokenMeta } from "../../lib/indexer-reads.js";
+import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+// Labels flip once per token, so the stale window is deliberately much
+// wider than the usual 2× convention.
+const META_CACHE_TTL_SECONDS = 300;
+const META_CACHE_SWR_SECONDS = 3600;
+// A `null` means "not indexed yet", so it must not inherit the
+// five-minute window a resolved label gets — that would leave a
+// freshly-launched token unnamed in the UI long after the indexer knew
+// its name.
+const META_MISS_CACHE_TTL_SECONDS = 10;
 
 const tokenMetaRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -38,7 +49,11 @@ tokenMetaRoute.get("/:address/meta", async (c) => {
   // The web's `tokenNames` cache is the dominant caller and re-keys
   // its in-memory cache on the resolved value, so a stale read still
   // produces the right label. CodeRabbit feedback on PR #991.
-  c.header("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
+  if (meta === null) {
+    setEdgeCacheHeaders(c, META_MISS_CACHE_TTL_SECONDS);
+  } else {
+    setEdgeCacheHeaders(c, META_CACHE_TTL_SECONDS, META_CACHE_SWR_SECONDS);
+  }
   return c.json(formatSuccess(meta));
 });
 

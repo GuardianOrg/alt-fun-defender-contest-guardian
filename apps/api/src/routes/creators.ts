@@ -4,6 +4,7 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
 import { tokens, userProfiles } from "../db/schema.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { tryApiDbRead } from "../lib/api-db-reads.js";
@@ -18,6 +19,11 @@ import type { AppBindings } from "../lib/types.js";
 const creators = new Hono<{ Bindings: AppBindings }>();
 
 const VOLUME_QUERY_PAGE_SIZE = 1000;
+const EARNINGS_CACHE_TTL_SECONDS = 15;
+const PROFILE_CACHE_TTL_SECONDS = 30;
+// Short window for any body built from a failed upstream read, so a
+// zeroed placeholder never occupies a real answer's slot.
+const DEGRADED_CACHE_TTL_SECONDS = 5;
 
 /**
  * Per-creator pooled earnings totals. Reads the precomputed
@@ -58,10 +64,7 @@ creators.get("/:address/earnings", async (c) => {
     );
   }
 
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=30",
-  );
+  setEdgeCacheHeaders(c, EARNINGS_CACHE_TTL_SECONDS);
 
   // Steady state for any wallet that's never launched a token (or
   // launched but never accrued a fee): no row yet. Ship a clean
@@ -152,6 +155,7 @@ creators.get("/:address", async (c) => {
   }
 
   let totalVolume = 0n;
+  let volumeDegraded = false;
   if (creatorTokens.length > 0) {
     const tokenAddresses = creatorTokens.map((t) => t.address.toLowerCase());
 
@@ -171,14 +175,17 @@ creators.get("/:address", async (c) => {
     // the whole creator profile — the page still renders with the
     // PostgreSQL-sourced profile + tokens list and a `totalVolume: "0"`
     // sentinel. Matches the prior GraphQL-null behaviour (`?? []`).
+    volumeDegraded = volumeRows === null;
     for (const t of volumeRows ?? []) {
       totalVolume += BigInt(t.volumeUsd ?? "0");
     }
   }
 
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=30, stale-while-revalidate=60",
+  // A failed volume read ships `totalVolume: "0"`, which is
+  // indistinguishable from a creator who has genuinely never traded.
+  setEdgeCacheHeaders(
+    c,
+    volumeDegraded ? DEGRADED_CACHE_TTL_SECONDS : PROFILE_CACHE_TTL_SECONDS,
   );
   return c.json(
     formatSuccess({

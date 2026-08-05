@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
+import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import { tryApiDbRead } from "../lib/api-db-reads.js";
@@ -436,10 +436,7 @@ chart.get("/:address", async (c) => {
    */
   const respondWithEdgeCache = async (body: ChartSuccessBody) => {
     const response = c.json(body);
-    response.headers.set(
-      "Cache-Control",
-      edgeCacheableJsonHeader(CHART_CACHE_TTL_SECONDS),
-    );
+    applyEdgeCacheHeaders(response, CHART_CACHE_TTL_SECONDS);
     const cache = getCache();
     if (cache) {
       // Best-effort write — a `cache.put` rejection (e.g. response

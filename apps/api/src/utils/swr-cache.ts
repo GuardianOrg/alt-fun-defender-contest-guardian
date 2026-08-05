@@ -1,5 +1,10 @@
 import type { Context } from "hono";
 
+import {
+  CDN_CACHE_CONTROL_HEADER,
+  staleFallbackHeader,
+} from "./cache-control.js";
+
 /**
  * Worker-side stale-while-revalidate for `caches.default`.
  *
@@ -93,7 +98,9 @@ interface ParsedDirective {
 }
 
 /**
- * Tease apart the cache-control directives we care about. Tolerant of
+ * Tease apart the cache-control directives we care about. Reads
+ * `Cache-Control` and never the zone directive — `caches.default`
+ * evicts on `s-maxage` alone. Tolerant of
  * the variants {@link edgeCacheableJsonHeader} can emit; returns `null`
  * for any value that isn't a non-negative integer so a degenerate
  * header (`s-maxage=` empty / `s-maxage=foo`) silently disables SWR
@@ -132,10 +139,13 @@ function buildStaleResponse(
   // `s-maxage = ttl + swr` covers the SWR window from the moment of
   // write. `caches.default` evicts strictly on `s-maxage`, so this is
   // the only knob that controls retention of the stale copy.
-  headers.set(
-    "Cache-Control",
-    `public, max-age=0, s-maxage=${sMaxAge + swr}`,
-  );
+  headers.set("Cache-Control", staleFallbackHeader(sMaxAge + swr));
+  // Explicitly `no-store` for the zone rather than merely absent: this
+  // body is only ever served after its freshness window closed, and the
+  // `s-maxage` above (deliberately stretched to cover the SWR window)
+  // must not become a zone policy that re-admits an already-stale body
+  // for another full window.
+  headers.set(CDN_CACHE_CONTROL_HEADER, "no-store");
   return new Response(source.clone().body, {
     status: source.status,
     statusText: source.statusText,

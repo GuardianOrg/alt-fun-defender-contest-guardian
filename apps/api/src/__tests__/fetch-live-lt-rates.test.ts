@@ -20,9 +20,11 @@ vi.mock("../lib/lt-directory-reads.js", () => ({
   readDirectoryLastUpdatedAt: vi.fn(),
 }));
 
-const { _resetLiveLtRatesCache, fetchLiveLtRates } = await import(
-  "../lib/market-data.js"
-);
+const {
+  _resetLiveLtRatesCache,
+  fetchLiveLtRates,
+  fetchLiveLtRatesWithProvenance,
+} = await import("../lib/market-data.js");
 
 const DB_URL = "postgres://test";
 
@@ -157,6 +159,71 @@ describe("fetchLiveLtRates — caching", () => {
     expect(afterThrow!.get(LT_A.toLowerCase())).toBeCloseTo(2);
 
     expect(mockReadLiveLtRates).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports whether the map it returned came from the expired cache", async () => {
+    // The fail-open above is right, but it was invisible to callers. A
+    // caller that edge-caches its response has to know, or it publishes
+    // an arbitrarily old rate under a fresh TTL. Codex review on PR #1235.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+
+    mockReadLiveLtRates.mockResolvedValueOnce(rateMap({ [LT_A]: 2 }));
+    const fresh = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(fresh.rates!.get(LT_A.toLowerCase())).toBeCloseTo(2);
+    expect(fresh.stale).toBe(false);
+
+    // Inside the TTL — still fresh, no refresh attempted.
+    const warm = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(warm.stale).toBe(false);
+
+    vi.setSystemTime(new Date("2024-01-01T00:00:30Z"));
+    mockReadLiveLtRates.mockResolvedValueOnce(null);
+    const afterNull = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(afterNull.rates!.get(LT_A.toLowerCase())).toBeCloseTo(2);
+    expect(afterNull.stale).toBe(true);
+
+    mockReadLiveLtRates.mockRejectedValueOnce(new Error("ETIMEDOUT"));
+    const afterThrow = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(afterThrow.stale).toBe(true);
+
+    // Recovery clears the flag.
+    mockReadLiveLtRates.mockResolvedValueOnce(rateMap({ [LT_A]: 3 }));
+    const recovered = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(recovered.rates!.get(LT_A.toLowerCase())).toBeCloseTo(3);
+    expect(recovered.stale).toBe(false);
+  });
+
+  it("gives every coalesced caller the same provenance", async () => {
+    // Provenance travels inside the in-flight promise rather than in a
+    // module-level flag, so callers that fan into one read can't observe
+    // a later read's outcome.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+    mockReadLiveLtRates.mockResolvedValueOnce(rateMap({ [LT_A]: 2 }));
+    await fetchLiveLtRatesWithProvenance(DB_URL);
+
+    vi.setSystemTime(new Date("2024-01-01T00:00:30Z"));
+    mockReadLiveLtRates.mockResolvedValueOnce(null);
+
+    const [a, b, c] = await Promise.all([
+      fetchLiveLtRatesWithProvenance(DB_URL),
+      fetchLiveLtRatesWithProvenance(DB_URL),
+      fetchLiveLtRatesWithProvenance(DB_URL),
+    ]);
+
+    // One read served all three, and all three know it was stale.
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(2);
+    expect([a.stale, b.stale, c.stale]).toEqual([true, true, true]);
+  });
+
+  it("reports a cold failure with no cache as not-stale, since there is no body", async () => {
+    // `stale` means "this map is older than it looks". A null map isn't
+    // stale, it's absent — the caller already treats null as degraded.
+    mockReadLiveLtRates.mockResolvedValueOnce(null);
+    const result = await fetchLiveLtRatesWithProvenance(DB_URL);
+    expect(result.rates).toBeNull();
+    expect(result.stale).toBe(false);
   });
 
   it("clears the in-flight lock when the read rejects so the next caller can retry", async () => {

@@ -3,6 +3,7 @@ import { isAddress } from "viem";
 import { CONTRACT_ADDRESSES } from "@launchpad/shared";
 
 import { createDb } from "../db/client.js";
+import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { fetchTokenPairAddresses } from "../lib/indexer-reads.js";
@@ -10,6 +11,7 @@ import { fetchHoldersCached } from "../lib/indexer-cached-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
 
+const HOLDERS_CACHE_TTL_SECONDS = 15;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const BONDING_ADDRESS = CONTRACT_ADDRESSES.bonding.toLowerCase();
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
@@ -124,7 +126,7 @@ holders.get("/:address", async (c) => {
   // seconds of staleness is invisible on the UI, and the cache absorbs the
   // thundering-herd pattern (100 users opening the same viral token) that
   // would otherwise serialise into the indexer's PG pool.
-  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
+  setEdgeCacheHeaders(c, HOLDERS_CACHE_TTL_SECONDS);
   return c.json(
     formatSuccess({
       holders: holderList,

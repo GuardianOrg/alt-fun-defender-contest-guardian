@@ -75,6 +75,14 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 |---|---|
 | `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation via OpenAI `omni-moderation-latest` (free tier; per-category thresholds cover violence, gore, sexual content, self-harm). Adult content permitted if legal. Borderline images go to a manual review queue. Failure mode is fail-closed (503, no upload) when the moderation API is unavailable. Capped at 5 req/min/IP by a Cloudflare WAF rate-limit rule at the edge — see `apps/api/AGENTS.md` → *Edge rate-limit rule*. **Not a CSAM-specific detector** — see `AGENTS.md` → *Image Upload & Content Moderation* for the caveat. Returns R2 URL. Auth: wallet signature. |
 
+### Response caching
+
+Read endpoints that are safe to share across callers declare a freshness window and are served from Cloudflare's edge for that window, so repeat traffic never reaches the database. Endpoints that vary per caller (the wallet-aware token detail lens) declare `no-store` and are never stored anywhere.
+
+A declared window is emitted for three tiers at once: the browser (always revalidate), the Worker's own cache, and the Cloudflare zone. The zone reads a Cloudflare-specific directive and ignores the standard one, so all three are generated from a single TTL in `apps/api/src/utils/cache-control.ts` — a route cannot advertise a window that one tier silently ignores.
+
+Endpoints that can answer "not found" for a token that was just launched use a much shorter window for that answer than for a real one. A missing row means the registration write hasn't landed yet, so holding the negative would keep a brand-new token looking unregistered — and hidden from the live trade feed — long after it exists.
+
 ### Terminal API
 
 All above endpoints mirrored under `/api/v1/` with `X-API-Key` auth for third-party integrators.
