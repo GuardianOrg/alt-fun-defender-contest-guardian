@@ -5,7 +5,7 @@ import type { AppBindings } from "../lib/types.js";
 
 const mockFetchWalletBotPositions = vi.fn();
 const mockFetchTokenBalancesByWalletAndTokens = vi.fn();
-const mockFetchLiveLtRates = vi.fn();
+const mockFetchLiveLtRatesWithProvenance = vi.fn();
 const mockFetchTokensOnchainByAddresses = vi.fn();
 
 vi.mock("../lib/indexer-reads.js", () => ({
@@ -13,8 +13,13 @@ vi.mock("../lib/indexer-reads.js", () => ({
   fetchTokenBalancesByWalletAndTokens: mockFetchTokenBalancesByWalletAndTokens,
 }));
 
+// Must mirror exactly what the route imports. Mocking the wrong name
+// leaves the import undefined, the call throws, and the route's
+// live-mark catch swallows it — so every test silently exercises the
+// degraded path and the healthy one goes unverified. Codex review on
+// PR #1235.
 vi.mock("../lib/market-data.js", () => ({
-  fetchLiveLtRates: mockFetchLiveLtRates,
+  fetchLiveLtRatesWithProvenance: mockFetchLiveLtRatesWithProvenance,
   fetchTokensOnchainByAddresses: mockFetchTokensOnchainByAddresses,
 }));
 
@@ -49,8 +54,12 @@ const TOKEN = "0x000000000000000000000000000000000000beef";
 describe("GET /bot/positions-v2/:wallet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no live-mark refresh data so we exercise the snapshot path.
-    mockFetchLiveLtRates.mockResolvedValue(new Map());
+    // Default: a healthy read that yields no prices, so valuations keep
+    // their snapshot values without the response counting as degraded.
+    mockFetchLiveLtRatesWithProvenance.mockResolvedValue({
+      rates: new Map(),
+      stale: false,
+    });
     mockFetchTokensOnchainByAddresses.mockResolvedValue([]);
   });
 
@@ -120,6 +129,84 @@ describe("GET /bot/positions-v2/:wallet", () => {
       { tokenAddress: TOKEN, balance: (1_000n * 10n ** 18n).toString() },
     ]);
     mockFetchTokensOnchainByAddresses.mockResolvedValue(null);
+
+    const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("re-marks valuations from live prices and keeps the full window", async () => {
+    // The healthy live-mark path, which went unverified while the mock
+    // named the wrong export. Asserting the recomputed value is what
+    // proves the re-mark actually ran rather than silently throwing.
+    const LT = "0xCccc000000000000000000000000000000000003";
+    mockFetchWalletBotPositions.mockResolvedValue([
+      {
+        token: TOKEN,
+        ticker: "PURR",
+        tokenBalance: (1_000n * 10n ** 18n).toString(),
+        costBasisUsdc: "100000000",
+        currentValueUsdc: "120000000", // stale snapshot
+        realisedPnlUsdc: "0",
+        totalCostUsdc: "100000000",
+        totalProceedsUsdc: "0",
+      },
+    ]);
+    mockFetchTokenBalancesByWalletAndTokens.mockResolvedValue([
+      { tokenAddress: TOKEN, balance: (1_000n * 10n ** 18n).toString() },
+    ]);
+    // ratio = ltReserve / curveSupply = 1, rate = 1 → price = 1 USDC.
+    mockFetchTokensOnchainByAddresses.mockResolvedValue([
+      {
+        address: TOKEN,
+        ltToken: LT,
+        curveSupply: (10n ** 18n).toString(),
+        ltReserve: (10n ** 18n).toString(),
+      },
+    ]);
+    mockFetchLiveLtRatesWithProvenance.mockResolvedValue({
+      rates: new Map([[LT.toLowerCase(), 1]]),
+      stale: false,
+    });
+
+    const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
+    const body = (await res.json()) as {
+      data: { open: { currentValueUsdc: string; unrealisedPnlUsdc: string }[] };
+    };
+
+    // 1000 tokens at 1 USDC = 1000 USDC, 6dp — not the 120 snapshot.
+    expect(body.data.open[0].currentValueUsdc).toBe("1000000000");
+    expect(body.data.open[0].unrealisedPnlUsdc).toBe("900000000");
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=15, stale-while-revalidate=30",
+    );
+  });
+
+  it("shortens the window when LT rates came from the expired cache", async () => {
+    // Rates are present and usable, so nothing else looks wrong — but
+    // they're an arbitrarily old copy kept alive by the fail-open.
+    mockFetchWalletBotPositions.mockResolvedValue([
+      {
+        token: TOKEN,
+        ticker: "PURR",
+        tokenBalance: (1_000n * 10n ** 18n).toString(),
+        costBasisUsdc: "100000000",
+        currentValueUsdc: "120000000",
+        realisedPnlUsdc: "0",
+        totalCostUsdc: "100000000",
+        totalProceedsUsdc: "0",
+      },
+    ]);
+    mockFetchTokenBalancesByWalletAndTokens.mockResolvedValue([
+      { tokenAddress: TOKEN, balance: (1_000n * 10n ** 18n).toString() },
+    ]);
+    mockFetchLiveLtRatesWithProvenance.mockResolvedValue({
+      rates: new Map([["0xdead", 1]]),
+      stale: true,
+    });
 
     const res = await createApp().request(`/bot/positions-v2/${WALLET}`, {}, makeEnv());
 
