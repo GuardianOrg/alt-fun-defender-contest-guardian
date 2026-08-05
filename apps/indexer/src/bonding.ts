@@ -148,11 +148,10 @@ ponder.on("Factory:PairCreated", async ({ event, context }) => {
  * `Bonding` emits two events for this one state change — `CreatorTransferred`
  * when the outgoing creator signs the handover, `CreatorReassigned` when the
  * protocol owner forces it for a community takeover. Both move
- * `feeRecipient`; only the forced one additionally stamps
- * `communityTakeoverAt`, which is what the UI badges. A voluntary handover is
- * not a takeover and must not light that badge up. The update is inlined in
- * both rather than extracted because Ponder's `Db` type isn't exported (see
- * the `MAINTAIN_TOKEN_HOURLY` note at the top of this file).
+ * `feeRecipient`; only the forced one also stamps `communityTakeoverAt` (the
+ * schema field explains why). The update is inlined in both rather than
+ * extracted because Ponder's `Db` type isn't exported (see the
+ * `MAINTAIN_TOKEN_HOURLY` note at the top of this file).
  *
  * `TokenLaunched` always precedes a transfer, so the row is guaranteed to
  * exist by the time either event fires — a bare `update` is safe, same as

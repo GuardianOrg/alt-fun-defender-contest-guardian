@@ -174,18 +174,10 @@ describe("creator reassignment", () => {
     db = createMockDb();
   });
 
-  // Both events move the fee recipient identically — a voluntary handover and
-  // an owner-forced community takeover both redirect future creator fees.
-  //
-  // They diverge on `communityTakeoverAt`: only the forced one stamps it,
-  // because that timestamp is what the UI badges as a CTO. Stamping it on a
-  // voluntary handover would badge a creator who simply moved wallets or sold
-  // the project as having been taken over by the community.
-  //
-  // Critically, `creator` must NOT move for either: it's the immutable launch
-  // identity backing `/security`'s `creatorHoldingPct` rug signal and the
-  // analytics launcher tally. Repointing it would silently aim a safety metric
-  // at a different wallet, so the assertions are on the exact update payload.
+  // Asserts the exact update payload for both events, which pins the two
+  // invariants documented on `token.creator` / `token.communityTakeoverAt` in
+  // ponder.schema.ts: `creator` never moves, and only the owner-forced event
+  // stamps the takeover timestamp.
   it.each([
     ["Bonding:CreatorTransferred", { feeRecipient: "0xnewcreator" }],
     [
