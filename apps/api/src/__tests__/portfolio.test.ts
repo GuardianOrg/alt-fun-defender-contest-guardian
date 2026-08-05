@@ -140,6 +140,8 @@ describe("GET /portfolio/:wallet", () => {
 
     const app = createApp();
     const res = await app.request(`/portfolio/${WALLET}`, {}, makeEnv());
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=15");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=15, stale-while-revalidate=30",
+    );
   });
 });

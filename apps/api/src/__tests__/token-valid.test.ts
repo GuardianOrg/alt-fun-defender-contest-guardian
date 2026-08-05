@@ -103,7 +103,9 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
     expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
       "public, max-age=5, stale-while-revalidate=10",
     );
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=5");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=5, stale-while-revalidate=10",
+    );
   });
 
   it("stores nothing when the API DB read fails", async () => {

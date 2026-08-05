@@ -672,8 +672,9 @@ describe("POST /market-data — server-side cache (issue #928)", () => {
     expect(body.dataSource).toBe("degraded");
 
     const cacheControl = res.headers.get("Cache-Control") ?? "";
-    expect(cacheControl).toContain("s-maxage=1");
-    expect(cacheControl).not.toContain("s-maxage=3");
+    expect(cacheControl).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
   });
 
   it("empty `addresses[]` short-circuit is not cached", async () => {

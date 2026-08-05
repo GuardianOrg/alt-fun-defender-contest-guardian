@@ -215,7 +215,9 @@ describe("GET /creators/:address/earnings", () => {
       {},
       makeEnv(),
     );
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=15");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=15, stale-while-revalidate=30",
+    );
   });
 });
 
@@ -316,6 +318,8 @@ describe("GET /creators/:address", () => {
   it("sets a Cache-Control header for edge caching", async () => {
     const app = createApp();
     const res = await app.request(`/creators/${CREATOR}`, {}, makeEnv());
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=30");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=30, stale-while-revalidate=60",
+    );
   });
 });

@@ -103,7 +103,9 @@ describe("putWithSwr", () => {
     expect(staleResponse.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
       "no-store",
     );
-    expect(staleResponse.headers.get("Cache-Control")).toContain("s-maxage=15");
+    expect(staleResponse.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=15",
+    );
   });
 
   it("falls back to a single put when the Cache-Control header has no SWR directive", async () => {

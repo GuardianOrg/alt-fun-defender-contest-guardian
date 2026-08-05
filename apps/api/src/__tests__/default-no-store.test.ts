@@ -179,5 +179,8 @@ describe("defaultNoStore", () => {
 
     expect(res.status).toBe(500);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    // The zone directive is the one that actually governs zone caching,
+    // so asserting only the standard header would miss the real risk.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe("no-store");
   });
 });

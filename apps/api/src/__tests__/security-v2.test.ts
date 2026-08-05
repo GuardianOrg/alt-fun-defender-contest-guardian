@@ -129,8 +129,10 @@ describe("GET /security-v2/:address", () => {
     const res = await createApp().request(`/security-v2/${TOKEN}`, {}, makeEnv());
 
     // 0% holdings here is "we couldn't read it", not "the creator sold".
-    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toContain(
-      "max-age=5",
+    // Exact match, not `toContain`: "max-age=5" is a substring of
+    // "max-age=50", so a loose check would accept a 10× longer window.
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "public, max-age=5, stale-while-revalidate=10",
     );
   });
 

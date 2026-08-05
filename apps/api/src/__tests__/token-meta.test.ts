@@ -71,7 +71,9 @@ describe("GET /tokens/:address/meta", () => {
     expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
       "public, max-age=10, stale-while-revalidate=20",
     );
-    expect(res.headers.get("Cache-Control")).toContain("s-maxage=10");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=10, stale-while-revalidate=20",
+    );
   });
 
   it("caches a resolved label for the full window", async () => {
