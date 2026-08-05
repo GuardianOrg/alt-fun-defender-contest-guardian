@@ -109,13 +109,18 @@ describe("cache directives all originate in utils/cache-control.ts", () => {
     // would close that, and no accidental regression looks like it — the
     // shapes below are the ones reachable by mistake.
     const writers = Object.entries(productionSources)
-      .filter(([, source]) =>
-        /(["'`])(?:Cloudflare-CDN-)?Cache-Control\1/i.test(
-          source
-            .replace(/\/\*[\s\S]*?\*\//g, "")
-            .replace(/(^|[^:])\/\/.*$/gm, "$1"),
-        ),
-      )
+      .filter(([, source]) => {
+        const code = source
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .replace(/(^|[^:])\/\/.*$/gm, "$1");
+        return (
+          // The header named as a literal…
+          /(["'`])(?:Cloudflare-CDN-)?Cache-Control\1/i.test(code) ||
+          // …or via the exported constant, which is the natural form and
+          // carries no literal at all.
+          /\bCDN_CACHE_CONTROL_HEADER\b/.test(code)
+        );
+      })
       .map(([path]) => path)
       .sort();
 

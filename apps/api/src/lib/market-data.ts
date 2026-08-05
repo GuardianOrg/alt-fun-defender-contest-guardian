@@ -161,11 +161,18 @@ let liveLtRatesCache: {
   expiresAt: number;
 } | null = null;
 let liveLtRatesInflight: Promise<Map<string, number> | null> | null = null;
+/**
+ * Whether the last resolved read fell back to the expired cache. Read
+ * immediately after awaiting the in-flight promise, so coalesced callers
+ * of the same read all see that read's provenance.
+ */
+let liveLtRatesLastWasStale = false;
 
 /** Reset hook for tests. Mirrors `_resetLtAvailabilityCache`. */
 export function _resetLiveLtRatesCache(): void {
   liveLtRatesCache = null;
   liveLtRatesInflight = null;
+  liveLtRatesLastWasStale = false;
 }
 
 /**
@@ -189,26 +196,51 @@ export function _resetLiveLtRatesCache(): void {
 export async function fetchLiveLtRates(
   databaseUrl: string,
 ): Promise<Map<string, number> | null> {
+  return (await fetchLiveLtRatesWithProvenance(databaseUrl)).rates;
+}
+
+/**
+ * As {@link fetchLiveLtRates}, but reports whether the map it returned is
+ * an expired copy kept alive by the fail-open path above.
+ *
+ * The fail-open itself is right, but it is invisible to callers, and
+ * "at most a few extra seconds" only holds while refreshes recover — a
+ * sustained mirror outage keeps handing back the same map indefinitely,
+ * since the expiry governs when we retry, not how old the fallback may
+ * get. A caller that edge-caches its response needs to know, or it
+ * publishes an arbitrarily old rate under a fresh TTL.
+ */
+export async function fetchLiveLtRatesWithProvenance(
+  databaseUrl: string,
+): Promise<{ rates: Map<string, number> | null; stale: boolean }> {
   const now = Date.now();
   if (liveLtRatesCache && liveLtRatesCache.expiresAt > now) {
-    return liveLtRatesCache.map;
+    return { rates: liveLtRatesCache.map, stale: false };
   }
-  if (liveLtRatesInflight) return liveLtRatesInflight;
+  if (liveLtRatesInflight) {
+    return { rates: await liveLtRatesInflight, stale: liveLtRatesLastWasStale };
+  }
 
   liveLtRatesInflight = (async () => {
     try {
       const map = await readLiveLtRates(databaseUrl);
-      if (map === null) return liveLtRatesCache?.map ?? null;
+      if (map === null) {
+        liveLtRatesLastWasStale = liveLtRatesCache != null;
+        return liveLtRatesCache?.map ?? null;
+      }
       liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
+      liveLtRatesLastWasStale = false;
       return map;
     } catch {
+      liveLtRatesLastWasStale = liveLtRatesCache != null;
       return liveLtRatesCache?.map ?? null;
     } finally {
       liveLtRatesInflight = null;
     }
   })();
 
-  return liveLtRatesInflight;
+  const rates = await liveLtRatesInflight;
+  return { rates, stale: liveLtRatesLastWasStale };
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   fetchWalletBotPositions,
 } from "../../lib/indexer-reads.js";
 import {
-  fetchLiveLtRates,
+  fetchLiveLtRatesWithProvenance,
   fetchTokensOnchainByAddresses,
 } from "../../lib/market-data.js";
 import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
@@ -88,12 +88,16 @@ const fetchCurrentPricesUsdc18dp = async (
   if (addresses.length === 0) {
     return { prices: new Map(), degraded: false };
   }
-  const [tokens, ltRates] = await Promise.all([
+  const [tokens, ltRateResult] = await Promise.all([
     fetchTokensOnchainByAddresses(databaseUrl, addresses),
-    fetchLiveLtRates(databaseUrl),
+    fetchLiveLtRatesWithProvenance(databaseUrl),
   ]);
+  const { rates: ltRates, stale: ltRatesStale } = ltRateResult;
   const out = new Map<string, bigint>();
   if (!tokens || !ltRates) return { prices: out, degraded: true };
+  // Rates served from the expired cache during a mirror outage price
+  // every position off an arbitrarily old exchange rate.
+  if (ltRatesStale) return { prices: out, degraded: true };
   for (const t of tokens) {
     const ltRate = ltRates.get(t.ltToken.toLowerCase()) ?? 0;
     if (ltRate <= 0) continue;
