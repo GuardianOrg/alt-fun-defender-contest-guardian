@@ -15,9 +15,13 @@
 #     renders the styled `NotFound` component.
 #
 # Static assets (favicons, OG image, /altfun-*.html docs, the audit
-# PDFs, /whitepaper.pdf, hashed `/assets/*` bundles, …) are served from
-# the static-asset layer before `_redirects` is consulted — no need to
-# whitelist them here.
+# PDFs, /whitepaper.pdf, hashed `/assets/*` bundles, …) don't need
+# whitelisting against the `/*` line: a rewrite to a non-redirect status
+# is Pages' custom-404 fallback and only fires when no asset matches.
+# True redirects behave the opposite way — Pages follows those whether or
+# not an asset sits at the source path, so a 301 like the one below will
+# shadow a real file of the same name. Verified on a Pages preview:
+# /whitepaper.pdf, /favicon.ico and /robots.txt all still return 200.
 #
 # Add a new entry whenever a new top-level SPA route is added in
 # `src/app/routes.ts`. Routes nested deeper than the patterns below
