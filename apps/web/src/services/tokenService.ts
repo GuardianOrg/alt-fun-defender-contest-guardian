@@ -55,6 +55,7 @@ export function fromApiToken(api: ApiToken): Token {
     change24h: api.change24h ?? null,
     status: deriveStatus(api),
     creatorAddress: api.creator,
+    communityTakeoverAt: api.communityTakeoverAt ?? null,
     createdAt: api.createdAt,
     isHidden: api.isHidden,
     socialLinks: buildSocialLinks(api),

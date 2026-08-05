@@ -28,6 +28,7 @@ const baseToken: Token = {
   change24h: null,
   status: "active",
   creatorAddress: "0xfeed",
+  communityTakeoverAt: null,
   createdAt: "2025-01-01T00:00:00Z",
   isHidden: false,
 };

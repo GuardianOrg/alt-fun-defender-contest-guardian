@@ -15,6 +15,7 @@ import {
 } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
 import AssetIcon from "../shared/AssetIcon";
+import CommunityTakeoverPill from "../shared/CommunityTakeoverPill";
 import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
 import ProgressBar from "../shared/ProgressBar";
@@ -113,6 +114,7 @@ export default function TokenRow({
             <span className={styles.tokenTicker}>{token.ticker}</span>
             {isGraduating && <GraduatingPill />}
             {isGraduated && <GraduatedPill />}
+            {token.communityTakeoverAt && <CommunityTakeoverPill />}
           </div>
           <span className={styles.tokenFullName}>{token.name}</span>
         </div>

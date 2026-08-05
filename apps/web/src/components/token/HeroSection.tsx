@@ -6,6 +6,7 @@ import { cn } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
 import Button from "../shared/Button";
 import Chip from "../shared/Chip";
+import CommunityTakeoverPill from "../shared/CommunityTakeoverPill";
 import GraduatedPill from "../shared/GraduatedPill";
 import Modal from "../shared/Modal";
 
@@ -74,6 +75,7 @@ export default function HeroSection({ token }: Props) {
                 <span className={styles.ltName}>{ltSymbol}</span>
               </div>
               {token.status === "graduated" && <GraduatedPill />}
+              {token.communityTakeoverAt && <CommunityTakeoverPill />}
             </div>
             <div className={styles.fullName}>{token.name}</div>
           </div>
