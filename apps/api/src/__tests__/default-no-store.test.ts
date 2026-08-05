@@ -31,6 +31,29 @@ function makeEnv(): AppBindings {
   };
 }
 
+/**
+ * Make a response's headers immutable, the way the runtime does for
+ * anything that came off `fetch()`. `headers.set` then throws, which is
+ * the case the middleware's rewrap fallback exists for.
+ */
+function immutable(res: Response): Response {
+  Object.defineProperty(res, "headers", {
+    value: new Proxy(res.headers, {
+      get(target, prop, receiver) {
+        if (prop === "set") {
+          return () => {
+            throw new TypeError("immutable headers");
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+    configurable: true,
+  });
+  return res;
+}
+
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
   app.use("*", defaultNoStore);
@@ -60,24 +83,15 @@ function createApp() {
   });
   // Stands in for a Durable Object error passed through verbatim: a
   // response off `fetch()` has immutable headers, so `set` throws.
-  app.get("/passthrough", () => {
-    const res = new Response("upstream refused", { status: 429 });
-    Object.defineProperty(res, "headers", {
-      value: new Proxy(res.headers, {
-        get(target, prop, receiver) {
-          if (prop === "set") {
-            return () => {
-              throw new TypeError("immutable headers");
-            };
-          }
-          const value = Reflect.get(target, prop, receiver);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      }),
-      configurable: true,
-    });
-    return res;
-  });
+  app.get("/passthrough", () =>
+    immutable(new Response("upstream refused", { status: 429 })),
+  );
+  // Null-body statuses are the way `new Response(body, …)` can throw, so
+  // the rewrap path has to survive them.
+  app.get("/no-content", () => immutable(new Response(null, { status: 204 })));
+  app.get("/not-modified", () =>
+    immutable(new Response(null, { status: 304 })),
+  );
   // Stands in for a zone-only policy: no `Cache-Control`, but a
   // deliberate Cloudflare directive that must not be overwritten.
   app.get("/zone-only", (c) => {
@@ -133,6 +147,21 @@ describe("defaultNoStore", () => {
     expect(await res.text()).toBe("upstream refused");
     expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
+
+  it.each([
+    ["204", "/no-content", 204],
+    ["304", "/not-modified", 304],
+  ])(
+    "rewraps a %s without tripping the null-body rule",
+    async (_label, path, status) => {
+      // `new Response(body, { status })` throws for 204/304 with a
+      // non-null body, so the rewrap must not invent one.
+      const res = await createApp().request(path, {}, makeEnv());
+
+      expect(res.status).toBe(status);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    },
+  );
 
   it("leaves an existing zone-only policy in place", async () => {
     const res = await createApp().request("/zone-only", {}, makeEnv());
