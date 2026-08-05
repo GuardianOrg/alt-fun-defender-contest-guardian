@@ -613,14 +613,18 @@ chart.get("/:address", async (c) => {
   // Snap both window ends onto a `sampleSec` lattice. Taken raw from
   // `Date.now()` they shifted every second, so no request ever reused
   // another's memoised read.
+  //
+  // The launch floor is applied AFTER the snap, never before: a sample
+  // predating launch still assigns its rate inside `buildPriceTimeline`
+  // before being skipped, so the launch anchor would be priced at a
+  // pre-launch rate. `launchTimestamp` is fixed per token, so clamping
+  // here keeps the window just as reusable.
   const gridToSec = quantiseDown(nowSec, sampleSec);
-  const earliestFromSec = gridToSec - historySec;
-  const fromSec = quantiseDown(
+  const earliestFromSec = quantiseDown(gridToSec - historySec, sampleSec);
+  const fromSec =
     launchTimestamp > 0
       ? Math.max(earliestFromSec, launchTimestamp)
-      : earliestFromSec,
-    sampleSec,
-  );
+      : earliestFromSec;
 
   const checksummedLt = getAddress(ltAddress);
 

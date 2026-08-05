@@ -1575,6 +1575,35 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
     expect(body.data.candles.length).toBeGreaterThan(0);
   });
 
+  it("never samples the rate from before a token launched", async () => {
+    // A grid sample predating launch is skipped for emission, but only
+    // AFTER it has assigned its rate — so a window floored below launch
+    // prices the launch anchor at a pre-launch rate. The floor is clamped
+    // to `launchTimestamp` to stop that; this pins the resulting SQL.
+    const launchSec = T0 - 3600;
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(launchSec),
+    });
+
+    await createApp().request(
+      // 1D candles: `sampleSec` is 28800, so an unclamped floor would
+      // reach up to eight hours before this token existed.
+      `/chart/${VALID_ADDRESS}?interval=86400`,
+      {},
+      makeEnv(),
+    );
+
+    const gridCall = mockNeonQuery.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join("").includes("generate_series"),
+    );
+    const fromSec = (gridCall as unknown[]).slice(1)[0] as number;
+    expect(fromSec).toBe(launchSec);
+  });
+
   it("returns the empty chart only when the LT has no ticks at all", async () => {
     mockNeonQuery.mockResolvedValue([]);
 

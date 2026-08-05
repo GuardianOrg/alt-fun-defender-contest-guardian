@@ -391,6 +391,49 @@ describe("reserved stale-marker parameter", () => {
     }
   });
 
+  it("single-flights refreshes that differ only by the marker", async () => {
+    // The cache canonicalises the marker away, so these all refresh one
+    // shared entry — the single-flight key has to canonicalise too, or
+    // varying the marker walks straight past the guard.
+    _resetRevalidationTracking();
+    const originalFetch = globalThis.fetch;
+    const seen: string[] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (globalThis as { fetch: typeof fetch }).fetch = (async (
+      input: RequestInfo | URL,
+    ) => {
+      const req = input instanceof Request ? input : new Request(String(input));
+      seen.push(req.url);
+      await gate;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const app = new Hono<{ Bindings: AppBindings }>();
+      app.get("/api/v1/tokens", async (c) => {
+        await revalidateInBackground(c);
+        return c.json({ ok: true });
+      });
+
+      const burst = Promise.all([
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=trending&__swr_stale=1", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=trending&__swr_stale=2", {}, makeEnv()),
+      ]);
+      release!();
+      await burst;
+
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).not.toContain("__swr_stale");
+    } finally {
+      (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+      _resetRevalidationTracking();
+    }
+  });
+
   it("folds a caller-supplied marker away on write", async () => {
     const cache = makeFakeCache();
     const spoofed = new Request(

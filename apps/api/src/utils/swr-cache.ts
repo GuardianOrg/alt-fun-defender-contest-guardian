@@ -82,11 +82,17 @@ function staleKeyFor(primary: Request): Request {
  * ignore the parameter, so folding it away is also the semantically
  * correct key.
  */
-function canonicalKeyFor(primary: Request): Request {
-  const url = new URL(primary.url);
-  if (!url.searchParams.has(SWR_STALE_PARAM)) return primary;
+function canonicalUrlFor(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  if (!url.searchParams.has(SWR_STALE_PARAM)) return rawUrl;
   url.searchParams.delete(SWR_STALE_PARAM);
-  return new Request(url.toString(), { method: "GET" });
+  return url.toString();
+}
+
+function canonicalKeyFor(primary: Request): Request {
+  const canonical = canonicalUrlFor(primary.url);
+  if (canonical === primary.url) return primary;
+  return new Request(canonical, { method: "GET" });
 }
 
 /**
@@ -258,7 +264,12 @@ export function _resetRevalidationTracking(): void {
  * user hit just gets another stale serve with another refresh attempt.
  */
 export async function revalidateInBackground(c: Context): Promise<void> {
-  const key = c.req.url;
+  // Keyed on the canonical URL, matching what the cache reads and writes.
+  // Keying on the raw URL would let `?__swr_stale=1`, `=2`, … each start
+  // their own refresh of one shared entry, walking straight past the
+  // single-flight guard. Refreshing that URL too keeps the origin read on
+  // the canonical entry.
+  const key = canonicalUrlFor(c.req.url);
   if (revalidationsInFlight.has(key)) return;
   revalidationsInFlight.add(key);
 
@@ -268,7 +279,7 @@ export async function revalidateInBackground(c: Context): Promise<void> {
   const timer = setTimeout(() => controller.abort(), REVALIDATION_TIMEOUT_MS);
   try {
     await fetch(
-      new Request(c.req.url, {
+      new Request(key, {
         method: "GET",
         headers,
         signal: controller.signal,
