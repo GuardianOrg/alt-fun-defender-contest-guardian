@@ -49,6 +49,15 @@ function createApp() {
   app.get("/boom", () => {
     throw new Error("kaboom");
   });
+  // Stands in for the `/ws` upgrade, which returns the Durable Object's
+  // response verbatim. A real 101 can't be constructed outside workerd
+  // (the Response constructor rejects statuses below 200), so this fakes
+  // the property the middleware actually keys on.
+  app.get("/ws", () => {
+    const res = new Response(null, { status: 200 });
+    Object.defineProperty(res, "webSocket", { value: {}, configurable: true });
+    return res;
+  });
   return app;
 }
 
@@ -79,6 +88,14 @@ describe("defaultNoStore", () => {
     expect(res.headers.get("Cache-Control")).toBe(
       "private, no-store, max-age=0, s-maxage=0",
     );
+  });
+
+  it("leaves a WebSocket upgrade alone", async () => {
+    // An upgrade response has immutable headers — writing to them throws
+    // and would break every `/ws` connection.
+    const res = await createApp().request("/ws", {}, makeEnv());
+
+    expect(res.headers.get("Cache-Control")).toBeNull();
   });
 
   it("covers an unhandled error response too", async () => {
