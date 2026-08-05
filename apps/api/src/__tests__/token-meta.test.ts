@@ -48,6 +48,9 @@ describe("GET /tokens/:address/meta", () => {
     mockFetchTokenMeta.mockResolvedValue("unavailable");
     const res = await createApp().request(`/tokens/${TOKEN}/meta`, {}, makeEnv());
     expect(res.status).toBe(503);
+    // A cached 503 would pin a transient outage for the TTL window.
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
   });
 
   it("returns 200 with data:null when the token row doesn't exist", async () => {

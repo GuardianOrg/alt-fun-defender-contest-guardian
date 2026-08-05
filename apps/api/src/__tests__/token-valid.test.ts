@@ -12,11 +12,19 @@ import type { AppBindings } from "../lib/types.js";
  */
 
 // Drizzle chain mock — the route calls `.select().from().where().limit()`.
-const currentDbRows: { rows: unknown[] } = { rows: [] };
+// `fail` makes the terminal await reject, which is how `tryApiDbRead`
+// sees a Neon outage.
+const dbState: { rows: unknown[]; fail: boolean } = { rows: [], fail: false };
 
 function makeThenable() {
   const self = {
-    then: (resolve: (rows: unknown[]) => unknown) => resolve(currentDbRows.rows),
+    then: (
+      resolve: (rows: unknown[]) => unknown,
+      reject?: (error: unknown) => unknown,
+    ) =>
+      dbState.fail
+        ? reject?.(new Error("Failed query: connection terminated (1006)"))
+        : resolve(dbState.rows),
     where: vi.fn(),
     limit: vi.fn(),
   };
@@ -60,7 +68,8 @@ async function request() {
 
 describe("GET /tokens/:address/valid — edge cache windows", () => {
   beforeEach(() => {
-    currentDbRows.rows = [];
+    dbState.rows = [];
+    dbState.fail = false;
     vi.clearAllMocks();
   });
 
@@ -70,7 +79,7 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
   });
 
   it("caches a registered, unhidden token for the full window", async () => {
-    currentDbRows.rows = [{ isHidden: false }];
+    dbState.rows = [{ isHidden: false }];
 
     const res = await request();
     const body = (await res.json()) as { data: { valid: boolean } };
@@ -85,7 +94,7 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
     // No row yet: the registration backfill lands ~60s after launch, so
     // this `false` is a "not yet" and must expire fast — the web pins a
     // definitive false for the rest of the page session.
-    currentDbRows.rows = [];
+    dbState.rows = [];
 
     const res = await request();
     const body = (await res.json()) as { data: { valid: boolean } };
@@ -97,10 +106,32 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
     expect(res.headers.get("Cache-Control")).toContain("s-maxage=5");
   });
 
+  it("stores nothing when the API DB read fails", async () => {
+    // A 503 must never be admitted to any cache — pinning a transient
+    // outage for the TTL window is the failure mode `lib/api-db-reads.ts`
+    // warns about, and it would read as "this token doesn't exist" to the
+    // trade feed. CodeRabbit review on this PR.
+    dbState.fail = true;
+    // `tryApiDbRead` logs the failure by design; keep it out of the run.
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const res = await request();
+      const body = (await res.json()) as { status: string; data: unknown };
+
+      expect(res.status).toBe(503);
+      expect(body.status).toBe("error");
+      expect(res.headers.get("Cache-Control")).toBeNull();
+      expect(res.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("caches a moderation-hidden token on the same short window", async () => {
     // Hidden is a durable state, but it shares the negative answer, and
     // an unhide should surface quickly too.
-    currentDbRows.rows = [{ isHidden: true }];
+    dbState.rows = [{ isHidden: true }];
 
     const res = await request();
     const body = (await res.json()) as { data: { valid: boolean } };
