@@ -1619,29 +1619,39 @@ describe("GET /chart/:address — LT-rate window quantisation", () => {
       timestamp: String(launchSec),
     });
     mockFetchTokenChartSnapshots.mockResolvedValue([]);
+    // Distinct rates so the candle itself proves which sample opened it:
+    // 2.0 at launch (grid), 3.0 now (newest tick).
     mockNeonQuery.mockImplementation((strings: TemplateStringsArray) =>
       Promise.resolve(
         strings.join("").includes("generate_series")
           ? [{ ts: String(launchSec), exchange_rate: "2000000000000000000" }]
-          : [{ ts: String(T0), exchange_rate: "2000000000000000000" }],
+          : [{ ts: String(T0), exchange_rate: "3000000000000000000" }],
       ),
     );
 
     const res = await requestChart();
     const body = (await res.json()) as {
-      data: { candles: unknown[]; currentExchangeRate: number };
+      data: { candles: { time: number; open: number; close: number }[] };
     };
 
-    // The window is ordered, so the grid can return the launch sample.
+    // The grid end is pulled up to launch exactly — not merely to
+    // something ordered, which a wrong later endpoint would also satisfy.
     const gridCall = mockNeonQuery.mock.calls.find(([strings]) =>
       (strings as TemplateStringsArray).join("").includes("generate_series"),
     )!;
     const [, boundFrom, boundTo] = gridCall as unknown[];
     expect(boundFrom).toBe(launchSec);
-    expect(boundTo as number).toBeGreaterThanOrEqual(boundFrom as number);
+    expect(boundTo).toBe(launchSec);
 
     expect(res.status).toBe(200);
-    expect(body.data.candles.length).toBeGreaterThan(0);
+    // Both ticks fall in one bucket, so `open` comes from the launch
+    // sample and `close` from the newest tick. Their 3:2 ratio is what
+    // shows the launch sample survived; a candle built only from the
+    // newest tick would open and close at the same price.
+    expect(body.data.candles).toHaveLength(1);
+    const [candle] = body.data.candles;
+    expect(candle.time).toBe(launchSec - (launchSec % 60));
+    expect(candle.close / candle.open).toBeCloseTo(1.5, 6);
   });
 
   it("returns the empty chart only when the LT has no ticks at all", async () => {

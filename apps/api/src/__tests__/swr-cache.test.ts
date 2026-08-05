@@ -340,14 +340,22 @@ describe("revalidateInBackground", () => {
   });
 
   it("refreshes a different URL independently", async () => {
+    // Both refreshes have to overlap for this to mean anything. Run them
+    // sequentially and the guard clears between calls, so the assertion
+    // holds even if tracking were one global flag rather than per-URL.
     _resetRevalidationTracking();
     const originalFetch = globalThis.fetch;
     const seen: string[] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     (globalThis as { fetch: typeof fetch }).fetch = (async (
       input: RequestInfo | URL,
     ) => {
       const req = input instanceof Request ? input : new Request(String(input));
       seen.push(req.url);
+      await gate;
       return new Response(null, { status: 200 });
     }) as typeof fetch;
 
@@ -358,10 +366,16 @@ describe("revalidateInBackground", () => {
         return c.json({ ok: true });
       });
 
-      await app.request("/api/v1/tokens?sort=trending", {}, makeEnv());
-      await app.request("/api/v1/tokens?sort=new", {}, makeEnv());
+      const burst = Promise.all([
+        app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
+        app.request("/api/v1/tokens?sort=new", {}, makeEnv()),
+      ]);
 
-      expect(seen).toHaveLength(2);
+      await vi.waitFor(() => expect(seen).toHaveLength(2));
+      expect(new Set(seen).size).toBe(2);
+
+      release!();
+      await burst;
     } finally {
       (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
       _resetRevalidationTracking();
@@ -420,8 +434,16 @@ describe("reserved stale-marker parameter", () => {
 
       const burst = Promise.all([
         app.request("/api/v1/tokens?sort=trending", {}, makeEnv()),
-        app.request("/api/v1/tokens?sort=trending&__swr_stale=1", {}, makeEnv()),
-        app.request("/api/v1/tokens?sort=trending&__swr_stale=2", {}, makeEnv()),
+        app.request(
+          "/api/v1/tokens?sort=trending&__swr_stale=1",
+          {},
+          makeEnv(),
+        ),
+        app.request(
+          "/api/v1/tokens?sort=trending&__swr_stale=2",
+          {},
+          makeEnv(),
+        ),
       ]);
       release!();
       await burst;
