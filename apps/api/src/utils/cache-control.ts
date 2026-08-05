@@ -105,6 +105,19 @@ export function applyEdgeCacheHeaders(
 }
 
 /**
+ * `Cache-Control` for the stale-fallback sibling {@link putWithSwr}
+ * writes to `caches.default`. `totalSeconds` is the route's TTL plus its
+ * stale window, because the Workers cache evicts strictly on `s-maxage`
+ * and that sum is what keeps the fallback alive for the whole SWR
+ * window. No `stale-while-revalidate` of its own — this body is already
+ * past freshness — and the caller pairs it with a `no-store` zone
+ * directive so the stretched value never becomes a zone policy.
+ */
+export function staleFallbackHeader(totalSeconds: number): string {
+  return `public, max-age=0, s-maxage=${totalSeconds}`;
+}
+
+/**
  * Directives for a content-addressed asset that can never change. Here
  * the browser tier gets the full year too — the key embeds a UUID, so a
  * changed image is a different URL.

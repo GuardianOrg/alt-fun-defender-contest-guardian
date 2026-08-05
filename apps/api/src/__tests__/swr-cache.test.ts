@@ -85,10 +85,12 @@ describe("putWithSwr", () => {
     expect(body.ok).toBe(true);
   });
 
-  it("drops the zone directive from the stale-fallback copy", async () => {
+  it("marks the stale-fallback copy no-store for the zone", async () => {
     // The stale body is only ever served past its freshness window;
     // re-admitting it to the zone for another full TTL would stretch
-    // staleness beyond what the route declared.
+    // staleness beyond what the route declared. Explicit `no-store`
+    // rather than an absent header, so the stretched `s-maxage` can't be
+    // picked up as the zone policy.
     const cache = makeFakeCache();
     const primary = new Request("http://localhost/api/v1/tokens?stalecdn=1");
     const response = makeJsonResponse({ ok: true }, 5);
@@ -98,7 +100,9 @@ describe("putWithSwr", () => {
 
     const staleWrite = (cache.put as ReturnType<typeof vi.fn>).mock.calls[1];
     const staleResponse = staleWrite[1] as Response;
-    expect(staleResponse.headers.get("Cloudflare-CDN-Cache-Control")).toBeNull();
+    expect(staleResponse.headers.get("Cloudflare-CDN-Cache-Control")).toBe(
+      "no-store",
+    );
     expect(staleResponse.headers.get("Cache-Control")).toContain("s-maxage=15");
   });
 

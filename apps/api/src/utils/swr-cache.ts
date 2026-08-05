@@ -1,6 +1,9 @@
 import type { Context } from "hono";
 
-import { CDN_CACHE_CONTROL_HEADER } from "./cache-control.js";
+import {
+  CDN_CACHE_CONTROL_HEADER,
+  staleFallbackHeader,
+} from "./cache-control.js";
 
 /**
  * Worker-side stale-while-revalidate for `caches.default`.
@@ -136,14 +139,13 @@ function buildStaleResponse(
   // `s-maxage = ttl + swr` covers the SWR window from the moment of
   // write. `caches.default` evicts strictly on `s-maxage`, so this is
   // the only knob that controls retention of the stale copy.
-  headers.set(
-    "Cache-Control",
-    `public, max-age=0, s-maxage=${sMaxAge + swr}`,
-  );
-  // The zone directive is dropped: this body is only ever served after
-  // its freshness window closed, so re-admitting it upstream for a full
-  // TTL would stretch staleness past what the route declared.
-  headers.delete(CDN_CACHE_CONTROL_HEADER);
+  headers.set("Cache-Control", staleFallbackHeader(sMaxAge + swr));
+  // Explicitly `no-store` for the zone rather than merely absent: this
+  // body is only ever served after its freshness window closed, and the
+  // `s-maxage` above (deliberately stretched to cover the SWR window)
+  // must not become a zone policy that re-admits an already-stale body
+  // for another full window.
+  headers.set(CDN_CACHE_CONTROL_HEADER, "no-store");
   return new Response(source.clone().body, {
     status: source.status,
     statusText: source.statusText,

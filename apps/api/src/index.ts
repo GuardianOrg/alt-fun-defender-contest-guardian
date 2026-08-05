@@ -35,6 +35,7 @@ import marketData from "./routes/market-data.js";
 import health from "./routes/health.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { defaultNoStore } from "./middleware/default-no-store.js";
 import { serveFromEdgeCache } from "./middleware/edge-cache.js";
 import openApiSpec from "./openapi/spec.js";
 import { validateWebhookPayload } from "./lib/webhook-validators.js";
@@ -71,6 +72,11 @@ const app = new Hono<{ Bindings: AppBindings }>();
 app.use("*", logger());
 app.use("*", corsMiddleware);
 app.use("*", prettyJSON());
+// Outermost so it sees the final response of every route: anything that
+// didn't explicitly opt in to caching is stamped `no-store`. See
+// `middleware/default-no-store.ts` — `cache.enabled` is Worker-wide, so
+// a headerless admin response must not be left to a platform default.
+app.use("*", defaultNoStore);
 
 /**
  * Once per Worker isolate, touch the LtTicker DO so its constructor runs and

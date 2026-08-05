@@ -20,6 +20,9 @@ import type { AppBindings } from "../../lib/types.js";
 // Shareable at the edge only because the wallet sits in the URL path,
 // which is what the cache key is built from.
 const POSITIONS_CACHE_TTL_SECONDS = 15;
+// An empty body from a failed read would otherwise tell a trader for 15s
+// that they hold nothing.
+const POSITIONS_DEGRADED_CACHE_TTL_SECONDS = 5;
 
 /**
  * Additive `/api/v1/bot/positions-v2/:wallet`: same `PositionsResponse`
@@ -99,14 +102,22 @@ const fetchCurrentPricesUsdc18dp = async (
   return out;
 };
 
+/**
+ * `degraded` rides alongside the response rather than inside it: the
+ * body shape is the bot's contract and must not change, but an empty
+ * body produced by a failed read is indistinguishable from a wallet
+ * holding nothing, so the caller needs to know which it got before
+ * choosing a cache window.
+ */
 const fetchPositions = async (
   databaseUrl: string,
   wallet: string,
-): Promise<PositionsResponse> => {
+): Promise<{ positions: PositionsResponse; degraded: boolean }> => {
   try {
     const db = createDb(databaseUrl);
     const items = await fetchWalletBotPositions(db, wallet);
-    if (items === null || items.length === 0) return EMPTY;
+    if (items === null) return { positions: EMPTY, degraded: true };
+    if (items.length === 0) return { positions: EMPTY, degraded: false };
 
     const openTokenAddresses = Array.from(
       new Set(
@@ -232,7 +243,7 @@ const fetchPositions = async (
       return av > bv ? -1 : 1;
     });
 
-    return { open, realised };
+    return { positions: { open, realised }, degraded: false };
   } catch (err) {
     console.log(
       JSON.stringify({
@@ -242,7 +253,7 @@ const fetchPositions = async (
         error: err instanceof Error ? err.message : String(err),
       }),
     );
-    return EMPTY;
+    return { positions: EMPTY, degraded: true };
   }
 };
 
@@ -254,9 +265,17 @@ positionsV2.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const data = await fetchPositions(c.env.DATABASE_URL, wallet);
-  setEdgeCacheHeaders(c, POSITIONS_CACHE_TTL_SECONDS);
-  return c.json(formatSuccess(data));
+  const { positions, degraded } = await fetchPositions(
+    c.env.DATABASE_URL,
+    wallet,
+  );
+  setEdgeCacheHeaders(
+    c,
+    degraded
+      ? POSITIONS_DEGRADED_CACHE_TTL_SECONDS
+      : POSITIONS_CACHE_TTL_SECONDS,
+  );
+  return c.json(formatSuccess(positions));
 });
 
 export default positionsV2;

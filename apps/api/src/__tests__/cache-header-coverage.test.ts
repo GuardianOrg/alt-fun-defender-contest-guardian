@@ -15,23 +15,36 @@ import { describe, it, expect } from "vitest";
  */
 
 /**
- * Route sources as text. Vite's raw glob rather than `node:fs` — this
- * package targets the Workers runtime and has no Node type surface. The
- * triple-slash reference above supplies `ImportMeta.glob`, same as the
- * source-scan gate in `api-db-503.test.ts`.
+ * All production sources as text. Vite's raw glob rather than `node:fs`
+ * — this package targets the Workers runtime and has no Node type
+ * surface. The triple-slash reference above supplies `ImportMeta.glob`,
+ * same as the source-scan gate in `api-db-503.test.ts`.
+ *
+ * Scans the whole tree, not just `routes/`: a directive written in a
+ * `lib/` or `middleware/` helper reaches the wire exactly the same way.
  */
-const routeSources = import.meta.glob<string>("../routes/**/*.ts", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
+const ALLOWED_SOURCE = "../utils/cache-control.ts";
+
+const productionSources = Object.fromEntries(
+  Object.entries(
+    import.meta.glob<string>("../**/*.ts", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    }),
+  ).filter(
+    ([path]) => path !== ALLOWED_SOURCE && !path.endsWith(".test.ts"),
+  ),
+);
 
 // Both spellings matter: the shared directive is `s-maxage`, not
-// `s-max-age`. Kept as three separate literals rather than one composed
-// from `.source`, so no regex is ever built from a variable.
-const ANY_AGE = /(?:s-maxage|max-age)\s*=/;
-const NUMERIC_AGE = /(?:s-maxage|max-age)\s*=\s*(\d+)/g;
-const INTERPOLATED_AGE = /(?:s-maxage|max-age)\s*=\s*\$\{/;
+// `s-max-age`. Case-insensitive because HTTP directives are, so
+// `S-Maxage=30` is just as effective and must not slip past. Kept as
+// three separate literals rather than one composed from `.source`, so no
+// regex is ever built from a variable.
+const ANY_AGE = /(?:s-maxage|max-age)\s*=/i;
+const NUMERIC_AGE = /(?:s-maxage|max-age)\s*=\s*(\d+)/gi;
+const INTERPOLATED_AGE = /(?:s-maxage|max-age)\s*=\s*\$\{/i;
 
 /** String literals (quoted or backticked) that mention a cache age. */
 function cacheAgeLiterals(source: string): string[] {
@@ -58,20 +71,32 @@ function declaresPositiveAge(literal: string): boolean {
 }
 
 describe("cache directives all originate in utils/cache-control.ts", () => {
-  const offenders = Object.entries(routeSources).flatMap(([path, source]) =>
-    cacheAgeLiterals(source)
-      .filter(declaresPositiveAge)
-      .map((literal) => `${path}: ${literal}`),
+  const offenders = Object.entries(productionSources).flatMap(
+    ([path, source]) =>
+      cacheAgeLiterals(source)
+        .filter(declaresPositiveAge)
+        .map((literal) => `${path}: ${literal}`),
   );
 
-  it("no route hand-writes a positive cache TTL", () => {
+  it("no production source hand-writes a positive cache TTL", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("finds route files to check at all", () => {
+  it("scans the whole tree, not just routes", () => {
     // Guards against the glob silently matching nothing and the
     // assertion above passing for the wrong reason.
-    expect(Object.keys(routeSources).length).toBeGreaterThan(10);
+    const paths = Object.keys(productionSources);
+    expect(paths.length).toBeGreaterThan(30);
+    expect(paths.some((p) => p.startsWith("../lib/"))).toBe(true);
+    expect(paths.some((p) => p.startsWith("../middleware/"))).toBe(true);
+    // The one file allowed to author directives must be excluded, or the
+    // scan would flag the helper itself and prove nothing.
+    expect(paths).not.toContain(ALLOWED_SOURCE);
+  });
+
+  it("flags a case-variant directive, since HTTP directives are case-insensitive", () => {
+    const sample = `c.header("Cache-Control", "public, S-Maxage=30");`;
+    expect(cacheAgeLiterals(sample).filter(declaresPositiveAge)).toHaveLength(1);
   });
 
   it("flags a hand-written directive when one is introduced", () => {
