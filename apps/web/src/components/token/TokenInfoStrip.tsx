@@ -106,6 +106,8 @@ export default function TokenInfoStrip({
     });
   }
 
+  const showLeverageBoost = token.status === "active";
+
   return (
     <div className={styles.strip}>
       <div className={styles.statsGroup}>
@@ -120,18 +122,20 @@ export default function TokenInfoStrip({
           )}
         </div>
 
-        <div className={styles.stat}>
-          <span className={`${styles.label} ui-subheading`}>
-            Leverage Boost
-          </span>
-          {liveDataPending ? (
-            <Skeleton width="3.5rem" height="1rem" />
-          ) : (
-            <span className={styles.value}>
-              {`${token.leverageBoost.toFixed(1)}%`}
+        {showLeverageBoost && (
+          <div className={styles.stat}>
+            <span className={`${styles.label} ui-subheading`}>
+              Leverage Boost
             </span>
-          )}
-        </div>
+            {liveDataPending ? (
+              <Skeleton width="3.5rem" height="1rem" />
+            ) : (
+              <span className={styles.value}>
+                {`${token.leverageBoost.toFixed(1)}%`}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className={`${styles.stat} ${styles.statEnd}`}>
