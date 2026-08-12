@@ -199,6 +199,7 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:BB",
       "xyz:MU",
       "xyz:SKHX",
+      "xyz:CXMT",
     ]);
   });
 });
