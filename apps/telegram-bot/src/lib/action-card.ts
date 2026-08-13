@@ -41,21 +41,20 @@ const buildActionView = async (
   // handles — letting them bubble out of the callback strands the
   // Telegram spinner and surfaces a raw stack trace to the user.
   try {
-    const [tokenResult, balance] = await Promise.all([
-      fetchToken(ctx.env, token),
-      action === "buy"
-        ? fetchUsdcBalance(ctx.env, walletAddress)
-        : fetchErc20Balance(ctx.env, token, walletAddress),
-    ]);
+    const tokenResult = await fetchToken(ctx.env, token);
     if (!tokenResult.ok) return null;
     const lang = getCtxLanguage(ctx);
+    if (action === "buy" && tokenResult.data.mintPaused) {
+      return {
+        text: t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
+        inlineKeyboard: [backHomeRow(lang)],
+      };
+    }
+    const balance =
+      action === "buy"
+        ? await fetchUsdcBalance(ctx.env, walletAddress)
+        : await fetchErc20Balance(ctx.env, token, walletAddress);
     if (action === "buy") {
-      if (tokenResult.data.mintPaused) {
-        return {
-          text: t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
-          inlineKeyboard: [backHomeRow(lang)],
-        };
-      }
       return {
         text: renderBuyTokenCardText(tokenResult.data, balance, lang),
         inlineKeyboard: buildBuyTokenKeyboard(

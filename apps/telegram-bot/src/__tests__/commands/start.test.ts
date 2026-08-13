@@ -1243,10 +1243,17 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toMatch(/Buys paused/i);
     const markup = sent[0]!.reply_markup as
-      | { inline_keyboard: { text: string }[][] }
+      | { inline_keyboard: { text: string; callback_data?: string }[][] }
       | undefined;
     const allButtons = markup?.inline_keyboard.flat() ?? [];
-    expect(allButtons.some((b) => b.text.includes("Buy 20"))).toBe(false);
+    expect(allButtons.some((b) => /buy/i.test(b.text))).toBe(false);
+    expect(allButtons.some((b) => b.callback_data?.startsWith("buy"))).toBe(
+      false,
+    );
+    expect(allButtons).toEqual([
+      { text: "← Back", callback_data: "nav:b" },
+      { text: "🏠 Home", callback_data: "nav:h" },
+    ]);
   });
 
   it("sell_<addr> deeplink replies with a sell card", async () => {
