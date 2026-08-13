@@ -108,6 +108,7 @@ interface MockOpts {
   tokenFound?: boolean;
   tokenApiDown?: boolean;
   tradesApiDown?: boolean;
+  mintPaused?: boolean;
   trades?: Trade[];
   chartCandles?: Array<{
     time: number;
@@ -145,7 +146,10 @@ const mockApi = (
       return new Response(
         JSON.stringify({
           status: "success",
-          data: TOKEN_INFO_FIXTURE,
+          data: {
+            ...TOKEN_INFO_FIXTURE,
+            mintPaused: opts.mintPaused === true,
+          },
           error: null,
         }),
         { status: 200 },
@@ -597,6 +601,20 @@ describe("/track command", () => {
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();
     expect(allBtns.some((b) => b.text.includes("Buy 20"))).toBe(true);
+  });
+
+  it("does not open a buy card when the tracked token's LT is mint-paused", async () => {
+    const h = harness();
+    mockApi(fetchSpy, { mintPaused: true });
+    await h.run(callbackUpdate(`trkb:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const alert = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(String(alert?.body.text ?? "")).toMatch(/Buys paused/i);
+    expect(calls.some((c) => c.url.includes("/editMessageText"))).toBe(false);
+    expect(
+      calls.some((c) => String(c.body.text ?? "").includes("Buy 20")),
+    ).toBe(false);
   });
 
   it("still sends the text card when the chart fetch hangs past the timeout", async () => {

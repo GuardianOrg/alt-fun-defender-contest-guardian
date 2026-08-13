@@ -34,6 +34,7 @@ import { buildTrackChartPng } from "../lib/chart.js";
 import {
   BUY_ARROW_BUTTON,
   BUY_CARD_LOADING_HTML,
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   DEFAULT_LANGUAGE,
   type Language,
   OUTAGE_REPLY,
@@ -666,6 +667,13 @@ const handleTrackBuy = async (
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
       text: apiUnavailable(ctx),
+      show_alert: true,
+    });
+    return;
+  }
+  if (tokenResult.data.mintPaused) {
+    await ctx.answerCallbackQuery({
+      text: t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
       show_alert: true,
     });
     return;
