@@ -90,7 +90,7 @@ export default function CreateView() {
   // Mirror `Zap.MIN_SEED_USDC` so users do not sign a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
   // Refuse launches against LTs that are known to be mint-paused.
-  const { data: liveLTs } = useLeveragedTokens();
+  const { data: liveLTs, isFetched: pairsFetched } = useLeveragedTokens();
   const selectedLT = liveLTs?.find(
     (lt) =>
       lt.targetAsset === asset &&
@@ -188,7 +188,9 @@ export default function CreateView() {
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
-    if (noDetectedPairs) return "LOADING PAIRS…";
+    if (noDetectedPairs) {
+      return pairsFetched ? "NO PAIRS AVAILABLE" : "LOADING PAIRS…";
+    }
     if (invalidLeverageForAsset) return "SELECT SUPPORTED LEVERAGE";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "LAUNCH TOKEN";
