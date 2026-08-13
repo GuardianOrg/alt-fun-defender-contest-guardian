@@ -118,6 +118,30 @@ export function getLeverageOptions(
   return [...leverages].sort((a, b) => a - b);
 }
 
+/** Drop LTs BounceTech has mint-paused — buys and launches against them revert. */
+export function filterMintableLTs(
+  lts: readonly LiveLeveragedToken[],
+): LiveLeveragedToken[] {
+  return lts.filter((lt) => !lt.mintPaused);
+}
+
+/**
+ * Unique supported underlyings that still have at least one mintable LT.
+ * Pass `isLong` to require a mintable LT in that direction (create flow).
+ */
+export function mintableUnderlyingAssets(
+  lts: readonly LiveLeveragedToken[],
+  isLong?: boolean,
+): string[] {
+  const assets = new Set<string>();
+  for (const lt of filterMintableLTs(lts)) {
+    if (!isSupportedUnderlying(lt.targetAsset)) continue;
+    if (isLong !== undefined && lt.isLong !== isLong) continue;
+    assets.add(lt.targetAsset);
+  }
+  return [...assets];
+}
+
 /**
  * Filter a live LT list down to the ones Alt Fun supports.
  */

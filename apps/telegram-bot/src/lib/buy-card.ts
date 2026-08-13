@@ -10,6 +10,7 @@ import { wrapWithCtxPhrase } from "./anti-phishing.js";
 import { extractTokenAddress, fetchToken } from "./api.js";
 import {
   BUY_CARD_LOADING_HTML,
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   OUTAGE_REPLY,
   TOKEN_NOT_FOUND_HTML as I18N_TOKEN_NOT_FOUND_HTML,
   getCtxLanguage,
@@ -202,6 +203,17 @@ export const showBuyCardForAddress = async (
   }
 
   const token = tokenResult.data;
+  if (token.mintPaused) {
+    await finaliseBuyCard(
+      ctx,
+      placeholder,
+      t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
+      {
+        reply_markup: { inline_keyboard: [backHomeRow(lang)] },
+      },
+    );
+    return;
+  }
   const userId = ctx.from?.id;
   const active = userId
     ? await new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY).getActive(

@@ -99,6 +99,12 @@ export interface TokenInfo {
   leverage: number | null;
   /** "long" | "short" — case follows the api DB row. */
   ltDirection: string | null;
+  /**
+   * BounceTech has mint-paused this token's LT. Buys revert; sells still
+   * work. Optional on the wire so older API builds still parse — missing
+   * is treated as not paused (fail-open, same as the web buy UI).
+   */
+  mintPaused: boolean;
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -404,13 +410,19 @@ const isOptionalNumber = (v: unknown): boolean =>
 // / `string | null`).
 type TokenInfoWire = Omit<
   TokenInfo,
-  "volume24hUsd" | "ltPair" | "underlying" | "leverage" | "ltDirection"
+  | "volume24hUsd"
+  | "ltPair"
+  | "underlying"
+  | "leverage"
+  | "ltDirection"
+  | "mintPaused"
 > & {
   volume24hUsd?: number | null;
   ltPair?: string | null;
   underlying?: string | null;
   leverage?: number | null;
   ltDirection?: string | null;
+  mintPaused?: boolean;
 };
 
 const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
@@ -438,7 +450,8 @@ const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
       (typeof obj.leverage === "number" && Number.isFinite(obj.leverage))) &&
     (obj.ltDirection === undefined ||
       obj.ltDirection === null ||
-      typeof obj.ltDirection === "string")
+      typeof obj.ltDirection === "string") &&
+    (obj.mintPaused === undefined || typeof obj.mintPaused === "boolean")
   );
 };
 
@@ -459,6 +472,7 @@ export const fetchToken = async (
       underlying: wire.underlying ?? null,
       leverage: wire.leverage ?? null,
       ltDirection: wire.ltDirection ?? null,
+      mintPaused: wire.mintPaused === true,
     },
   };
 };

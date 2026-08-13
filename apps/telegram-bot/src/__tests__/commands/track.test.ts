@@ -16,7 +16,11 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
-import { renderTrackBody, renderTrackCaption } from "../../commands/track.js";
+import {
+  buildTrackKeyboard,
+  renderTrackBody,
+  renderTrackCaption,
+} from "../../commands/track.js";
 import { buildTrackChartPng } from "../../lib/chart.js";
 import type { Trade, TokenInfo } from "../../lib/api.js";
 
@@ -181,6 +185,22 @@ const harness = (): BotTestHarness => {
   h.env.HYPEREVM_RPC_URL = RPC_URL;
   return h;
 };
+
+describe("buildTrackKeyboard", () => {
+  it("offers Buy and Sell when the LT is mintable", () => {
+    const kb = buildTrackKeyboard(TOKEN_ADDR);
+    const labels = kb.flat().map((b) => b.text);
+    expect(labels.some((t) => t.includes("Buy"))).toBe(true);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+  });
+
+  it("hides Buy when the LT is mint-paused", () => {
+    const kb = buildTrackKeyboard(TOKEN_ADDR, undefined, true);
+    const labels = kb.flat().map((b) => b.text);
+    expect(labels.some((t) => t.includes("Buy"))).toBe(false);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+  });
+});
 
 describe("renderTrackBody (pure)", () => {
   const token = TOKEN_INFO_FIXTURE as TokenInfo;

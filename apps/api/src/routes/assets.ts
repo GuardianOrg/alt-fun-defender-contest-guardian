@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import {
+  filterMintableLTs,
   getAssetDisplayName,
   getHyperliquidDex,
   HYPERLIQUID_INFO_API,
@@ -164,7 +165,7 @@ async function readCachedSupportedDirectory(databaseUrl: string): Promise<{
     };
   }
 
-  const underlyings = detectedSupportedUnderlyings(lts);
+  const underlyings = detectedSupportedUnderlyings(filterMintableLTs(lts));
   cachedSupportedDirectory = { lts, underlyings, ts: Date.now() };
   return { lts, underlyings, degraded: false };
 }

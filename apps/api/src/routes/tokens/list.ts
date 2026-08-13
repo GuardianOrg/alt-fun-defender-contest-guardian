@@ -30,6 +30,7 @@ import {
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
 import { getGraduationThresholdUsd } from "../../lib/protocol-config.js";
+import { publicVisibleTokenConditions } from "../../lib/public-token-visibility.js";
 import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
@@ -471,7 +472,7 @@ listRoute.get("/", async (c) => {
           .from(tokens)
           .where(
             and(
-              eq(tokens.isHidden, false),
+              ...publicVisibleTokenConditions(),
               inArray(tokens.address, checksummedAddresses),
               supportedUnderlyingCondition(),
             ),
@@ -651,7 +652,7 @@ listRoute.get("/", async (c) => {
           .from(tokens)
           .where(
             and(
-              eq(tokens.isHidden, false),
+              ...publicVisibleTokenConditions(),
               inArray(tokens.address, checksummedAddresses),
               supportedUnderlyingCondition(),
             ),
@@ -787,7 +788,7 @@ listRoute.get("/", async (c) => {
 
   // ---------- DB-first path: everything else ----------
 
-  const conditions: SQL[] = [eq(tokens.isHidden, false)];
+  const conditions: SQL[] = [...publicVisibleTokenConditions()];
   conditions.push(supportedUnderlyingCondition());
   if (underlying) conditions.push(eq(tokens.underlying, underlying));
   if (status === "curve") conditions.push(eq(tokens.status, "curve"));
@@ -1129,7 +1130,7 @@ listRoute.get("/search", async (c) => {
         .from(tokens)
         .where(
           and(
-            eq(tokens.isHidden, false),
+            ...publicVisibleTokenConditions(),
             or(...conditions),
             supportedUnderlyingCondition(),
           ),

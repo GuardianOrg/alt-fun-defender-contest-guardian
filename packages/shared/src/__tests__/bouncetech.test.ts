@@ -5,6 +5,7 @@ import type {
   LeveragedTokenInfo,
 } from "../constants/bouncetech.js";
 import {
+  filterMintableLTs,
   filterSupportedLTs,
   findLT,
   getAssetDisplayName,
@@ -12,6 +13,7 @@ import {
   getLeverageOptions,
   HYPERLIQUID_XYZ_DEX,
   isSupportedUnderlying,
+  mintableUnderlyingAssets,
   SUPPORTED_UNDERLYING_ASSETS,
 } from "../constants/bouncetech.js";
 
@@ -236,6 +238,76 @@ describe("getLeverageOptions", () => {
 
   it("can derive options for one asset and direction", () => {
     expect(getLeverageOptions(lts, "HYPE", false)).toEqual([2]);
+  });
+});
+
+describe("filterMintableLTs", () => {
+  it("drops mint-paused LTs and keeps the rest", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "HYPE", mintPaused: false }),
+      makeLiveLT({
+        address: "0x0000000000000000000000000000000000000002",
+        targetAsset: "BTC",
+        mintPaused: true,
+      }),
+    ];
+    expect(filterMintableLTs(lts).map((lt) => lt.targetAsset)).toEqual(["HYPE"]);
+  });
+
+  it("returns an empty list when every LT is paused", () => {
+    const lts = [makeLiveLT({ mintPaused: true })];
+    expect(filterMintableLTs(lts)).toEqual([]);
+  });
+});
+
+describe("mintableUnderlyingAssets", () => {
+  it("keeps an asset when at least one LT is still mintable", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "BTC", targetLeverage: 2, mintPaused: true }),
+      makeLiveLT({
+        address: "0x0000000000000000000000000000000000000002",
+        targetAsset: "BTC",
+        targetLeverage: 3,
+        mintPaused: false,
+      }),
+    ];
+    expect(mintableUnderlyingAssets(lts)).toEqual(["BTC"]);
+  });
+
+  it("omits an asset when every LT for it is paused", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "BTC", targetLeverage: 2, mintPaused: true }),
+      makeLiveLT({
+        address: "0x0000000000000000000000000000000000000002",
+        targetAsset: "BTC",
+        targetLeverage: 3,
+        mintPaused: true,
+      }),
+      makeLiveLT({
+        address: "0x0000000000000000000000000000000000000003",
+        targetAsset: "ETH",
+        mintPaused: false,
+      }),
+    ];
+    expect(mintableUnderlyingAssets(lts)).toEqual(["ETH"]);
+  });
+
+  it("can require a mintable LT in a specific direction", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "BTC", isLong: true, mintPaused: false }),
+      makeLiveLT({
+        address: "0x0000000000000000000000000000000000000002",
+        targetAsset: "BTC",
+        isLong: false,
+        mintPaused: true,
+      }),
+    ];
+    expect(mintableUnderlyingAssets(lts, true)).toEqual(["BTC"]);
+    expect(mintableUnderlyingAssets(lts, false)).toEqual([]);
+  });
+
+  it("returns an empty list for an empty directory", () => {
+    expect(mintableUnderlyingAssets([])).toEqual([]);
   });
 });
 

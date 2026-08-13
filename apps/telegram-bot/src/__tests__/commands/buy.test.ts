@@ -66,6 +66,7 @@ const mockTokenAndRpc = (
     tokenFound?: boolean;
     usdcBalance?: bigint;
     apiDown?: boolean;
+    mintPaused?: boolean;
   } = {},
 ): void => {
   const tokenResp =
@@ -86,6 +87,7 @@ const mockTokenAndRpc = (
               ltChange24h: 2.1,
               curveFilled: 30,
               status: "curve",
+              mintPaused: opts.mintPaused === true,
             },
             error: null,
           }),
@@ -257,6 +259,27 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(allBtns.some((b) => b.text.includes("Buy 100"))).toBe(true);
     expect(allBtns.some((b) => b.text.includes("Buy X"))).toBe(true);
     expect(allBtns.some((b) => b.text.includes("Refresh"))).toBe(true);
+  });
+
+  it("refuses a mint-paused token without constructing a buy card or tx", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { mintPaused: true });
+
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    mockTokenAndRpc(fetchSpy, { mintPaused: true });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 10));
+
+    const calls = capture(fetchSpy);
+    const paused = calls.find((c) =>
+      String(c.body.text ?? "").includes("Buys paused"),
+    );
+    expect(paused).toBeDefined();
+    const card = calls.find((c) =>
+      String(c.body.text ?? "").includes("Buy 20"),
+    );
+    expect(card).toBeUndefined();
   });
 
   it("accepts an alt.fun URL with embedded address and edits in place", async () => {

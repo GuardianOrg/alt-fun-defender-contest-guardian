@@ -224,6 +224,11 @@ const tokenDetailSchema = {
           description:
             "Timestamp of the community takeover (CTO) that moved this token's creator role off its original dev; `null` if it never had one (almost every token). Sourced from `Bonding.CreatorReassigned`, which only the protocol multisig can trigger — a creator voluntarily handing the role to another wallet does NOT set this. Also `null` when the indexer is unreachable, so this conflates \"no takeover\" with \"unknown\", the same way `pendingGraduationAt` does.",
         },
+        mintPaused: {
+          type: "boolean",
+          description:
+            "BounceTech has mint-paused this token's LT. Buys revert; sells still work. Catalogue list/search omit paused-LT tokens; detail still returns them so holders and deep links can sell. Absent or false when the LT directory has no row (fail-open).",
+        },
       },
     },
   ],
@@ -1005,7 +1010,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
                     underlying: {
                       type: "array",
                       description:
-                        "Underlying assets with at least one supported LT present in the contract-backed mirror. Drives the markets sidebar + asset tape.",
+                        "Underlying assets with at least one mintable supported LT. Assets whose every LT is mint-paused are omitted so we don't advertise markets that cannot be bought or launched. Drives the markets sidebar + asset tape.",
                       items: {
                         type: "object",
                         properties: {

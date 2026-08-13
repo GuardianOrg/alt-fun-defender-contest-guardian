@@ -1,10 +1,11 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import { tryApiDbRead } from "../../lib/api-db-reads.js";
+import { publicVisibleTokenConditions } from "../../lib/public-token-visibility.js";
 import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
@@ -29,14 +30,17 @@ const tokenValidRoute = new Hono<{ Bindings: AppBindings }>();
 /**
  * `GET /api/v1/tokens/:address/valid` — lightweight `{ valid: boolean }`
  * check backing the home-page recent-trades WebSocket path, which uses it
- * to drop live trades for tokens that would 404 on the detail page.
+ * to drop live trades for tokens that should not appear on public feeds.
  *
- * A token is "valid" iff it has a row in `public.tokens` (registered) AND
- * `is_hidden = false` (not moderation-hidden) — the same two gates the
- * public detail lens enforces in `detail.ts`. The holder-bypass that lets
- * a holder load their own hidden token is deliberately NOT applied here:
- * the recent-trades feed is a public surface, so hidden tokens stay hidden
- * for everyone.
+ * A token is "valid" iff it has a row in `public.tokens`, is not
+ * moderation-hidden, and its BounceTech LT is not mint-paused — the same
+ * gates the public catalogue uses. Direct detail by address still loads
+ * paused-LT tokens so holders can sell; this endpoint backs the recent-
+ * trades feed, which is a public advertising surface.
+ *
+ * The holder-bypass that lets a holder load their own hidden token is
+ * deliberately NOT applied here: the recent-trades feed is a public
+ * surface, so hidden and mint-paused tokens stay off it for everyone.
  */
 tokenValidRoute.get("/:address/valid", async (c) => {
   const rawAddress = c.req.param("address");
@@ -50,9 +54,9 @@ tokenValidRoute.get("/:address/valid", async (c) => {
     "api_db.tokens_valid_lookup",
     () =>
       db
-        .select({ isHidden: tokens.isHidden })
+        .select({ address: tokens.address })
         .from(tokens)
-        .where(eq(tokens.address, address))
+        .where(and(eq(tokens.address, address), ...publicVisibleTokenConditions()))
         .limit(1),
     { address },
   );
@@ -60,10 +64,10 @@ tokenValidRoute.get("/:address/valid", async (c) => {
     return c.json(formatError("Token validity unavailable"), 503);
   }
 
-  const valid = rows.length > 0 && rows[0].isHidden === false;
-  // Asymmetric on purpose: a `true` is stable (registration doesn't
-  // un-happen, moderation is rare), a `false` usually means "not indexed
-  // yet" and must expire fast.
+  const valid = rows.length > 0;
+  // Asymmetric on purpose: a `false` usually means "not indexed yet" and
+  // must expire fast. `true` is still short-lived at the edge (30s) so a
+  // mint-pause flip drops the token from the live feed on the next check.
   setEdgeCacheHeaders(
     c,
     valid ? VALID_CACHE_TTL_SECONDS : INVALID_CACHE_TTL_SECONDS,

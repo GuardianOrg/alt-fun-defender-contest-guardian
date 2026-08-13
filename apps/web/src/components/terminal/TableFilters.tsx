@@ -5,8 +5,7 @@ import { getAssetDisplayName } from "@launchpad/shared";
 import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./TableFilters.module.css";
-import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
-import { useLeverageOptions } from "../../hooks/useLeveragedTokens";
+import { useMintableLeverageOptions, useMintableUnderlyingAssets } from "../../hooks/useLeveragedTokens";
 import {
   clearTokenFilters,
   selectActiveFilter,
@@ -282,8 +281,8 @@ export default function TableFilters() {
   const activeFilter = useSelector(selectActiveFilter);
   const tokenSort = useSelector(selectTokenSort);
   const tokenViewMode = useSelector(selectTokenViewMode);
-  const availableAssets = useAvailableUnderlyingAssets();
-  const leverageOptions = useLeverageOptions();
+  const availableAssets = useMintableUnderlyingAssets();
+  const leverageOptions = useMintableLeverageOptions();
   const [open, setOpen] = useState<OpenPopover>(null);
 
   const sortRef = useRef<HTMLDivElement | null>(null);
@@ -309,6 +308,26 @@ export default function TableFilters() {
   };
 
   const closeAll = () => setOpen(null);
+
+  useEffect(() => {
+    if (
+      filters.underlying !== undefined &&
+      availableAssets.length > 0 &&
+      !availableAssets.includes(filters.underlying)
+    ) {
+      dispatch(setTokenUnderlyingFilter(undefined));
+    }
+  }, [availableAssets, dispatch, filters.underlying]);
+
+  useEffect(() => {
+    if (
+      filters.leverage !== undefined &&
+      leverageOptions.length > 0 &&
+      !leverageOptions.includes(filters.leverage)
+    ) {
+      dispatch(setTokenLeverageFilter(undefined));
+    }
+  }, [dispatch, filters.leverage, leverageOptions]);
 
   const handleSelectUnderlying = (next: UnderlyingAsset | undefined) => {
     dispatch(setTokenUnderlyingFilter(next));

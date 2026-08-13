@@ -41,6 +41,7 @@ import {
   BUY_MINIMUM_BUY_RETRY_REPLY,
   BUY_STAGING_HTML,
   BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY,
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
   TOAST_CONFIRM_ALREADY_EXPIRED,
@@ -87,6 +88,9 @@ const tokenNotFoundHtml = (ctx: AppContext): string =>
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const apiUnavailable = (ctx: AppContext): string =>
   t(OUTAGE_REPLY, getCtxLanguage(ctx));
+
+const buysPausedReply = (ctx: AppContext): string =>
+  t(BUYS_PAUSED_MINT_PAUSED_REPLY, getCtxLanguage(ctx))("");
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -217,6 +221,11 @@ const buyLookupConversation = async (
     }
 
     const token = tokenResult.data;
+    if (token.mintPaused) {
+      await replyWithNav(msgCtx, buysPausedReply(msgCtx));
+      await sweepWorkflow(conversation);
+      return;
+    }
     const userId = msgCtx.from?.id ?? ctx.from?.id;
     const active = userId
       ? await conversation.external((outerCtx) =>
@@ -388,6 +397,11 @@ const buyCustomConversation = async (
     }
 
     const token = tokenResult.data;
+    if (token.mintPaused) {
+      await replyWithNav(msgCtx, buysPausedReply(msgCtx));
+      await sweepWorkflow(conversation);
+      return;
+    }
     const usdcRaw = BigInt(Math.round(amount * 1_000_000));
     const degenMode = await conversation.external(
       (outerCtx): boolean => outerCtx.session.degenMode,
@@ -517,6 +531,14 @@ const handleBuyRefresh = async (
     return;
   }
 
+  if (tokenResult.data.mintPaused) {
+    await ctx.answerCallbackQuery({
+      text: buysPausedReply(ctx),
+      show_alert: true,
+    });
+    return;
+  }
+
   const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance, lang);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
@@ -576,6 +598,14 @@ const handleFixedBuy = async (
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
       text: apiUnavailable(ctx),
+      show_alert: true,
+    });
+    return;
+  }
+
+  if (tokenResult.data.mintPaused) {
+    await ctx.answerCallbackQuery({
+      text: buysPausedReply(ctx),
       show_alert: true,
     });
     return;

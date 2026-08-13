@@ -27,8 +27,8 @@ import {
   indexerWalletPosition,
 } from "../db/indexer-schema.js";
 import { tokens } from "../db/schema.js";
-
 import { describeError } from "./log-error.js";
+import { notMintPausedLt } from "./public-token-visibility.js";
 
 import type { Database } from "../db/client.js";
 import type {
@@ -551,12 +551,12 @@ export async function fetchRouterTrades(
     direction?: "asc" | "desc";
     /**
      * When set, inner-join `public.tokens` and keep only trades whose token
-     * is registered (a row exists) AND not moderation-hidden
-     * (`is_hidden = false`) — the same two gates the public detail lens
-     * enforces. Used by the global recent-trades feed so unregistered /
-     * hidden tokens never surface there. Filtering in SQL (before
-     * `LIMIT`/`OFFSET`) keeps backward pagination honest — filtering the
-     * page in JS afterwards would return short, drifting pages.
+     * is registered, not moderation-hidden, and not sitting on a mint-paused
+     * BounceTech LT — the same gates the public catalogue uses. Used by the
+     * global recent-trades feed so unregistered / hidden / unbuyable tokens
+     * never surface there. Filtering in SQL (before `LIMIT`/`OFFSET`) keeps
+     * backward pagination honest — filtering the page in JS afterwards
+     * would return short, drifting pages.
      */
     onlyRegisteredVisible?: boolean;
   },
@@ -603,6 +603,7 @@ export async function fetchRouterTrades(
             and(
               sql`lower(${tokens.address}) = ${indexerRouterTrade.tokenAddress}`,
               eq(tokens.isHidden, false),
+              notMintPausedLt(),
             ),
           )
           .where(where)
