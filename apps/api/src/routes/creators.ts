@@ -8,6 +8,7 @@ import { setEdgeCacheHeaders } from "../utils/cache-control.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { tryApiDbRead } from "../lib/api-db-reads.js";
+import { publicVisibleTokenConditions } from "../lib/public-token-visibility.js";
 import {
   fetchCreatorEarnings,
   fetchCreatorVolumesByAddresses,
@@ -138,16 +139,16 @@ creators.get("/:address", async (c) => {
   }
   const [profile] = profileRows;
 
-  // Drop hidden tokens so a creator profile doesn't leak admin-removed
-  // launches back into the UI (issue #586). Matches the listing /
-  // search / detail behaviour — `isHidden = false` is the public lens.
+  // Drop hidden and mint-paused tokens so a creator profile doesn't
+  // advertise launches nobody can buy. Matches the listing / search
+  // catalogue lens — `isHidden = false` plus not sitting on a paused LT.
   const creatorTokens = await tryApiDbRead(
     "api_db.creator_tokens_lookup",
     () =>
       db
         .select()
         .from(tokens)
-        .where(and(eq(tokens.creator, address), eq(tokens.isHidden, false))),
+        .where(and(eq(tokens.creator, address), ...publicVisibleTokenConditions())),
     { address },
   );
   if (creatorTokens === null) {

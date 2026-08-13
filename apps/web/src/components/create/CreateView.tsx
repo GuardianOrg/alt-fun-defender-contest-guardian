@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-import { getAssetDisplayName, MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
+import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./CreateView.module.css";
@@ -9,12 +9,12 @@ import PairSelector from "./PairSelector";
 import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
-import { useAvailableUnderlyingAssets } from "../../hooks/useAssets";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import {
-  useLeverageOptions,
   useLeveragedTokens,
+  useMintableLeverageOptions,
+  useMintableUnderlyingAssets,
 } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
@@ -71,8 +71,8 @@ export default function CreateView() {
   });
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
-  const availableAssets = useAvailableUnderlyingAssets();
-  const leverageOptions = useLeverageOptions(asset, isLong);
+  const availableAssets = useMintableUnderlyingAssets(isLong);
+  const leverageOptions = useMintableLeverageOptions(asset, isLong);
   const noDetectedPairs =
     availableAssets.length === 0 || leverageOptions.length === 0;
   useEffect(() => {
@@ -90,7 +90,7 @@ export default function CreateView() {
   // Mirror `Zap.MIN_SEED_USDC` so users do not sign a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
   // Refuse launches against LTs that are known to be mint-paused.
-  const { data: liveLTs } = useLeveragedTokens();
+  const { data: liveLTs, isFetched: pairsFetched } = useLeveragedTokens();
   const selectedLT = liveLTs?.find(
     (lt) =>
       lt.targetAsset === asset &&
@@ -188,9 +188,10 @@ export default function CreateView() {
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED - REFRESH";
-    if (noDetectedPairs) return "LOADING PAIRS…";
+    if (noDetectedPairs) {
+      return pairsFetched ? "NO PAIRS AVAILABLE" : "LOADING PAIRS…";
+    }
     if (invalidLeverageForAsset) return "SELECT SUPPORTED LEVERAGE";
-    if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "LAUNCH TOKEN";
   };
@@ -241,17 +242,6 @@ export default function CreateView() {
               </div>
             )}
 
-            {pairMintPaused && (
-              <div className={styles.warningBanner}>
-                <span className={styles.warningIcon}>⚠</span>
-                BounceTech has paused minting on {getAssetDisplayName(
-                  asset,
-                )}{" "}
-                {leverage}× {direction}. Launching would revert on the mandatory
-                seed buy - pick a different pair or wait for minting to resume.
-              </div>
-            )}
-
             {launchError && (
               <div className={styles.errorBanner}>
                 <span className={styles.errorIcon}>⚠</span>
@@ -291,7 +281,6 @@ export default function CreateView() {
                 isGeoBlocked ||
                 noDetectedPairs ||
                 invalidLeverageForAsset ||
-                pairMintPaused ||
                 (isConnected && seedBelowMin)
               }
               className={cn(

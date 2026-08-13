@@ -16,7 +16,11 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
-import { renderTrackBody, renderTrackCaption } from "../../commands/track.js";
+import {
+  buildTrackKeyboard,
+  renderTrackBody,
+  renderTrackCaption,
+} from "../../commands/track.js";
 import { buildTrackChartPng } from "../../lib/chart.js";
 import type { Trade, TokenInfo } from "../../lib/api.js";
 
@@ -104,6 +108,7 @@ interface MockOpts {
   tokenFound?: boolean;
   tokenApiDown?: boolean;
   tradesApiDown?: boolean;
+  mintPaused?: boolean;
   trades?: Trade[];
   chartCandles?: Array<{
     time: number;
@@ -141,7 +146,10 @@ const mockApi = (
       return new Response(
         JSON.stringify({
           status: "success",
-          data: TOKEN_INFO_FIXTURE,
+          data: {
+            ...TOKEN_INFO_FIXTURE,
+            mintPaused: opts.mintPaused === true,
+          },
           error: null,
         }),
         { status: 200 },
@@ -181,6 +189,22 @@ const harness = (): BotTestHarness => {
   h.env.HYPEREVM_RPC_URL = RPC_URL;
   return h;
 };
+
+describe("buildTrackKeyboard", () => {
+  it("offers Buy and Sell when the LT is mintable", () => {
+    const kb = buildTrackKeyboard(TOKEN_ADDR);
+    const labels = kb.flat().map((b) => b.text);
+    expect(labels.some((t) => t.includes("Buy"))).toBe(true);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+  });
+
+  it("hides Buy when the LT is mint-paused", () => {
+    const kb = buildTrackKeyboard(TOKEN_ADDR, undefined, true);
+    const labels = kb.flat().map((b) => b.text);
+    expect(labels.some((t) => t.includes("Buy"))).toBe(false);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+  });
+});
 
 describe("renderTrackBody (pure)", () => {
   const token = TOKEN_INFO_FIXTURE as TokenInfo;
@@ -577,6 +601,20 @@ describe("/track command", () => {
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();
     expect(allBtns.some((b) => b.text.includes("Buy 20"))).toBe(true);
+  });
+
+  it("does not open a buy card when the tracked token's LT is mint-paused", async () => {
+    const h = harness();
+    mockApi(fetchSpy, { mintPaused: true });
+    await h.run(callbackUpdate(`trkb:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const alert = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(String(alert?.body.text ?? "")).toMatch(/Buys paused/i);
+    expect(calls.some((c) => c.url.includes("/editMessageText"))).toBe(false);
+    expect(
+      calls.some((c) => String(c.body.text ?? "").includes("Buy 20")),
+    ).toBe(false);
   });
 
   it("still sends the text card when the chart fetch hangs past the timeout", async () => {

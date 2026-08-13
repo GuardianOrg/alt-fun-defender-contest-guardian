@@ -184,6 +184,28 @@ describe("GET /assets", () => {
     expect(body.data.underlying.some((u) => u.symbol === "BTC")).toBe(false);
   });
 
+  it("omits an underlying when every supported LT for it is mint-paused", async () => {
+    mockReadSupportedLtDirectory.mockResolvedValue(
+      DIRECTORY.map((lt) =>
+        lt.targetAsset === "xyz:GOLD" ? { ...lt, mintPaused: true } : lt,
+      ),
+    );
+
+    const app = createApp();
+    const res = await app.request("/assets", {}, makeEnv());
+    const body = (await res.json()) as {
+      data: {
+        underlying: { symbol: string }[];
+        leveragedTokens: { symbol: string; mintPaused: boolean }[];
+      };
+    };
+
+    expect(body.data.underlying.map((u) => u.symbol)).toEqual(["DOGE", "HYPE"]);
+    expect(
+      body.data.leveragedTokens.find((lt) => lt.symbol === "GOLD2L")?.mintPaused,
+    ).toBe(true);
+  });
+
   it("serves the detected asset set from the local route cache", async () => {
     const app = createApp();
     await app.request("/assets", {}, makeEnv());

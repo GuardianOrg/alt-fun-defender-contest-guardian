@@ -267,6 +267,12 @@ export interface EnrichedToken
   extends Omit<DbToken, "graduatedAt" | "createdAt" | "status"> {
   createdAt: string;
   status: TokenStatus;
+  /**
+   * BounceTech has mint-paused this token's LT. Buys revert; sells still
+   * work. Catalogue rows omit paused LTs entirely; detail sets this so
+   * holders and deep links can disable buy without a second directory fetch.
+   */
+  mintPaused?: boolean;
   curveSupply: string | null;
   ltReserve: string | null;
   curveFilled: number | null;

@@ -897,6 +897,40 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     // Raw block seconds are converted to ISO for the client, matching the
     // treatment of every other timestamp on this response.
     expect(body.data.communityTakeoverAt).toBe("2023-11-14T23:13:20.000Z");
+    expect(body.data.mintPaused).toBe(false);
+  });
+
+  it("sets mintPaused when the token's LT is mint-paused in the directory", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "2000000000000000000000000000000000000000000000000",
+        curveSupply: "500000000000000000000000000",
+        ltReserve: "2000000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "2000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+    mockReadLtByAddress.mockResolvedValueOnce({ mintPaused: true });
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+    const body = (await res.json()) as { data: { mintPaused: boolean } };
+
+    expect(res.status).toBe(200);
+    expect(body.data.mintPaused).toBe(true);
   });
 
   it("returns totalVolumeUsd = 0 when the token has been indexed but never traded", async () => {

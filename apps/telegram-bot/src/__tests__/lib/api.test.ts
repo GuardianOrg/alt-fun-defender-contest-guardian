@@ -370,7 +370,22 @@ describe("fetchToken", () => {
     );
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.ticker).toBe("TST");
+    if (result.ok) {
+      expect(result.data.ticker).toBe("TST");
+      expect(result.data.mintPaused).toBe(false);
+    }
+  });
+
+  it("treats mintPaused: true as paused", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify(apiSuccess({ ...VALID_TOKEN, mintPaused: true })),
+        { status: 200 },
+      ),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.mintPaused).toBe(true);
   });
 
   it("returns not_found for 404", async () => {

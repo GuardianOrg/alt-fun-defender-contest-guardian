@@ -79,7 +79,7 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
   });
 
   it("caches a registered, unhidden token for the full window", async () => {
-    dbState.rows = [{ isHidden: false }];
+    dbState.rows = [{ address: TOKEN }];
 
     const res = await request();
     const body = (await res.json()) as { data: { valid: boolean } };
@@ -133,7 +133,7 @@ describe("GET /tokens/:address/valid — edge cache windows", () => {
   it("caches a moderation-hidden token on the same short window", async () => {
     // Hidden is a durable state, but it shares the negative answer, and
     // an unhide should surface quickly too.
-    dbState.rows = [{ isHidden: true }];
+    dbState.rows = [];
 
     const res = await request();
     const body = (await res.json()) as { data: { valid: boolean } };

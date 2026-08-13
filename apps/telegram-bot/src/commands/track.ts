@@ -34,6 +34,7 @@ import { buildTrackChartPng } from "../lib/chart.js";
 import {
   BUY_ARROW_BUTTON,
   BUY_CARD_LOADING_HTML,
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   DEFAULT_LANGUAGE,
   type Language,
   OUTAGE_REPLY,
@@ -253,17 +254,25 @@ export const renderTrackCaption = (
 export const buildTrackKeyboard = (
   tokenAddress: string,
   lang: Language = DEFAULT_LANGUAGE,
+  mintPaused = false,
 ): InlineKeyboard => [
-  [
-    {
-      text: t(BUY_ARROW_BUTTON, lang),
-      callback_data: encodeCallback(TRACK_CMD.buy, tokenAddress),
-    },
-    {
-      text: t(SELL_ARROW_BUTTON, lang),
-      callback_data: encodeCallback(TRACK_CMD.sell, tokenAddress),
-    },
-  ],
+  mintPaused
+    ? [
+        {
+          text: t(SELL_ARROW_BUTTON, lang),
+          callback_data: encodeCallback(TRACK_CMD.sell, tokenAddress),
+        },
+      ]
+    : [
+        {
+          text: t(BUY_ARROW_BUTTON, lang),
+          callback_data: encodeCallback(TRACK_CMD.buy, tokenAddress),
+        },
+        {
+          text: t(SELL_ARROW_BUTTON, lang),
+          callback_data: encodeCallback(TRACK_CMD.sell, tokenAddress),
+        },
+      ],
   backHomeRow(lang),
 ];
 
@@ -315,7 +324,7 @@ export const buildTrackFromToken = async (
       lang,
     ),
     caption: renderTrackCaption(token, trades, undefined, phrase, lang),
-    keyboard: buildTrackKeyboard(token.address, lang),
+    keyboard: buildTrackKeyboard(token.address, lang, token.mintPaused),
     chartPng,
     tokenName: token.name,
   };
@@ -658,6 +667,13 @@ const handleTrackBuy = async (
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
       text: apiUnavailable(ctx),
+      show_alert: true,
+    });
+    return;
+  }
+  if (tokenResult.data.mintPaused) {
+    await ctx.answerCallbackQuery({
+      text: t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
       show_alert: true,
     });
     return;

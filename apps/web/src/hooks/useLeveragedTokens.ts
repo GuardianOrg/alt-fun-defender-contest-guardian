@@ -1,10 +1,16 @@
 import { useMemo } from "react";
 
-import { getLeverageOptions } from "@launchpad/shared";
+import {
+  filterMintableLTs,
+  getLeverageOptions,
+  mintableUnderlyingAssets,
+} from "@launchpad/shared";
 import { useQuery } from "@tanstack/react-query";
 
+import { useAvailableUnderlyingAssets } from "./useAssets";
 import { fetchLeveragedTokens } from "../services/api";
 
+import type { UnderlyingAsset } from "../config/constants";
 import type { LiveLeveragedToken } from "@launchpad/shared";
 
 /**
@@ -76,4 +82,34 @@ export function useLeverageOptions(
     () => getLeverageOptions(data ?? [], asset, isLong),
     [data, asset, isLong],
   );
+}
+
+/** Leverage options that can still be minted (create + public filters). */
+export function useMintableLeverageOptions(
+  asset?: string,
+  isLong?: boolean,
+): number[] {
+  const { data } = useLeveragedTokens();
+  return useMemo(
+    () => getLeverageOptions(filterMintableLTs(data ?? []), asset, isLong),
+    [data, asset, isLong],
+  );
+}
+
+/**
+ * Detected underlyings that still have a mintable LT. Pass `isLong` on
+ * create so a direction with every LT paused drops the asset. While the
+ * directory is loading we keep showing `/assets` underlyings so the grid
+ * does not flash empty; on error with no data we return [] (cannot verify).
+ */
+export function useMintableUnderlyingAssets(
+  isLong?: boolean,
+): UnderlyingAsset[] {
+  const available = useAvailableUnderlyingAssets();
+  const { data, isError } = useLeveragedTokens();
+  return useMemo(() => {
+    if (!data) return isError ? [] : available;
+    const mintable = new Set(mintableUnderlyingAssets(data, isLong));
+    return available.filter((asset) => mintable.has(asset));
+  }, [available, data, isError, isLong]);
 }

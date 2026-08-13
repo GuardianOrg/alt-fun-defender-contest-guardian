@@ -7,6 +7,7 @@ import { z } from "zod";
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import { tryApiDbRead } from "../../lib/api-db-reads.js";
+import { readLtByAddress } from "../../lib/lt-directory-reads.js";
 import {
   computeMarketDataSingle,
   type MarketDataItem,
@@ -46,6 +47,7 @@ function enrich(
   onchain: PonderTokenOnchain | null | undefined,
   market: MarketDataItem | null | undefined,
   graduationThresholdUsd: number,
+  mintPaused = false,
 ): EnrichedToken {
   const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
   const curveSupply = onchain?.curveSupply ?? null;
@@ -113,6 +115,7 @@ function enrich(
     communityTakeoverAt: onchain?.communityTakeoverAt
       ? new Date(Number(onchain.communityTakeoverAt) * 1000).toISOString()
       : null,
+    mintPaused,
   };
 }
 
@@ -295,9 +298,11 @@ detailRoute.get("/:address", async (c) => {
   const market = marketResult.ok ? marketResult.data.market : null;
 
   const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
+  const lt = await readLtByAddress(c.env.DATABASE_URL, dbToken.ltPair);
+  const mintPaused = lt?.mintPaused === true;
   const response = c.json(
     formatSuccess(
-      enrich(dbToken, onchain, market, graduationThresholdUsd),
+      enrich(dbToken, onchain, market, graduationThresholdUsd, mintPaused),
       dataSource,
     ),
   );

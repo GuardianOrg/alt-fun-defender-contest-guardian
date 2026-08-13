@@ -22,6 +22,7 @@ const baseToken = (overrides: Partial<TokenInfo> = {}): TokenInfo => ({
   underlying: "HYPE",
   leverage: 5,
   ltDirection: "long",
+  mintPaused: false,
   ...overrides,
 });
 

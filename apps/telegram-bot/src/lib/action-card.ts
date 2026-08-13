@@ -1,6 +1,7 @@
 import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
+import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
 import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
@@ -10,10 +11,11 @@ import {
 import { fetchToken } from "./api.js";
 import {
   ACTION_TOKEN_OUTAGE_REPLY,
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   getCtxLanguage,
   t,
 } from "./i18n.js";
-import { editToSubmenu } from "./nav.js";
+import { backHomeRow, editToSubmenu } from "./nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "./rpc.js";
 import {
   renderBuyTokenCardText,
@@ -25,7 +27,7 @@ export const actionTokenOutage = (ctx: AppContext): string =>
 
 interface ActionCardView {
   text: string;
-  inlineKeyboard: ReturnType<typeof buildBuyTokenKeyboard>;
+  inlineKeyboard: InlineKeyboard;
 }
 
 const buildActionView = async (
@@ -39,14 +41,19 @@ const buildActionView = async (
   // handles — letting them bubble out of the callback strands the
   // Telegram spinner and surfaces a raw stack trace to the user.
   try {
-    const [tokenResult, balance] = await Promise.all([
-      fetchToken(ctx.env, token),
-      action === "buy"
-        ? fetchUsdcBalance(ctx.env, walletAddress)
-        : fetchErc20Balance(ctx.env, token, walletAddress),
-    ]);
+    const tokenResult = await fetchToken(ctx.env, token);
     if (!tokenResult.ok) return null;
     const lang = getCtxLanguage(ctx);
+    if (action === "buy" && tokenResult.data.mintPaused) {
+      return {
+        text: t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(""),
+        inlineKeyboard: [backHomeRow(lang)],
+      };
+    }
+    const balance =
+      action === "buy"
+        ? await fetchUsdcBalance(ctx.env, walletAddress)
+        : await fetchErc20Balance(ctx.env, token, walletAddress);
     if (action === "buy") {
       return {
         text: renderBuyTokenCardText(tokenResult.data, balance, lang),
