@@ -20,6 +20,7 @@ vi.mock("../lib/lt-directory-reads.js", () => ({
   readDirectoryLastUpdatedAt: vi.fn(),
 }));
 
+const { INFLIGHT_TIMEOUT_MS } = await import("../utils/inflight.js");
 const {
   _resetLiveLtRatesCache,
   fetchLiveLtRates,
@@ -224,6 +225,64 @@ describe("fetchLiveLtRates — caching", () => {
     const result = await fetchLiveLtRatesWithProvenance(DB_URL);
     expect(result.rates).toBeNull();
     expect(result.stale).toBe(false);
+  });
+
+  it("does not let a timed-out read overwrite a newer cached map", async () => {
+    vi.useFakeTimers();
+    let resolveOriginal!: (value: Map<string, number>) => void;
+    mockReadLiveLtRates
+      .mockReturnValueOnce(
+        new Promise<Map<string, number>>((resolve) => {
+          resolveOriginal = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(rateMap({ [LT_A]: 2 }));
+
+    const pending = fetchLiveLtRates(DB_URL);
+    await vi.advanceTimersByTimeAsync(INFLIGHT_TIMEOUT_MS);
+    expect(await pending).toEqual(rateMap({ [LT_A]: 2 }));
+
+    resolveOriginal(rateMap({ [LT_A]: 1 }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const cached = await fetchLiveLtRates(DB_URL);
+    expect(cached!.get(LT_A.toLowerCase())).toBeCloseTo(2);
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not pin later callers on a never-settling mirror read", async () => {
+    vi.useFakeTimers();
+    mockReadLiveLtRates
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValueOnce(rateMap({ [LT_A]: 2 }));
+
+    const first = fetchLiveLtRates(DB_URL);
+    const waiter = fetchLiveLtRates(DB_URL);
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(INFLIGHT_TIMEOUT_MS);
+    const [a, b] = await Promise.all([first, waiter]);
+    expect(a).not.toBeNull();
+    expect(a!.get(LT_A.toLowerCase())).toBeCloseTo(2);
+    expect(b).toBe(a);
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands the owner promise to waitUntil when an execution context is passed", async () => {
+    let resolveRead!: (value: Map<string, number>) => void;
+    mockReadLiveLtRates.mockReturnValueOnce(
+      new Promise<Map<string, number>>((resolve) => {
+        resolveRead = resolve;
+      }),
+    );
+    const waitUntil = vi.fn();
+    const pending = fetchLiveLtRatesWithProvenance(DB_URL, { waitUntil });
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+    resolveRead(rateMap({ [LT_A]: 1 }));
+    const result = await pending;
+    expect(result.rates!.get(LT_A.toLowerCase())).toBeCloseTo(1);
   });
 
   it("clears the in-flight lock when the read rejects so the next caller can retry", async () => {

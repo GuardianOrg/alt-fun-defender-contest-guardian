@@ -35,6 +35,7 @@ vi.mock("../lib/indexer-reads.js", () => ({
     mockFetchTokenChartSnapshots(...args),
 }));
 
+const { INFLIGHT_TIMEOUT_MS } = await import("../utils/inflight.js");
 const {
   _resetIndexerReadCaches,
   fetchHoldersCached,
@@ -120,6 +121,15 @@ describe("fetchTokenOnchainCached", () => {
     expect(await fetchTokenOnchainCached(db, ADDRESS)).toBeNull();
 
     expect(mockFetchTokenOnchain).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a spent inflight retry to the unavailable sentinel", async () => {
+    vi.useFakeTimers();
+    mockFetchTokenOnchain.mockReturnValue(new Promise(() => {}));
+    const pending = fetchTokenOnchainCached(db, ADDRESS);
+    await vi.advanceTimersByTimeAsync(INFLIGHT_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(INFLIGHT_TIMEOUT_MS);
+    expect(await pending).toBe("unavailable");
   });
 });
 

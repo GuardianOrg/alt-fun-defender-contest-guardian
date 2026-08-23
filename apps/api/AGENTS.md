@@ -20,7 +20,7 @@ REST API + WebSocket server. Serves indexed blockchain data and real-time trade/
 
 **Every outbound `fetch` from a route handler — Ponder GraphQL, BounceTech, Hyperliquid, Alchemy RPC, OpenAI moderation, anything off the worker — MUST arm an `AbortController` before the call and clear the timer in `finally`.** An unbounded upstream call eats the worker's 30s subrequest budget; downstream callers (the bot's `/positions` callback, the frontend's trade-feed poller, edge cache misses) sit blocked waiting on a worker that's already lost. Surface the failure as `null` / `503` so each client can return a clean outage to its user.
 
-The historical violation was `lib/ponder-client.ts → createPonderQuery` — every indexer-backed route inherited it. Issue #942 retired the Ponder GraphQL client entirely; reads now go to the indexer Postgres directly via `lib/indexer-reads.ts`, governed by Neon HTTP timeouts at the driver layer.
+The historical violation was `lib/ponder-client.ts → createPonderQuery` — every indexer-backed route inherited it. Issue #942 retired the Ponder GraphQL client entirely; reads now go to the indexer Postgres directly via `lib/indexer-reads.ts`, governed by Neon HTTP timeouts at the driver layer (`db/client.ts` installs `neonConfig.fetchFunction`). Aborting the Worker fetch does not stop the query server-side, and it does not rescue a cancelled owner (that timer dies with the request).
 
 Budget guidance — looser needs an inline comment explaining why:
 
@@ -28,6 +28,8 @@ Budget guidance — looser needs an inline comment explaining why:
 |---|---|---|
 | OpenAI moderation (`lib/image-moderation.ts`) | `REQUEST_TIMEOUT_MS` (10s) | Fail-closed on timeout — no upload happens. |
 | Asset/image proxy (`routes/assets.ts → fetchWithTimeout`) | per-call | Helper takes `timeoutMs` explicitly. |
+| Neon / BounceTech HTTP (`db/client.ts`) | `DEFAULT_OUTBOUND_TIMEOUT_MS` (8s) | Armed on every `neon()` HTTP fetch. Chart/list wrap with `HEAVY_READ_TIMEOUT_MS` (20s). Timeout throws; read helpers map it to `null` / 503. |
+| In-isolate coalesced reads (`utils/inflight.ts`) | `INFLIGHT_TIMEOUT_MS` (25s) | Must exceed `HEAVY_READ_TIMEOUT_MS`. 8s-budget keys wait 25s too — a uniform timeout has to clear the largest abort. Spent retries map to `null` / `"unavailable"` so routes 503. |
 
 If a new route adds an outbound dependency that doesn't fit one of these, set the budget yourself — never call `fetch` bare. See `apps/telegram-bot/AGENTS.md → Timeouts on every outbound API call` for the analogous rule on the client side; the two layers reinforce each other.
 

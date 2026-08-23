@@ -12,6 +12,7 @@ import {
   fetchTokensOnchainByAddresses,
 } from "../../lib/market-data.js";
 import { setEdgeCacheHeaders } from "../../utils/cache-control.js";
+import { tryExecutionCtx, type WaitUntilHost } from "../../utils/inflight.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -84,13 +85,14 @@ const PRICE_VALUE_SCALE = 10n ** 30n;
 const fetchCurrentPricesUsdc18dp = async (
   databaseUrl: string,
   addresses: string[],
+  executionCtx?: WaitUntilHost,
 ): Promise<{ prices: Map<string, bigint>; degraded: boolean }> => {
   if (addresses.length === 0) {
     return { prices: new Map(), degraded: false };
   }
   const [tokens, ltRateResult] = await Promise.all([
     fetchTokensOnchainByAddresses(databaseUrl, addresses),
-    fetchLiveLtRatesWithProvenance(databaseUrl),
+    fetchLiveLtRatesWithProvenance(databaseUrl, executionCtx),
   ]);
   const { rates: ltRates, stale: ltRatesStale } = ltRateResult;
   const out = new Map<string, bigint>();
@@ -124,6 +126,7 @@ const fetchCurrentPricesUsdc18dp = async (
 const fetchPositions = async (
   databaseUrl: string,
   wallet: string,
+  executionCtx?: WaitUntilHost,
 ): Promise<{ positions: PositionsResponse; degraded: boolean }> => {
   try {
     const db = createDb(databaseUrl);
@@ -227,6 +230,7 @@ const fetchPositions = async (
       const { prices: liveMark, degraded } = await fetchCurrentPricesUsdc18dp(
         databaseUrl,
         openTokens,
+        executionCtx,
       );
       liveMarkDegraded = degraded;
       for (const p of open) {
@@ -296,6 +300,7 @@ positionsV2.get("/:wallet", async (c) => {
   const { positions, degraded } = await fetchPositions(
     c.env.DATABASE_URL,
     wallet,
+    tryExecutionCtx(c),
   );
   setEdgeCacheHeaders(
     c,

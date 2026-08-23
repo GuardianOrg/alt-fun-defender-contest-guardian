@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { INFLIGHT_TIMEOUT_MS } from "../utils/inflight.js";
+import { HEAVY_READ_TIMEOUT_MS } from "../utils/outbound-timeout.js";
 import { createIsolateTtlCache } from "../utils/isolate-ttl-cache.js";
 
 /**
@@ -209,6 +211,177 @@ describe("createIsolateTtlCache", () => {
     expect(() =>
       createIsolateTtlCache<string>({ ttlMs: 1_000, maxEntries: 1.5 }),
     ).toThrow(/positive integer/);
+  });
+
+  it("re-enters so N waiters on a dead promise share exactly one replacement fetch", async () => {
+    const timeoutMs = 80;
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      inflightTimeoutMs: timeoutMs,
+    });
+    let calls = 0;
+    const fetcher = vi.fn(() => {
+      calls += 1;
+      if (calls === 1) return new Promise<string>(() => {});
+      return Promise.resolve("ok");
+    });
+
+    const waiters = Array.from({ length: 5 }, () =>
+      cache.getOrFetch("k", fetcher),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    const results = await Promise.all(waiters);
+    expect(results).toEqual(["ok", "ok", "ok", "ok", "ok"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not evict a newer owner when a late waiter times out", async () => {
+    const timeoutMs = 80;
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      inflightTimeoutMs: timeoutMs,
+    });
+    let calls = 0;
+    let resolveOwner2!: (value: string) => void;
+    const fetcher = vi.fn(() => {
+      calls += 1;
+      if (calls === 1) return new Promise<string>(() => {});
+      return new Promise<string>((resolve) => {
+        resolveOwner2 = resolve;
+      });
+    });
+
+    const owner1 = cache.getOrFetch("k", fetcher);
+    await vi.advanceTimersByTimeAsync(timeoutMs / 2);
+    const waiterA = cache.getOrFetch("k", fetcher);
+
+    await vi.advanceTimersByTimeAsync(timeoutMs / 2);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(timeoutMs / 2);
+    resolveOwner2("v2");
+    expect(await owner1).toBe("v2");
+    expect(await waiterA).toBe("v2");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not treat a ~5s fetch as dead under the production timeout", async () => {
+    expect(INFLIGHT_TIMEOUT_MS).toBeGreaterThan(HEAVY_READ_TIMEOUT_MS);
+    expect(INFLIGHT_TIMEOUT_MS).toBeLessThan(100_000);
+
+    const cache = createIsolateTtlCache<string>({ ttlMs: 60_000 });
+    let resolveInner!: (value: string) => void;
+    const fetcher = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveInner = resolve;
+        }),
+    );
+    const pending = cache.getOrFetch("k", fetcher);
+    await vi.advanceTimersByTimeAsync(5_000);
+    resolveInner("ok");
+    expect(await pending).toBe("ok");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs an eviction with key and elapsed time", async () => {
+    const timeoutMs = 80;
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      inflightTimeoutMs: timeoutMs,
+    });
+    const hanging = vi.fn(() => new Promise<string>(() => {}));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const pending = cache.getOrFetch("dead-key", hanging);
+    hanging.mockImplementation(() => Promise.resolve("ok"));
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    expect(await pending).toBe("ok");
+
+    const evictionLogs = logSpy.mock.calls
+      .map((c) => c[0])
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => {
+        try {
+          return JSON.parse(s) as { event?: string; key?: string; elapsedMs?: number };
+        } catch {
+          return null;
+        }
+      })
+      .filter((o) => o?.event === "inflight_evicted");
+    expect(evictionLogs.length).toBeGreaterThanOrEqual(1);
+    expect(evictionLogs[0]?.key).toBe("dead-key");
+    expect(evictionLogs[0]?.elapsedMs).toBeGreaterThanOrEqual(timeoutMs);
+    logSpy.mockRestore();
+  });
+
+  it("surfaces a dead dependency after one retry instead of looping", async () => {
+    const timeoutMs = 80;
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      inflightTimeoutMs: timeoutMs,
+    });
+    const hanging = vi.fn(() => new Promise<string>(() => {}));
+    const pending = cache.getOrFetch("k", hanging);
+    const assertion = expect(pending).rejects.toThrow(/in-flight wait timed out/);
+
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    await assertion;
+    expect(hanging).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a timed-out fetch overwrite a newer cached value", async () => {
+    const timeoutMs = 80;
+    const cache = createIsolateTtlCache<string>({
+      ttlMs: 60_000,
+      inflightTimeoutMs: timeoutMs,
+    });
+    let resolveOriginal!: (value: string) => void;
+    const fetcher = vi.fn(() => {
+      if (fetcher.mock.calls.length === 1) {
+        return new Promise<string>((resolve) => {
+          resolveOriginal = resolve;
+        });
+      }
+      return Promise.resolve("fresh");
+    });
+
+    const pending = cache.getOrFetch("k", fetcher);
+    await vi.advanceTimersByTimeAsync(timeoutMs);
+    expect(await pending).toBe("fresh");
+
+    resolveOriginal("stale");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const cached = await cache.getOrFetch("k", fetcher);
+    expect(cached).toBe("fresh");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("hands the owner promise to waitUntil when an execution context is passed", async () => {
+    const cache = createIsolateTtlCache<string>({ ttlMs: 1_000 });
+    let resolveInner!: (value: string) => void;
+    const fetcher = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveInner = resolve;
+        }),
+    );
+    const waitUntil = vi.fn();
+
+    const p = cache.getOrFetch("k", fetcher, { waitUntil });
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil.mock.calls[0][0]).toBeInstanceOf(Promise);
+
+    void cache.getOrFetch("k", fetcher, { waitUntil });
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+
+    resolveInner("ok");
+    expect(await p).toBe("ok");
   });
 
   it("clears all entries on reset()", async () => {

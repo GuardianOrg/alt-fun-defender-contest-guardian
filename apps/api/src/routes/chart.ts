@@ -14,6 +14,7 @@ import {
   fetchTokenChartContext,
 } from "../lib/indexer-reads.js";
 import { fetchTokenChartSnapshotsCached } from "../lib/indexer-cached-reads.js";
+import { tryExecutionCtx } from "../utils/inflight.js";
 import {
   fetchLatestLtRate,
   fetchLtRateSeriesCached,
@@ -657,13 +658,19 @@ chart.get("/:address", async (c) => {
       fromSec,
       gridToSec,
       sampleSec,
+      tryExecutionCtx(c),
     ),
     fetchLatestLtRate(bounceTechUrl, checksummedLt),
     // Per-isolate memo (issue #1125, solution #3) — multiple concurrent
     // chart loads for the hot token in the same PoP collapse to one
     // Postgres round-trip per `(address, fromSec)` per
     // `HOT_TOKEN_READ_TTL_MS` window.
-    fetchTokenChartSnapshotsCached(db, address, fromSec),
+    fetchTokenChartSnapshotsCached(
+      db,
+      address,
+      fromSec,
+      tryExecutionCtx(c),
+    ),
   ]);
 
   // A failed rate read is retryable, so answer 503 rather than letting the

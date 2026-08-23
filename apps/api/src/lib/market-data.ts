@@ -15,6 +15,14 @@ import {
 } from "./indexer-reads.js";
 import { fetchTokenOnchainCached as readTokenOnchainCached } from "./indexer-cached-reads.js";
 import { readLiveLtRates } from "./lt-directory-reads.js";
+import {
+  awaitWithTimeout,
+  isInflightTimeout,
+  keepInflightAlive,
+  logInflightEviction,
+  type WaitUntilHost,
+} from "../utils/inflight.js";
+import { HEAVY_READ_TIMEOUT_MS, runWithOutboundTimeout } from "../utils/outbound-timeout.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
 export const TOKEN_SUPPLY = 1_000_000_000;
@@ -201,8 +209,10 @@ export function _resetLiveLtRatesCache(): void {
  */
 export async function fetchLiveLtRates(
   databaseUrl: string,
+  executionCtx?: WaitUntilHost,
 ): Promise<Map<string, number> | null> {
-  return (await fetchLiveLtRatesWithProvenance(databaseUrl)).rates;
+  return (await fetchLiveLtRatesWithProvenance(databaseUrl, executionCtx))
+    .rates;
 }
 
 /**
@@ -218,33 +228,84 @@ export async function fetchLiveLtRates(
  */
 export async function fetchLiveLtRatesWithProvenance(
   databaseUrl: string,
+  executionCtx?: WaitUntilHost,
+): Promise<LiveLtRatesResult> {
+  return fetchLiveLtRatesOnce(databaseUrl, executionCtx, 1);
+}
+
+async function fetchLiveLtRatesOnce(
+  databaseUrl: string,
+  executionCtx: WaitUntilHost | undefined,
+  retriesLeft: number,
 ): Promise<LiveLtRatesResult> {
   const now = Date.now();
   if (liveLtRatesCache && liveLtRatesCache.expiresAt > now) {
     return { rates: liveLtRatesCache.map, stale: false };
   }
-  if (liveLtRatesInflight) return liveLtRatesInflight;
+  const racing = liveLtRatesInflight;
+  if (racing) {
+    const started = Date.now();
+    try {
+      return await awaitWithTimeout(racing, () => {
+        if (liveLtRatesInflight === racing) {
+          liveLtRatesInflight = null;
+          logInflightEviction("liveLtRates", Date.now() - started);
+        }
+      });
+    } catch (err) {
+      if (!isInflightTimeout(err) || retriesLeft <= 0) {
+        return {
+          rates: liveLtRatesCache?.map ?? null,
+          stale: liveLtRatesCache != null,
+        };
+      }
+      return fetchLiveLtRatesOnce(databaseUrl, executionCtx, retriesLeft - 1);
+    }
+  }
 
   // Provenance rides inside the promise rather than in a module-level
   // flag. A flag would be correct only while no `await` sits between
   // resolving the read and reading it — true today, silently breakable by
   // any future edit.
-  liveLtRatesInflight = (async (): Promise<LiveLtRatesResult> => {
+  const slot: { current: Promise<LiveLtRatesResult> | null } = { current: null };
+  const promise = (async (): Promise<LiveLtRatesResult> => {
     try {
       const map = await readLiveLtRates(databaseUrl);
       if (map === null) {
         return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
       }
-      liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
+      // Timed-out owners keep running; only the current slot may refresh the TTL map.
+      if (liveLtRatesInflight === slot.current) {
+        liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
+      }
       return { rates: map, stale: false };
     } catch {
       return { rates: liveLtRatesCache?.map ?? null, stale: liveLtRatesCache != null };
     } finally {
-      liveLtRatesInflight = null;
+      if (liveLtRatesInflight === slot.current) liveLtRatesInflight = null;
     }
   })();
 
-  return liveLtRatesInflight;
+  slot.current = promise;
+  liveLtRatesInflight = promise;
+  keepInflightAlive(executionCtx, promise);
+  const started = Date.now();
+  try {
+    return await awaitWithTimeout(promise, () => {
+      if (liveLtRatesInflight === promise) {
+        liveLtRatesInflight = null;
+        logInflightEviction("liveLtRates", Date.now() - started);
+      }
+    });
+  } catch (err) {
+    if (!isInflightTimeout(err) || retriesLeft <= 0) {
+      return {
+        rates: liveLtRatesCache?.map ?? null,
+        stale: liveLtRatesCache != null,
+      };
+    }
+    return fetchLiveLtRatesOnce(databaseUrl, executionCtx, retriesLeft - 1);
+  }
 }
 
 /**
@@ -395,13 +456,14 @@ export async function fetchRouterTradeActivity(
 export async function fetchTokenOnchain(
   databaseUrl: string,
   address: string,
+  executionCtx?: WaitUntilHost,
 ): Promise<PonderTokenOnchain | null | "unavailable"> {
   // Per-isolate cache memoises the single-token read for a few seconds
   // (issue #1125, solution #3) so the burst of `/tokens/:addr` requests
   // for a viral token collapses to one Postgres round-trip per
   // `HOT_TOKEN_READ_TTL_MS` window per PoP. Transient transport failures
   // (`"unavailable"`) are not pinned — see `indexer-reads.ts`.
-  return readTokenOnchainCached(createDb(databaseUrl), address);
+  return readTokenOnchainCached(createDb(databaseUrl), address, executionCtx);
 }
 
 /**
@@ -691,11 +753,28 @@ export async function buildBatchFromTokens(
   databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   tokens: PonderTokenOnchain[],
+  executionCtx?: WaitUntilHost,
 ): Promise<MarketDataBatchResult> {
   if (tokens.length === 0) {
     return { ok: true, data: { tokens: [], market: {} }, dataSource: "live" };
   }
 
+  return runWithOutboundTimeout(HEAVY_READ_TIMEOUT_MS, () =>
+    buildBatchFromTokensInner(
+      databaseUrl,
+      bouncetechDbUrl,
+      tokens,
+      executionCtx,
+    ),
+  );
+}
+
+async function buildBatchFromTokensInner(
+  databaseUrl: string,
+  bouncetechDbUrl: string | undefined,
+  tokens: PonderTokenOnchain[],
+  executionCtx?: WaitUntilHost,
+): Promise<MarketDataBatchResult> {
   const nowSec = Math.floor(Date.now() / 1000);
   // Quantised to a 30s bucket so the cutoff parameter passed to every
   // downstream query (`fetchHistoricalCurveSnapshots`,
@@ -744,7 +823,7 @@ export async function buildBatchFromTokens(
     historicalLtRatesAtLaunch,
     routerActivity,
   ] = await Promise.all([
-    fetchLiveLtRates(databaseUrl),
+    fetchLiveLtRates(databaseUrl, executionCtx),
     fetchHistoricalCurveSnapshots(databaseUrl, oldTokenAddresses, cutoffSec),
     fetchHistoricalLtRates(bouncetechDbUrl, allLtAddresses, cutoffSec),
     fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
@@ -824,6 +903,7 @@ export async function computeMarketDataForAddresses(
   databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   addresses: string[],
+  executionCtx?: WaitUntilHost,
 ): Promise<MarketDataBatchResult> {
   if (addresses.length === 0) {
     return { ok: true, data: { tokens: [], market: {} } };
@@ -832,7 +912,12 @@ export async function computeMarketDataForAddresses(
   if (tokens === null) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
-  return buildBatchFromTokens(databaseUrl, bouncetechDbUrl, tokens);
+  return buildBatchFromTokens(
+    databaseUrl,
+    bouncetechDbUrl,
+    tokens,
+    executionCtx,
+  );
 }
 
 export type MarketDataSingleResult =
@@ -847,8 +932,13 @@ export async function computeMarketDataSingle(
   databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   tokenAddress: string,
+  executionCtx?: WaitUntilHost,
 ): Promise<MarketDataSingleResult> {
-  const token = await fetchTokenOnchain(databaseUrl, tokenAddress);
+  const token = await fetchTokenOnchain(
+    databaseUrl,
+    tokenAddress,
+    executionCtx,
+  );
   if (token === "unavailable") {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
@@ -856,9 +946,12 @@ export async function computeMarketDataSingle(
     return { ok: false, error: "Token not found", code: 404 };
   }
 
-  const result = await buildBatchFromTokens(databaseUrl, bouncetechDbUrl, [
-    token,
-  ]);
+  const result = await buildBatchFromTokens(
+    databaseUrl,
+    bouncetechDbUrl,
+    [token],
+    executionCtx,
+  );
   if (!result.ok) return result;
 
   const market = result.data.market[token.address.toLowerCase()];

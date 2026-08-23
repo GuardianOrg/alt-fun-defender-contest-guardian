@@ -18,6 +18,14 @@
 import { neon } from "@neondatabase/serverless";
 
 import { createIsolateTtlCache } from "../utils/isolate-ttl-cache.js";
+import {
+  fallbackOnInflightTimeout,
+  type WaitUntilHost,
+} from "../utils/inflight.js";
+import {
+  HEAVY_READ_TIMEOUT_MS,
+  runWithOutboundTimeout,
+} from "../utils/outbound-timeout.js";
 import { describeError } from "./log-error.js";
 
 /** One LT exchange-rate sample: unix seconds, plus the raw 18dp rate. */
@@ -102,6 +110,7 @@ export async function fetchLtRateSeries(
   toSec: number,
   sampleSec: number,
 ): Promise<LtRateSample[] | null> {
+  return runWithOutboundTimeout(HEAVY_READ_TIMEOUT_MS, async () => {
   const sql = neon(databaseUrl);
   try {
     return (await sql`
@@ -132,6 +141,7 @@ export async function fetchLtRateSeries(
     });
     return null;
   }
+  });
 }
 
 /**
@@ -154,10 +164,16 @@ export function fetchLtRateSeriesCached(
   fromSec: number,
   toSec: number,
   sampleSec: number,
+  executionCtx?: WaitUntilHost,
 ): Promise<LtRateSample[] | null> {
   const key = `${ltAddress.toLowerCase()}|${fromSec}|${toSec}|${sampleSec}`;
-  return ltRateSeriesCache.getOrFetch(key, () =>
-    fetchLtRateSeries(databaseUrl, ltAddress, fromSec, toSec, sampleSec),
+  return fallbackOnInflightTimeout(
+    ltRateSeriesCache.getOrFetch(
+      key,
+      () => fetchLtRateSeries(databaseUrl, ltAddress, fromSec, toSec, sampleSec),
+      executionCtx,
+    ),
+    null,
   );
 }
 
@@ -176,6 +192,7 @@ export async function fetchLatestLtRate(
   databaseUrl: string,
   ltAddress: string,
 ): Promise<LtRateSample | null | "unavailable"> {
+  return runWithOutboundTimeout(HEAVY_READ_TIMEOUT_MS, async () => {
   const sql = neon(databaseUrl);
   try {
     const rows = (await sql`
@@ -192,4 +209,5 @@ export async function fetchLatestLtRate(
     logLtRateReadFailure("fetchLatestLtRate", error, { ltAddress });
     return "unavailable";
   }
+  });
 }

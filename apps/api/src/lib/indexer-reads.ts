@@ -27,6 +27,10 @@ import {
   indexerWalletPosition,
 } from "../db/indexer-schema.js";
 import { tokens } from "../db/schema.js";
+import {
+  HEAVY_READ_TIMEOUT_MS,
+  runWithOutboundTimeout,
+} from "../utils/outbound-timeout.js";
 import { describeError } from "./log-error.js";
 import { notMintPausedLt } from "./public-token-visibility.js";
 
@@ -1181,6 +1185,7 @@ export async function fetchTokenChartSnapshots(
   tokenAddress: string,
   fromSec: number,
 ): Promise<ChartTokenSnapshotRow[] | null> {
+  return runWithOutboundTimeout(HEAVY_READ_TIMEOUT_MS, async () => {
   const lowered = tokenAddress.toLowerCase();
   const fromSecStr = String(fromSec);
   try {
@@ -1234,6 +1239,7 @@ export async function fetchTokenChartSnapshots(
     );
     return null;
   }
+  });
 }
 
 /** A held-balance row for `/balances-v2`. */

@@ -18,6 +18,7 @@ import {
 } from "@launchpad/shared";
 
 import { createDb } from "../../db/client.js";
+import { tryExecutionCtx } from "../../utils/inflight.js";
 import { tokens } from "../../db/schema.js";
 import { tryApiDbRead } from "../../lib/api-db-reads.js";
 import {
@@ -545,6 +546,7 @@ listRoute.get("/", async (c) => {
       c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       enrichInputOnchain,
+      tryExecutionCtx(c),
     );
 
     const onchainByAddress = new Map<string, PonderTokenOnchain>();
@@ -716,6 +718,7 @@ listRoute.get("/", async (c) => {
       c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       candidatesOnchain,
+      tryExecutionCtx(c),
     );
 
     const onchainByAddress = new Map<string, PonderTokenOnchain>();
@@ -1012,6 +1015,7 @@ listRoute.get("/", async (c) => {
     c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     dbTokens.map((t) => t.address),
+    tryExecutionCtx(c),
   );
 
   const onchainByAddress = new Map<string, PonderTokenOnchain>();

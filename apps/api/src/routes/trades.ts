@@ -11,6 +11,7 @@ import {
   fetchTokenLabels,
 } from "../lib/indexer-reads.js";
 import { fetchRouterTradesCached } from "../lib/indexer-cached-reads.js";
+import { tryExecutionCtx } from "../utils/inflight.js";
 
 import type { AppBindings } from "../lib/types.js";
 import type { ApiTradeWithLabels } from "./../lib/ponder-types.js";
@@ -294,12 +295,16 @@ trades.get("/sparkline/:address", async (c) => {
   const points = Math.min(Number(c.req.query("points") ?? "20"), 50);
 
   const db = createDb(c.env.DATABASE_URL);
-  const rawTrades = await fetchRouterTradesCached(db, {
-    tokenAddress: address,
-    limit: points * 3,
-    offset: 0,
-    direction: "desc",
-  });
+  const rawTrades = await fetchRouterTradesCached(
+    db,
+    {
+      tokenAddress: address,
+      limit: points * 3,
+      offset: 0,
+      direction: "desc",
+    },
+    tryExecutionCtx(c),
+  );
 
   if (rawTrades === null) {
     return c.json(formatSuccess([]));
@@ -358,11 +363,15 @@ trades.get("/:address", async (c) => {
   // `/trades/:address` every 5-15s per open token) into one Postgres
   // round-trip per `(token, limit, offset, direction)` per
   // `HOT_TOKEN_READ_TTL_MS` window per PoP — issue #1125, solution #3.
-  const rows = await fetchRouterTradesCached(db, {
-    tokenAddress: address,
-    limit,
-    offset,
-  });
+  const rows = await fetchRouterTradesCached(
+    db,
+    {
+      tokenAddress: address,
+      limit,
+      offset,
+    },
+    tryExecutionCtx(c),
+  );
 
   if (rows === null) {
     return c.json(

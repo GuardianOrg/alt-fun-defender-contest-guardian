@@ -7,6 +7,7 @@ import {
   type MarketDataItem,
 } from "../lib/market-data.js";
 import { applyEdgeCacheHeaders } from "../utils/cache-control.js";
+import { tryExecutionCtx } from "../utils/inflight.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 
@@ -117,6 +118,7 @@ marketData.post("/", async (c) => {
     c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     canonicalAddresses,
+    tryExecutionCtx(c),
   );
   if (!result.ok) {
     return c.json(formatError(result.error), result.code);
@@ -145,6 +147,7 @@ marketData.get("/:address", async (c) => {
     c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
+    tryExecutionCtx(c),
   );
   if (!result.ok) {
     return c.json(formatError(result.error), result.code);

@@ -14,6 +14,7 @@ import {
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
 import { getGraduationThresholdUsd } from "../../lib/protocol-config.js";
+import { tryExecutionCtx } from "../../utils/inflight.js";
 import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
@@ -291,6 +292,7 @@ detailRoute.get("/:address", async (c) => {
     c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
+    tryExecutionCtx(c),
   );
 
   const dataSource = marketResult.ok ? "live" : "degraded";

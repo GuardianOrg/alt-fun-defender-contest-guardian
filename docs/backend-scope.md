@@ -85,6 +85,10 @@ Endpoints that can answer "not found" for a token that was just launched use a m
 
 When a window expires, the caller gets the previous body straight away and the refresh runs behind the response. Otherwise every window boundary lands one unlucky caller on the full cold path, which on the chart endpoint is the slowest read in the API.
 
+Concurrent requests for the same token share one in-flight database read inside the Worker. The owner of that read is kept alive if the first client disconnects, and any waiter that sits longer than the heaviest outbound abort drops that shared slot and retries once, so a cancelled request costs one slow response instead of pinning that read until the Worker dies.
+
+Every Neon and BounceTech query from a live invocation aborts if it exceeds a per-call budget (8s by default, longer for chart and list). A stuck upstream then surfaces as a 503 rather than hanging until Cloudflare's ceiling. Aborting the Worker fetch does not stop the query on the database, and it cannot save a request whose client already disconnected.
+
 The chart endpoint additionally holds the start and end of its history window still between requests — usually by rounding them to a fixed grid, or by pinning them to the token's launch time where the history is shorter than the window. Either way everyone viewing the same token at the same candle width shares a single exchange-rate history read, instead of each request asking for a window one second off the last. The current rate the chart returns is read separately and unrounded, so sharing history costs no freshness on the live price.
 
 ### Terminal API

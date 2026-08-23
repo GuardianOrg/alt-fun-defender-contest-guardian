@@ -29,6 +29,15 @@
  * pinned for the TTL window — a one-off Neon hiccup would otherwise turn
  * into 3 seconds of forced 503s.
  */
+import {
+  awaitWithTimeout,
+  INFLIGHT_TIMEOUT_MS,
+  isInflightTimeout,
+  keepInflightAlive,
+  logInflightEviction,
+  type WaitUntilHost,
+} from "./inflight.js";
+
 interface CacheEntry<V> {
   value: V;
   expiresAt: number;
@@ -36,7 +45,11 @@ interface CacheEntry<V> {
 
 export interface IsolateTtlCache<V> {
   /** Resolve `key` from cache, otherwise call `fetcher` (single-flight). */
-  getOrFetch(key: string, fetcher: () => Promise<V>): Promise<V>;
+  getOrFetch(
+    key: string,
+    fetcher: () => Promise<V>,
+    executionCtx?: WaitUntilHost,
+  ): Promise<V>;
   /**
    * Current entries-Map size, including not-yet-evicted-but-expired
    * rows. Exposed for tests that need to verify the periodic-sweep and
@@ -81,6 +94,12 @@ export interface CreateIsolateTtlCacheOptions<V> {
    * Worker isolate's 128 MB ceiling.
    */
   maxEntries?: number;
+  /**
+   * Waiter timeout before a shared promise is treated as dead. Production
+   * default is {@link INFLIGHT_TIMEOUT_MS} (must exceed the heavy-read abort).
+   * Tests may inject a shorter value; do not ship a default under 5s.
+   */
+  inflightTimeoutMs?: number;
 }
 
 /**
@@ -108,7 +127,12 @@ const SWEEP_EVERY_WRITES = 64;
 export function createIsolateTtlCache<V>(
   options: CreateIsolateTtlCacheOptions<V>,
 ): IsolateTtlCache<V> {
-  const { ttlMs, shouldCache = () => true, maxEntries = 1024 } = options;
+  const {
+    ttlMs,
+    shouldCache = () => true,
+    maxEntries = 1024,
+    inflightTimeoutMs = INFLIGHT_TIMEOUT_MS,
+  } = options;
   if (!Number.isInteger(maxEntries) || maxEntries < 1) {
     throw new Error(`createIsolateTtlCache: maxEntries must be a positive integer (got ${maxEntries})`);
   }
@@ -122,48 +146,87 @@ export function createIsolateTtlCache<V>(
     }
   };
 
+  const run = async (
+    key: string,
+    fetcher: () => Promise<V>,
+    executionCtx: WaitUntilHost | undefined,
+    retriesLeft: number,
+  ): Promise<V> => {
+    const now = Date.now();
+    const hit = entries.get(key);
+    if (hit) {
+      if (hit.expiresAt > now) return hit.value;
+      // Lazy delete — a stale read of a known key gets cleaned up here.
+      entries.delete(key);
+    }
+    const racing = inflight.get(key);
+    if (racing) {
+      const started = Date.now();
+      try {
+        return await awaitWithTimeout(
+          racing,
+          () => {
+            if (inflight.get(key) === racing) {
+              inflight.delete(key);
+              logInflightEviction(key, Date.now() - started);
+            }
+          },
+          inflightTimeoutMs,
+        );
+      } catch (err) {
+        if (!isInflightTimeout(err) || retriesLeft <= 0) throw err;
+        return run(key, fetcher, executionCtx, retriesLeft - 1);
+      }
+    }
+
+    const slot: { current: Promise<V> | null } = { current: null };
+    const promise = (async () => {
+      try {
+        const value = await fetcher();
+        // Timed-out owners keep running; only the current slot may write the TTL cache.
+        if (shouldCache(value) && inflight.get(key) === slot.current) {
+          if (!entries.has(key) && entries.size >= maxEntries) {
+            const oldest = entries.keys().next().value;
+            if (oldest !== undefined) entries.delete(oldest);
+          }
+          entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+          if (++writesSinceSweep >= SWEEP_EVERY_WRITES) {
+            writesSinceSweep = 0;
+            sweepExpired(Date.now());
+          }
+        }
+        return value;
+      } finally {
+        if (inflight.get(key) === slot.current) inflight.delete(key);
+      }
+    })();
+    slot.current = promise;
+    inflight.set(key, promise);
+    keepInflightAlive(executionCtx, promise);
+    const started = Date.now();
+    try {
+      return await awaitWithTimeout(
+        promise,
+        () => {
+          if (inflight.get(key) === promise) {
+            inflight.delete(key);
+            logInflightEviction(key, Date.now() - started);
+          }
+        },
+        inflightTimeoutMs,
+      );
+    } catch (err) {
+      if (!isInflightTimeout(err) || retriesLeft <= 0) throw err;
+      return run(key, fetcher, executionCtx, retriesLeft - 1);
+    }
+  };
+
   const cache: IsolateTtlCache<V> = {
     get size() {
       return entries.size;
     },
-    async getOrFetch(key, fetcher) {
-      const now = Date.now();
-      const hit = entries.get(key);
-      if (hit) {
-        if (hit.expiresAt > now) return hit.value;
-        // Lazy delete — a stale read of a known key gets cleaned up
-        // here instead of waiting for the next periodic sweep.
-        entries.delete(key);
-      }
-      const racing = inflight.get(key);
-      if (racing) return racing;
-
-      const promise = (async () => {
-        try {
-          const value = await fetcher();
-          if (shouldCache(value)) {
-            // FIFO cap: when the Map is at capacity, drop the
-            // oldest-inserted key before the new write. `Map.keys()`
-            // iterates in insertion order, so the first key is the
-            // oldest. Only fires when adding a new key — overwriting
-            // an existing key keeps `size` stable.
-            if (!entries.has(key) && entries.size >= maxEntries) {
-              const oldest = entries.keys().next().value;
-              if (oldest !== undefined) entries.delete(oldest);
-            }
-            entries.set(key, { value, expiresAt: Date.now() + ttlMs });
-            if (++writesSinceSweep >= SWEEP_EVERY_WRITES) {
-              writesSinceSweep = 0;
-              sweepExpired(Date.now());
-            }
-          }
-          return value;
-        } finally {
-          inflight.delete(key);
-        }
-      })();
-      inflight.set(key, promise);
-      return promise;
+    async getOrFetch(key, fetcher, executionCtx) {
+      return run(key, fetcher, executionCtx, 1);
     },
     reset() {
       entries.clear();

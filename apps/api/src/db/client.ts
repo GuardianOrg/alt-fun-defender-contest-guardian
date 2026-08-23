@@ -1,8 +1,15 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 
+import { fetchWithOutboundTimeout } from "../utils/outbound-timeout.js";
 import * as apiSchema from "./schema.js";
 import * as indexerSchema from "./indexer-schema.js";
+
+// Side effect on import: every `neon()` in this isolate inherits the abort
+// (lt-rate-reads / market-data never call createDb). Skip when tests stub neonConfig.
+if (neonConfig) {
+  neonConfig.fetchFunction = fetchWithOutboundTimeout;
+}
 
 /**
  * Combined Drizzle schema covering both:

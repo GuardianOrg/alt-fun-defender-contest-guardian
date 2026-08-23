@@ -38,6 +38,10 @@ import {
 } from "./indexer-reads.js";
 
 import { createIsolateTtlCache } from "../utils/isolate-ttl-cache.js";
+import {
+  fallbackOnInflightTimeout,
+  type WaitUntilHost,
+} from "../utils/inflight.js";
 
 import type { Database } from "../db/client.js";
 
@@ -93,10 +97,16 @@ export function _resetIndexerReadCaches(): void {
 export function fetchTokenOnchainCached(
   db: Database,
   address: string,
+  executionCtx?: WaitUntilHost,
 ): Promise<PonderTokenOnchain | null | "unavailable"> {
   const key = address.toLowerCase();
-  return fetchTokenOnchainCache.getOrFetch(key, () =>
-    fetchTokenOnchain(db, address),
+  return fallbackOnInflightTimeout(
+    fetchTokenOnchainCache.getOrFetch(
+      key,
+      () => fetchTokenOnchain(db, address),
+      executionCtx,
+    ),
+    "unavailable",
   );
 }
 
@@ -118,11 +128,17 @@ export function fetchRouterTradesCached(
     offset: number;
     direction?: "asc" | "desc";
   },
+  executionCtx?: WaitUntilHost,
 ): Promise<IndexerRouterTradeRow[] | null> {
   const direction = opts.direction ?? "desc";
   const key = `${opts.tokenAddress.toLowerCase()}|${opts.limit}|${opts.offset}|${direction}`;
-  return fetchRouterTradesCache.getOrFetch(key, () =>
-    fetchRouterTrades(db, opts),
+  return fallbackOnInflightTimeout(
+    fetchRouterTradesCache.getOrFetch(
+      key,
+      () => fetchRouterTrades(db, opts),
+      executionCtx,
+    ),
+    null,
   );
 }
 
@@ -139,13 +155,21 @@ export function fetchHoldersCached(
     limit: number;
     excludedWallets: string[];
   },
+  executionCtx?: WaitUntilHost,
 ): Promise<{ holders: HolderRow[]; totalHolders: number } | null> {
   const excluded = opts.excludedWallets
     .map((w) => w.toLowerCase())
     .sort()
     .join(",");
   const key = `${opts.tokenAddress.toLowerCase()}|${opts.limit}|${excluded}`;
-  return fetchHoldersCache.getOrFetch(key, () => fetchHolders(db, opts));
+  return fallbackOnInflightTimeout(
+    fetchHoldersCache.getOrFetch(
+      key,
+      () => fetchHolders(db, opts),
+      executionCtx,
+    ),
+    null,
+  );
 }
 
 /**
@@ -159,9 +183,15 @@ export function fetchTokenChartSnapshotsCached(
   db: Database,
   tokenAddress: string,
   fromSec: number,
+  executionCtx?: WaitUntilHost,
 ): Promise<ChartTokenSnapshotRow[] | null> {
   const key = `${tokenAddress.toLowerCase()}|${fromSec}`;
-  return fetchTokenChartSnapshotsCache.getOrFetch(key, () =>
-    fetchTokenChartSnapshots(db, tokenAddress, fromSec),
+  return fallbackOnInflightTimeout(
+    fetchTokenChartSnapshotsCache.getOrFetch(
+      key,
+      () => fetchTokenChartSnapshots(db, tokenAddress, fromSec),
+      executionCtx,
+    ),
+    null,
   );
 }
