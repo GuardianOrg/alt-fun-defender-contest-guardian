@@ -20,7 +20,10 @@
  * If the API key is missing or the request fails, we fail **closed** —
  * `unavailable: true` → 503 → no upload. Letting unmoderated content into
  * R2 is the failure mode we're trying to avoid; a temporary 503 is the
- * lesser harm.
+ * lesser harm. A PNG encoded in a way OpenAI provably can't decode also
+ * fails closed, but as `unprocessable: true` → 400, so the uploader is
+ * asked for a different file instead of retrying bytes that can never
+ * pass — see `isUndecodablePng`.
  */
 
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
@@ -76,6 +79,64 @@ const REQUEST_TIMEOUT_MS = 25_000;
 const COOLDOWN_MS = 30_000;
 let cooldownUntil = 0;
 
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * IHDR is mandatory as PNG's first chunk, so bit depth and colour type
+ * sit at fixed offsets: 8-byte signature + 4-byte length + 4-byte type.
+ */
+const IHDR_BIT_DEPTH_OFFSET = 24;
+const IHDR_COLOUR_TYPE_OFFSET = 25;
+
+const PNG_COLOUR_TYPE_GRAYSCALE = 0;
+const PNG_COLOUR_TYPE_GRAYSCALE_ALPHA = 4;
+
+interface PngIhdr {
+  bitDepth: number;
+  colourType: number;
+}
+
+/**
+ * Signature-gated, so a non-PNG payload — or one too short to carry an
+ * IHDR — reads as `null` and is left to OpenAI to judge.
+ */
+function readPngIhdr(bytes: Uint8Array): PngIhdr | null {
+  if (bytes.length <= IHDR_COLOUR_TYPE_OFFSET) return null;
+  if (PNG_SIGNATURE.some((byte, i) => bytes[i] !== byte)) return null;
+  return {
+    bitDepth: bytes[IHDR_BIT_DEPTH_OFFSET],
+    colourType: bytes[IHDR_COLOUR_TYPE_OFFSET],
+  };
+}
+
+/**
+ * Whether OpenAI's moderation endpoint will fail to decode this PNG.
+ *
+ * Exactly two encodings reproduce a `500 {"type":"server_error"}` on
+ * every attempt: 8-bit grayscale-plus-alpha, and 16-bit grayscale. Both
+ * are ordinary Pillow / ImageMagick output for a monochrome logo with
+ * transparency, so this is a shape real token logos arrive in, not a
+ * hypothetical.
+ *
+ * We check before spending the request because OpenAI reports "I can't
+ * read this file" with the same status it uses for its own outages, and
+ * that conflation costs us twice: the uploader is told to retry bytes
+ * that can never pass, and the 5xx arms `COOLDOWN_MS`, so one
+ * undecodable logo 503s every *other* caller on this isolate for the
+ * next 30 seconds. Catching it locally keeps the 5xx branch below
+ * meaning strictly "OpenAI is unhealthy".
+ *
+ * Both combinations are verified against the live endpoint, and so are
+ * their immediate neighbours — grayscale-plus-alpha at bit depth *16*
+ * decodes fine, as does grayscale at 1/2/4/8. Hence the exact pairs
+ * rather than a colour-type match: widening this silently rejects valid
+ * logos, which is worse than the 503 it saves.
+ */
+function isUndecodablePng({ bitDepth, colourType }: PngIhdr): boolean {
+  if (colourType === PNG_COLOUR_TYPE_GRAYSCALE_ALPHA) return bitDepth === 8;
+  return colourType === PNG_COLOUR_TYPE_GRAYSCALE && bitDepth === 16;
+}
+
 /** Exposed for tests so each case starts with a clean slate. */
 export function __resetModerationCooldownForTests(): void {
   cooldownUntil = 0;
@@ -91,6 +152,12 @@ export interface ModerationResult {
   flaggedForReview: boolean;
   reason: string;
   unavailable?: boolean;
+  /**
+   * The moderator is reachable but can't read this particular file. A
+   * retry of the same bytes is guaranteed to fail, so the caller must
+   * ask for a different image rather than offering "try again".
+   */
+  unprocessable?: boolean;
   classifications: CategoryScore[];
 }
 
@@ -261,6 +328,21 @@ export async function moderateImage(
     };
   }
 
+  // Ahead of the cooldown check on purpose: the verdict is a property of
+  // the bytes, so it holds whether or not OpenAI is currently reachable.
+  const ihdr = readPngIhdr(imageBytes);
+  if (ihdr && isUndecodablePng(ihdr)) {
+    console.log(
+      JSON.stringify({
+        level: "warn",
+        event: "moderation_undecodable_png",
+        ...ihdr,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    return unprocessable();
+  }
+
   // Short-circuit while we're in the OpenAI backoff window. See the
   // `COOLDOWN_MS` block at the top of this file for rationale.
   const now = Date.now();
@@ -302,6 +384,11 @@ export async function moderateImage(
           event: "openai_moderation_non_ok",
           status: response.status,
           bodyPreview,
+          // The IHDR of the payload, when it is a PNG. A 500 here on a
+          // PNG encoding the guard above doesn't know about is how a new
+          // undecodable combination announces itself; without these
+          // fields it is indistinguishable from an OpenAI outage.
+          ...(ihdr ?? {}),
           timestamp: new Date().toISOString(),
         }),
       );
@@ -379,6 +466,17 @@ function unavailable(): ModerationResult {
     flaggedForReview: false,
     reason: "Image moderation is temporarily unavailable. Please try again.",
     unavailable: true,
+    classifications: [],
+  };
+}
+
+function unprocessable(): ModerationResult {
+  return {
+    safe: false,
+    flaggedForReview: false,
+    reason:
+      "This image file could not be read. Re-save it as a standard PNG or JPEG, or pick a different image.",
+    unprocessable: true,
     classifications: [],
   };
 }

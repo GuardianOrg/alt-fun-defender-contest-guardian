@@ -204,7 +204,24 @@ Three outcomes per upload, recorded in the `moderation_logs` table:
 - **Pending review** → 200 with `flaggedForReview: true`, image is still written to R2 so admins can inspect it via `GET /admin/moderation/pending`. Triggered when a score sits between `review` and `reject`.
 - **Approve** → 200, plain success.
 
+- **Undecodable PNG** → 400, no R2 write, no `moderation_logs` row, no request spent on OpenAI. Also fail-closed, but attributed to the file rather than the upstream. See *Undecodable PNG encodings* below.
+
 Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as 503 ("moderation temporarily unavailable") and **no upload happens**. This is the failure mode the endpoint exists to prevent — never relax it without the matching docs/AGENTS update.
+
+### Undecodable PNG encodings
+
+Exactly two PNG encodings make OpenAI's moderation endpoint return `500 {"type":"server_error","message":"Unexpected error"}` on every attempt:
+
+| Colour type | Bit depth | Meaning |
+|---|---|---|
+| 4 | 8 | grayscale + alpha |
+| 0 | 16 | 16-bit grayscale |
+
+Both are ordinary Pillow / ImageMagick output for a monochrome logo with transparency, so real token logos arrive in this shape. Everything around them decodes fine — including the near misses that make the pairing load-bearing: colour type 4 at bit depth **16** passes, and colour type 0 at bit depths 1/2/4/8 passes. So do RGB, RGBA, palette, 16-bit RGB/RGBA, interlaced, APNG, GIF (incl. animated), WebP (incl. animated), CMYK JPEG, 12000×12000, and 4.8MB near-limit files.
+
+`isUndecodablePng` in `lib/image-moderation.ts` reads bit depth and colour type out of the IHDR (fixed offsets 24 and 25, signature-gated) and returns `unprocessable` before the request is made. Doing it locally rather than inferring it from OpenAI's response matters because that 500 is indistinguishable from OpenAI being down, and conflating the two cost us twice: the uploader was told to retry bytes that could never pass, and the 5xx armed `COOLDOWN_MS`, so one undecodable logo 503'd every *other* caller on that isolate for 30 seconds. Keeping the check local leaves the 5xx branch meaning strictly "OpenAI is unhealthy".
+
+Match on the exact pairs and keep the list to encodings actually measured against the live endpoint — this is not a general image validator, and widening it silently rejects valid logos, which is worse than the 503 it saves. An encoding *not* on the list that OpenAI can't decode still surfaces as a 503; `openai_moderation_non_ok` carries the payload's IHDR fields so a new bad combination is identifiable rather than looking like an outage. `apps/web/src/utils/imageProcessing.ts` canvas-normalises every PNG before upload (canvas always emits RGBA), so in practice only direct API callers reach this guard.
 
 CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by design). The strict `sexual` threshold acts as a coarse proxy, but this layer is **not** a NCMEC-certified hash matcher — explicitly documented in root `AGENTS.md`. Don't represent it externally as one.
 

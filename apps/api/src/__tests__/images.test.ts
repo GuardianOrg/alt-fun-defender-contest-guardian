@@ -111,6 +111,23 @@ function mockOpenAIFetch(response: unknown, init: { status?: number } = {}) {
   );
 }
 
+/**
+ * Minimal PNG carrying a real IHDR, so the encoding guard in
+ * `image-moderation.ts` reads the bit depth / colour type it would read
+ * off a genuine file. Only the header matters — nothing decodes these.
+ */
+function pngWithIhdr(bitDepth: number, colourType: number): Uint8Array {
+  const bytes = new Uint8Array(64);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  bytes.set([0x00, 0x00, 0x00, 0x0d], 8); // IHDR length
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12); // "IHDR"
+  bytes.set([0x00, 0x00, 0x00, 0x01], 16); // width 1
+  bytes.set([0x00, 0x00, 0x00, 0x01], 20); // height 1
+  bytes[24] = bitDepth;
+  bytes[25] = colourType;
+  return bytes;
+}
+
 function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
@@ -293,6 +310,89 @@ describe("POST /api/v1/images — image upload", () => {
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
     expect(body.error).toContain("temporarily unavailable");
     expect(mockR2Put).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["8-bit grayscale + alpha", 8, 4],
+    ["16-bit grayscale", 16, 0],
+  ])(
+    "returns 400 without calling OpenAI for a %s PNG",
+    async (_label, bitDepth, colourType) => {
+      // OpenAI reports "I can't decode this file" with the same 500 it
+      // uses for its own outages, which used to strand the uploader on
+      // retry-forever copy *and* arm the 30s cooldown against everyone
+      // else on the isolate. Both encodings are ordinary Pillow /
+      // ImageMagick output for a monochrome logo with transparency.
+      const app = createApp();
+      const formData = new FormData();
+      formData.append(
+        "file",
+        new File([pngWithIhdr(bitDepth, colourType)], "logo.png", {
+          type: "image/png",
+        }),
+      );
+
+      const res = await uploadRequest(app, { method: "POST", body: formData });
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+      expect(body.error).toContain("could not be read");
+      // Fail-closed, and cheap: no R2 write, no `moderation_logs` row
+      // (nothing was classified), and no request spent on OpenAI.
+      expect(mockR2Put).not.toHaveBeenCalled();
+      expect(mockDbInsert).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["8-bit grayscale", 8, 0],
+    ["RGB", 8, 2],
+    ["palette", 8, 3],
+    ["RGBA", 8, 6],
+    ["16-bit RGBA", 16, 6],
+    // The near misses that matter most: each is one field away from a
+    // rejected pair and verified to moderate fine against the live
+    // endpoint, so a guard that matched on colour type alone (or bit
+    // depth alone) would start rejecting valid logos.
+    ["16-bit grayscale + alpha", 16, 4],
+    ["1-bit grayscale", 1, 0],
+    ["4-bit grayscale", 4, 0],
+  ])("still moderates a %s PNG", async (_label, bitDepth, colourType) => {
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([pngWithIhdr(bitDepth, colourType)], "logo.png", {
+        type: "image/png",
+      }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
+  });
+
+  it("only reads the IHDR of an actual PNG, not of any payload", async () => {
+    // Without the signature gate this buffer would be read as 8-bit
+    // grayscale-plus-alpha and rejected, taking WebP / JPEG / GIF
+    // uploads that happen to carry those byte values with it.
+    const notPng = pngWithIhdr(8, 4);
+    notPng[0] = 0x52; // break the PNG signature ("RIFF"-ish first byte)
+
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([notPng], "logo.webp", { type: "image/webp" }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed when the OpenAI API key is missing", async () => {
@@ -637,6 +737,46 @@ describe("POST /api/v1/images — OpenAI cooldown cache (issue #509)", () => {
     }
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an undecodable PNG arm the cooldown against other callers", async () => {
+    // The blast radius is the point: the encoding guard runs before the
+    // OpenAI call, so the 5xx that used to 503 every other caller on
+    // this isolate for 30s never happens.
+    const fetchMock = mockOpenAIFetch(makeOpenAIModerationResponse());
+    globalThis.fetch = fetchMock;
+
+    const app = createApp();
+    const headers = {
+      "CF-Connecting-IP": "198.51.100.54",
+      Host: "api.altfun.com",
+    };
+
+    const badUpload = new FormData();
+    badUpload.append(
+      "file",
+      new File([pngWithIhdr(8, 4)], "grayscale-alpha.png", { type: "image/png" }),
+    );
+    const res1 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: badUpload, headers },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const goodUpload = new FormData();
+    goodUpload.append(
+      "file",
+      new File([pngWithIhdr(8, 6)], "fine.png", { type: "image/png" }),
+    );
+    const res2 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: goodUpload, headers },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(200);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
   });
 
   it("trips the cooldown when the OpenAI request fails before yielding a status (timeout / network error)", async () => {

@@ -115,6 +115,14 @@ async function uploadHandler(c: Context<{ Bindings: AppBindings }>) {
     return c.json(formatError(moderationResult.reason), 503);
   }
 
+  // 400, not 503: the file is the problem, so this sits with the other
+  // file-validation failures above rather than with the outage path.
+  // Not logged to `moderation_logs` — nothing was classified, and
+  // filing it as a rejection would pollute the abuse audit trail.
+  if (moderationResult.unprocessable) {
+    return c.json(formatError(moderationResult.reason), 400);
+  }
+
   if (!moderationResult.safe && !moderationResult.flaggedForReview) {
     // Auto-rejected — log and deny
     await logModerationDecision(

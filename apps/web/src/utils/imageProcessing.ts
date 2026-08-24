@@ -116,8 +116,19 @@ export async function processImageForUpload(file: File): Promise<CompressionResu
 
   const { w, h } = fitDimensions(img.naturalWidth, img.naturalHeight, MAX_DIMENSION);
 
-  // Skip canvas work for already-small sources.
-  if (w === img.naturalWidth && h === img.naturalHeight && file.size <= TARGET_BYTES) {
+  // Skip canvas work for already-small sources — except PNG, which always
+  // takes the canvas round-trip so it reaches us as RGBA. OpenAI's
+  // moderation endpoint 500s on grayscale-plus-alpha and 16-bit grayscale
+  // PNGs (ordinary Pillow / ImageMagick exports), and a 500 there fails
+  // the upload closed with no way for the user to recover except picking
+  // a different file.
+  const needsNormalising = file.type === "image/png";
+  if (
+    !needsNormalising &&
+    w === img.naturalWidth &&
+    h === img.naturalHeight &&
+    file.size <= TARGET_BYTES
+  ) {
     return { file, passthrough: true };
   }
 
