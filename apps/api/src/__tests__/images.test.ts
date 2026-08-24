@@ -128,6 +128,29 @@ function pngWithIhdr(bitDepth: number, colourType: number): Uint8Array {
   return bytes;
 }
 
+/**
+ * One upload from a fixed IP, for the specs that need several in a row
+ * to walk the retry / backoff state machine. Defaults to an RGBA PNG so
+ * the encoding guard stays out of the way.
+ */
+function uploadFrom(
+  app: Hono<{ Bindings: AppBindings }>,
+  ip: string,
+  bytes: Uint8Array = pngWithIhdr(8, 6),
+) {
+  const formData = new FormData();
+  formData.append("file", new File([bytes], "logo.png", { type: "image/png" }));
+  return app.request(
+    "/api/v1/images",
+    {
+      method: "POST",
+      body: formData,
+      headers: { "CF-Connecting-IP": ip, Host: "api.altfun.com" },
+    },
+    makeEnv(),
+  );
+}
+
 function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
@@ -393,6 +416,33 @@ describe("POST /api/v1/images — image upload", () => {
 
     expect(res.status).toBe(200);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["no result fields at all", {}],
+    ["no verdict", { categories: {}, category_scores: {} }],
+    ["a verdict but nothing scored", { flagged: false, categories: {}, category_scores: {} }],
+  ])("fails closed on a 200 carrying %s", async (_label, result) => {
+    // The dangerous one is the third: every score reads as absent, so
+    // `decide` finds nothing to reject and would hand back `safe` for an
+    // image nothing ever looked at, putting it in R2 unmoderated.
+    globalThis.fetch = mockOpenAIFetch({
+      id: "modr-test",
+      model: "omni-moderation-latest",
+      results: [result],
+    });
+
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(503);
+    expect(mockR2Put).not.toHaveBeenCalled();
   });
 
   it("fails closed when the OpenAI API key is missing", async () => {
@@ -712,31 +762,90 @@ describe("POST /api/v1/images — OpenAI cooldown cache (issue #509)", () => {
     expect(mockR2Put).not.toHaveBeenCalled();
   });
 
-  it("short-circuits after a 5xx from OpenAI", async () => {
-    const fetchMock = mockOpenAIFetch({}, { status: 503 });
+  it("retries a 5xx once and returns the retry's verdict", async () => {
+    // OpenAI's 500 is usually a single-request fault, and moderation is
+    // idempotent, so the retry turns it into a clean pass rather than a
+    // 503 the user has to act on.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(makeOpenAIModerationResponse()), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
     globalThis.fetch = fetchMock;
 
-    const app = createApp();
-    const headers = {
-      "CF-Connecting-IP": "198.51.100.51",
-      Host: "api.altfun.com",
-    };
+    const res = await uploadFrom(createApp(), "198.51.100.55");
 
-    for (const name of ["a.png", "b.png", "c.png"]) {
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new File([new Uint8Array(100)], name, { type: "image/png" }),
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the next upload through instead of backing off on one failure", async () => {
+    // One failed upload is not an outage. Arming the cooldown on it
+    // would turn one person's bad luck into a 30s outage for everyone
+    // else routed through this isolate.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(makeOpenAIModerationResponse()), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       );
-      const res = await app.request(
-        "/api/v1/images",
-        { method: "POST", body: formData, headers },
-        makeEnv(),
-      );
+    globalThis.fetch = fetchMock;
+    const app = createApp();
+
+    const failed = await uploadFrom(app, "198.51.100.56");
+    expect(failed.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const next = await uploadFrom(app, "198.51.100.56");
+    expect(next.status).toBe(200);
+  });
+
+  it("backs off and raises an alert after three consecutive failures", async () => {
+    const fetchMock = mockOpenAIFetch({}, { status: 503 });
+    globalThis.fetch = fetchMock;
+    const logSpy = vi.spyOn(console, "log");
+    const app = createApp();
+
+    for (let i = 0; i < 3; i++) {
+      const res = await uploadFrom(app, "198.51.100.51");
       expect(res.status).toBe(503);
     }
+    // Three uploads, each retried once.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const alerts = logSpy.mock.calls
+      .map(([line]) => (typeof line === "string" ? line : ""))
+      .filter((line) => line.includes("openai_moderation_repeated_failures"));
+    // On-call alerts match this event name — one per cooldown window, so
+    // a sustained outage pages once rather than per upload.
+    expect(alerts).toHaveLength(1);
+    expect(JSON.parse(alerts[0]).level).toBe("error");
+    expect(JSON.parse(alerts[0]).consecutiveFailures).toBe(3);
+    logSpy.mockRestore();
+
+    const afterBackoff = await uploadFrom(app, "198.51.100.51");
+    expect(afterBackoff.status).toBe(503);
+    // Cooldown armed — no further requests spent on a known-sick upstream.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("does not let an undecodable PNG arm the cooldown against other callers", async () => {
@@ -779,51 +888,95 @@ describe("POST /api/v1/images — OpenAI cooldown cache (issue #509)", () => {
     expect(mockR2Put).toHaveBeenCalledTimes(1);
   });
 
-  it("trips the cooldown when the OpenAI request fails before yielding a status (timeout / network error)", async () => {
+  it("treats a result missing its score maps as a payload problem, not an outage", async () => {
+    // Most likely an upstream schema change. Classifying it as unhealthy
+    // would retry every upload and then page the on-call about an
+    // "outage" that no amount of waiting fixes.
+    globalThis.fetch = mockOpenAIFetch({
+      id: "modr-test",
+      model: "omni-moderation-latest",
+      results: [{}],
+    });
+    const app = createApp();
+
+    for (let i = 0; i < 4; i++) {
+      const res = await uploadFrom(app, "198.51.100.60");
+      expect(res.status).toBe(503);
+    }
+    // One call per upload: no retry, and no backoff after three of them.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    expect(mockR2Put).not.toHaveBeenCalled();
+  });
+
+  it("raises one alert even when the streak breaks on concurrent uploads", async () => {
+    // Uploads already in flight when the third failure lands also see a
+    // broken streak. Without the alert floor each one would page.
+    globalThis.fetch = mockOpenAIFetch({}, { status: 503 });
+    const logSpy = vi.spyOn(console, "log");
+    const app = createApp();
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => uploadFrom(app, "198.51.100.58")),
+    );
+
+    for (const res of results) expect(res.status).toBe(503);
+    const alerts = logSpy.mock.calls
+      .map(([line]) => (typeof line === "string" ? line : ""))
+      .filter((line) => line.includes("openai_moderation_repeated_failures"));
+    expect(alerts).toHaveLength(1);
+    logSpy.mockRestore();
+  });
+
+  it("does not retry when the first attempt spent the whole budget", async () => {
+    // The retry shares one budget with the first attempt, so a slow
+    // failure gets no second try — the point is that choosing to retry
+    // can never double the wait the caller already signed up for.
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        (_url: unknown, init: { signal: AbortSignal }) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const pending = uploadFrom(createApp(), "198.51.100.59");
+      await vi.advanceTimersByTimeAsync(26_000);
+
+      expect((await pending).status).toBe(503);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts a request that never yields a status toward the backoff streak", async () => {
     // A hung upstream times out before returning 5xx (AbortError) and a
-    // dead TCP path throws outright. Both are the "upstream is
-    // unhealthy from this isolate" case the cooldown exists to dampen —
-    // without this branch a slow OpenAI escapes backoff entirely and
-    // every request burns the full 10s timeout.
+    // dead TCP path throws outright. Both are the "upstream is unhealthy
+    // from this isolate" case the cooldown exists to dampen — without
+    // counting them, a slow OpenAI would escape backoff entirely and
+    // every upload would burn the full budget for the whole burst.
     const fetchMock = vi
       .fn()
-      .mockRejectedValueOnce(
+      .mockRejectedValue(
         Object.assign(new Error("aborted"), { name: "AbortError" }),
       );
     globalThis.fetch = fetchMock;
 
     const app = createApp();
-    const headers = {
-      "CF-Connecting-IP": "198.51.100.53",
-      Host: "api.altfun.com",
-    };
 
-    const formData1 = new FormData();
-    formData1.append(
-      "file",
-      new File([new Uint8Array(100)], "a.png", { type: "image/png" }),
-    );
-    const res1 = await app.request(
-      "/api/v1/images",
-      { method: "POST", body: formData1, headers },
-      makeEnv(),
-    );
-    expect(res1.status).toBe(503);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 3; i++) {
+      const res = await uploadFrom(app, "198.51.100.53");
+      expect(res.status).toBe(503);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    const formData2 = new FormData();
-    formData2.append(
-      "file",
-      new File([new Uint8Array(100)], "b.png", { type: "image/png" }),
-    );
-    const res2 = await app.request(
-      "/api/v1/images",
-      { method: "POST", body: formData2, headers },
-      makeEnv(),
-    );
-    expect(res2.status).toBe(503);
-    // Cooldown engaged — no second fetch attempt.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const afterBackoff = await uploadFrom(app, "198.51.100.53");
+    expect(afterBackoff.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("does not trip the cooldown on a 4xx that isn't 429 (auth / payload errors)", async () => {

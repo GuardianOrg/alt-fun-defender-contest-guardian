@@ -30,11 +30,12 @@ const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const MODERATION_MODEL = "omni-moderation-latest";
 
 /**
- * Per-request abort window for the OpenAI moderation call. Sized to
- * absorb the long tail of legitimate slow responses (cold Worker
- * isolate → cold TCP/TLS to api.openai.com + OpenAI's own occasional
- * multi-second multimodal latency) without the fail-closed path
- * stamping a 503 on the user.
+ * Abort window for the OpenAI moderation call, covering **all** attempts
+ * for one upload rather than each attempt individually — see
+ * `MAX_ATTEMPTS`. Sized to absorb the long tail of legitimate slow
+ * responses (cold Worker isolate → cold TCP/TLS to api.openai.com +
+ * OpenAI's own occasional multi-second multimodal latency) without the
+ * fail-closed path stamping a 503 on the user.
  *
  * Empirically, warm-isolate calls land in <1s and slow-but-healthy
  * cold-isolate calls land in 2–5s. The previous 10s cap was tight
@@ -55,6 +56,26 @@ const MODERATION_MODEL = "omni-moderation-latest";
  * feel hung".
  */
 const REQUEST_TIMEOUT_MS = 25_000;
+
+/**
+ * Attempts per upload, first included — so one retry.
+ *
+ * OpenAI's `500 server_error` is usually a single-request fault rather
+ * than a sustained outage, and moderation is idempotent, so the one
+ * retry converts most of those into a clean pass instead of a 503 the
+ * user has to act on. A second retry buys much less: two consecutive
+ * 5xx milliseconds apart is a struggling upstream, and piling more
+ * requests onto it is what `COOLDOWN_MS` exists to prevent.
+ *
+ * Retries share the single `REQUEST_TIMEOUT_MS` budget rather than
+ * getting a fresh window each. That deliberately makes the retry
+ * conditional on the first attempt having failed *fast*: a 5xx that
+ * arrives in 200ms leaves 24.8s to try again, while one that crawls in
+ * at 24s leaves no room and we give up. Token creation has the user
+ * watching a spinner before the wallet popup, so the wait they signed
+ * up for must not double because we chose to retry.
+ */
+const MAX_ATTEMPTS = 2;
 
 /**
  * When OpenAI returns 429 / 5xx we enter a process-local cooldown for
@@ -78,6 +99,54 @@ const REQUEST_TIMEOUT_MS = 25_000;
  */
 const COOLDOWN_MS = 30_000;
 let cooldownUntil = 0;
+
+/**
+ * Consecutive failed uploads before an unhealthy upstream stops the
+ * isolate via `COOLDOWN_MS`.
+ *
+ * Why not back off on the first failure: a one-off `500` is not an
+ * outage, and blocking the *next* person's upload for 30 seconds over it
+ * turns one unlucky image into everybody's problem. Letting the next
+ * upload proceed costs one request and usually just works. Three
+ * consecutive failures — each already retried once, so up to six
+ * requests — is a signal rather than noise, and past that the cooldown
+ * takes over and the following upload becomes a half-open probe.
+ *
+ * A 429 is exempt: that is OpenAI explicitly telling us to stop, so it
+ * backs off immediately regardless of the streak (issue #509).
+ */
+const FAILURE_STREAK_BEFORE_BACKOFF = 3;
+let consecutiveFailures = 0;
+
+/**
+ * Floor between two `openai_moderation_repeated_failures` events.
+ *
+ * Explicit rather than relying on the cooldown to space them out: every
+ * upload still in flight when the streak breaks also lands past the
+ * threshold, and without this each one would emit its own alert. Matched
+ * to `COOLDOWN_MS` so a sustained outage keeps paging at the rate the
+ * upstream is actually being retried.
+ */
+const ALERT_INTERVAL_MS = COOLDOWN_MS;
+let lastAlertAt = 0;
+
+/**
+ * How an attempt failed, which decides whether to retry, whether to back
+ * off, and whether the failure says anything about OpenAI's health.
+ *
+ * - `throttled` — 429. Back off immediately, never retry: hammering a
+ *   throttle extends the penalty window.
+ * - `unhealthy` — 5xx, or no HTTP status at all (timeout / DNS / TCP /
+ *   TLS). Worth one retry, and counts toward the failure streak.
+ * - `request` — any other 4xx, or a response we can't parse. Ours to
+ *   fix (revoked key, malformed payload), so it neither retries, backs
+ *   off, nor implies anything about the upstream.
+ */
+type UpstreamFault = "throttled" | "unhealthy" | "request";
+
+type AttemptOutcome =
+  | { result: ModerationResult }
+  | { fault: UpstreamFault };
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -140,6 +209,8 @@ function isUndecodablePng({ bitDepth, colourType }: PngIhdr): boolean {
 /** Exposed for tests so each case starts with a clean slate. */
 export function __resetModerationCooldownForTests(): void {
   cooldownUntil = 0;
+  consecutiveFailures = 0;
+  lastAlertAt = 0;
 }
 
 export interface CategoryScore {
@@ -203,6 +274,34 @@ interface OpenAIModerationResponse {
   id: string;
   model: string;
   results: OpenAIModerationResult[];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/**
+ * Whether a 200 actually carries a moderation verdict we can act on.
+ *
+ * `decide` reads `flagged` and indexes straight into both maps, so a
+ * result arriving without a boolean verdict, or without a single scorable
+ * category, has not been moderated at all. Treating that as a pass would
+ * put an unscored image in R2 — the one outcome this module exists to
+ * prevent — and a missing map would instead throw into the catch below
+ * and read as an unhealthy upstream, earning a pointless retry and an
+ * outage alert on every upload. Neither is a shape OpenAI returns today;
+ * the cost of being wrong is asymmetric enough to check anyway.
+ */
+function isUsableResult(
+  result: OpenAIModerationResult | undefined,
+): result is OpenAIModerationResult {
+  if (!result || typeof result.flagged !== "boolean") return false;
+  if (!isRecord(result.categories) || !isRecord(result.category_scores)) {
+    return false;
+  }
+  return Object.keys(CATEGORY_THRESHOLDS).some(
+    (label) => typeof result.category_scores[label] === "number",
+  );
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -352,8 +451,84 @@ export async function moderateImage(
 
   const dataUrl = `data:${mimeType};base64,${bytesToBase64(imageBytes)}`;
 
+  // One budget for the whole upload, shared across attempts. See
+  // `MAX_ATTEMPTS`.
+  const deadline = Date.now() + REQUEST_TIMEOUT_MS;
+  let fault: UpstreamFault = "unhealthy";
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+
+    const outcome = await moderateOnce({
+      apiKey,
+      dataUrl,
+      timeoutMs: remainingMs,
+      ihdr,
+      attempt,
+    });
+
+    if ("result" in outcome) {
+      consecutiveFailures = 0;
+      return outcome.result;
+    }
+
+    fault = outcome.fault;
+    if (fault !== "unhealthy") break;
+  }
+
+  if (fault === "request") {
+    return unavailable();
+  }
+
+  consecutiveFailures++;
+  const streakBroken = consecutiveFailures >= FAILURE_STREAK_BEFORE_BACKOFF;
+  const failedAt = Date.now();
+  if (fault === "throttled" || streakBroken) {
+    // Re-arming on every failure is deliberate: the window should run
+    // from the most recent evidence that the upstream is sick, not from
+    // the first. Uploads already in flight when it arms are the only
+    // ones that can extend it, so the extension is bounded by their
+    // remaining budget.
+    cooldownUntil = failedAt + COOLDOWN_MS;
+  }
+  if (streakBroken && failedAt - lastAlertAt >= ALERT_INTERVAL_MS) {
+    lastAlertAt = failedAt;
+    // The alert hook. Stable event name — on-call log alerts match on it,
+    // so renaming it silently disables the alert.
+    console.log(
+      JSON.stringify({
+        level: "error",
+        event: "openai_moderation_repeated_failures",
+        consecutiveFailures,
+        fault,
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  }
+  return unavailable();
+}
+
+/**
+ * One moderation attempt: request, status handling, and parse. Failures
+ * are classified rather than acted on, so the retry-and-backoff policy
+ * lives in one place in `moderateImage`.
+ */
+async function moderateOnce({
+  apiKey,
+  dataUrl,
+  timeoutMs,
+  ihdr,
+  attempt,
+}: {
+  apiKey: string;
+  dataUrl: string;
+  timeoutMs: number;
+  ihdr: PngIhdr | null;
+  attempt: number;
+}): Promise<AttemptOutcome> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(OPENAI_MODERATION_URL, {
@@ -383,6 +558,7 @@ export async function moderateImage(
           level: "warn",
           event: "openai_moderation_non_ok",
           status: response.status,
+          attempt,
           bodyPreview,
           // The IHDR of the payload, when it is a PNG. A 500 here on a
           // PNG encoding the guard above doesn't know about is how a new
@@ -392,27 +568,32 @@ export async function moderateImage(
           timestamp: new Date().toISOString(),
         }),
       );
-      // Enter the cooldown only for upstream-throttle / upstream-outage
-      // codes (429 + 5xx). 4xx other than 429 is a request-shape problem
-      // on our side (revoked key, malformed payload) — retrying won't
-      // hurt OpenAI, so we shouldn't penalise downstream callers either.
-      if (response.status === 429 || response.status >= 500) {
-        cooldownUntil = Date.now() + COOLDOWN_MS;
-      }
-      return unavailable();
+      if (response.status === 429) return { fault: "throttled" };
+      if (response.status >= 500) return { fault: "unhealthy" };
+      return { fault: "request" };
     }
 
-    const json = (await response.json()) as OpenAIModerationResponse;
-    const result = json.results?.[0];
-    if (!result) {
+    // Parsed here rather than left to the outer catch so an unusable 200
+    // is classified as `request` like the empty-results case it collapses
+    // into, instead of reading as an unhealthy upstream and earning a
+    // retry plus a streak increment.
+    const json = await response
+      .json()
+      .then((value) => value as OpenAIModerationResponse)
+      .catch(() => null);
+    const result = json?.results?.[0];
+    if (!isUsableResult(result)) {
       console.log(
         JSON.stringify({
           level: "warn",
           event: "openai_moderation_empty_results",
+          parsed: json !== null,
+          hasResult: result !== undefined,
+          attempt,
           timestamp: new Date().toISOString(),
         }),
       );
-      return unavailable();
+      return { fault: "request" };
     }
 
     const classifications = buildClassifications(
@@ -427,34 +608,31 @@ export async function moderateImage(
       flaggedByOpenAI: result.flagged,
     });
 
-    return { ...decision, classifications };
+    return { result: { ...decision, classifications } };
   } catch (err) {
     // Surface the failure mode (timeout vs. network vs. parse error)
     // without leaking image bytes — every retry is one fewer mystery
     // 503 in `wrangler tail` during incident response.
+    const isTimeout = err instanceof Error && err.name === "AbortError";
     console.log(
       JSON.stringify({
         level: "warn",
         event: "openai_moderation_failed",
         error: err instanceof Error ? err.message : String(err),
-        kind:
-          err instanceof Error && err.name === "AbortError"
-            ? "timeout"
-            : "other",
+        kind: isTimeout ? "timeout" : "other",
+        attempt,
         timestamp: new Date().toISOString(),
       }),
     );
-    // Trip the cooldown here too. Reaching this branch means we
-    // failed to even *read* an HTTP status from OpenAI — either our
-    // `AbortController` fired (upstream slower than `REQUEST_TIMEOUT_MS`
-    // ≈ overload) or the connection died outright (DNS / TCP / TLS /
-    // transport). Both shapes are the "upstream is unhealthy from this
-    // isolate" case the cooldown is meant to dampen. Without this, a
-    // hung upstream that times out instead of returning 5xx escapes the
-    // backoff entirely and we keep paying the full `REQUEST_TIMEOUT_MS`
-    // per request for the whole burst.
-    cooldownUntil = Date.now() + COOLDOWN_MS;
-    return unavailable();
+    // No HTTP status at all: either our `AbortController` fired (upstream
+    // slower than the remaining budget ≈ overload) or the connection died
+    // outright (DNS / TCP / TLS / transport). Both are the "upstream is
+    // unhealthy from this isolate" shape — without counting them, a hung
+    // upstream that times out instead of returning 5xx would escape the
+    // backoff entirely and we'd keep paying the full budget per upload
+    // for the whole burst. A timeout has by definition exhausted the
+    // shared deadline, so the loop above won't get another attempt.
+    return { fault: "unhealthy" };
   } finally {
     clearTimeout(timeout);
   }
