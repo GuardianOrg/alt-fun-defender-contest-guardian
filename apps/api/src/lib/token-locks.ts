@@ -32,7 +32,15 @@ export interface TokenLockSummary {
   lockedAmount: string;
   /** Share of the 1B initial supply, 0–100, two decimal places. */
   lockedPercent: number;
-  /** ISO timestamp of the last cliff to pass — when all of it is free. */
+  /**
+   * ISO timestamp of the **latest** cliff across the token's locks — the date
+   * by which all of `lockedAmount` is released.
+   *
+   * Not "the date `lockedAmount` unlocks": a token with several locks at
+   * different cliffs releases them progressively, so only part of the total
+   * survives to this date. Consumers must phrase it as an upper bound
+   * ("fully released by") rather than a duration for the whole amount.
+   */
   unlocksAt: string;
 }
 

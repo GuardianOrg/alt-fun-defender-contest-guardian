@@ -598,7 +598,12 @@ export interface ApiTokenLock {
   lockedAmount: string;
   /** Share of the 1B initial supply, 0–100. */
   lockedPercent: number;
-  /** ISO timestamp at which all of it becomes sellable. */
+  /**
+   * ISO timestamp of the latest cliff across the token's locks — the date by
+   * which all of `lockedAmount` is released. With multiple locks at different
+   * cliffs, part of the total frees up earlier, so treat this as an upper
+   * bound rather than the duration of the whole amount.
+   */
   unlocksAt: string;
 }
 

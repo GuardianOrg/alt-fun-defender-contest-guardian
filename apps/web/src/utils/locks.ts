@@ -41,9 +41,16 @@ export function formatLockPercent(percent: number): string {
  * fixed 1B initial supply, the same basis the holders table's `% Supply`
  * column uses. Since `title` reaches neither touch devices nor screen
  * readers, this sentence has to live on `aria-label` too.
+ *
+ * "Fully released by", not "until": `unlocksAt` is the *latest* cliff across
+ * every lock on the token, so when a token has several locks with different
+ * cliffs only part of the total is still locked at that date. "Locked until
+ * X" would assert the whole percentage survives to X, which over-states
+ * safety — the one direction this feature must never fail in. The wording
+ * here is true whether the token has one lock or five.
  */
 export function lockClaim(percent: number, unlocksAt: string): string {
   const date = formatUnlockDate(unlocksAt);
   const base = `${formatLockPercent(percent)} of the 1B initial supply is locked in Sablier`;
-  return date ? `${base} until ${date}` : base;
+  return date ? `${base}, fully released by ${date}` : base;
 }

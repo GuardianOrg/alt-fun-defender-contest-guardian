@@ -71,6 +71,15 @@ describe("lockClaim", () => {
     expect(lockClaim(0.3, "2026-11-25T15:05:21.000Z")).toContain("<1%");
   });
 
+  it("frames the date as an upper bound, not a duration for the whole amount", () => {
+    // `unlocksAt` is the latest cliff across every lock on the token, so with
+    // several locks only part of the percentage survives to that date.
+    // "Locked until X" would over-state how much stays locked.
+    const claim = lockClaim(75, "2026-11-25T15:05:21.000Z");
+    expect(claim).toContain("fully released by");
+    expect(claim).not.toContain("until");
+  });
+
   it("drops the date clause when the timestamp is unusable", () => {
     const claim = lockClaim(75, "not-a-date");
     expect(claim).toBe("75% of the 1B initial supply is locked in Sablier");
