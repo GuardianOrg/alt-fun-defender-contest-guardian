@@ -21,6 +21,18 @@ export function formatUnlockDate(iso: string): string | null {
 }
 
 /**
+ * Percentage shown on the pill and repeated in its claim.
+ *
+ * A lock small enough to round to zero still exists, and `0% LOCKED` reads as
+ * a broken number rather than a small one — the API omits unlocked tokens
+ * entirely, so any percentage that reaches here is nonzero by construction.
+ */
+export function formatLockPercent(percent: number): string {
+  const rounded = Math.round(percent);
+  return rounded === 0 ? "<1%" : `${rounded}%`;
+}
+
+/**
  * The full claim behind the `75% LOCKED` pill, used as both its `title` and
  * its `aria-label`.
  *
@@ -31,8 +43,7 @@ export function formatUnlockDate(iso: string): string | null {
  * readers, this sentence has to live on `aria-label` too.
  */
 export function lockClaim(percent: number, unlocksAt: string): string {
-  const rounded = Math.round(percent);
   const date = formatUnlockDate(unlocksAt);
-  const base = `${rounded}% of the 1B initial supply is locked in Sablier`;
+  const base = `${formatLockPercent(percent)} of the 1B initial supply is locked in Sablier`;
   return date ? `${base} until ${date}` : base;
 }

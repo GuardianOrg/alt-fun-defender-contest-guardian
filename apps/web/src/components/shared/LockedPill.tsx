@@ -1,5 +1,5 @@
 import styles from "./LockedPill.module.css";
-import { lockClaim } from "../../utils/locks";
+import { formatLockPercent, lockClaim } from "../../utils/locks";
 
 interface LockedPillProps {
   /** Share of the 1B initial supply that is locked, 0–100. */
@@ -24,7 +24,7 @@ export default function LockedPill({ percent, unlocksAt }: LockedPillProps) {
   const claim = lockClaim(percent, unlocksAt);
   return (
     <span className={styles.pill} title={claim} aria-label={claim}>
-      {Math.round(percent)}% LOCKED
+      {formatLockPercent(percent)} LOCKED
     </span>
   );
 }

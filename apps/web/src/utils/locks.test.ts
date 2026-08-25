@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { formatUnlockDate, indexTokenLocks, lockClaim } from "./locks";
+import {
+  formatLockPercent,
+  formatUnlockDate,
+  indexTokenLocks,
+  lockClaim,
+} from "./locks";
 
 import type { ApiTokenLock } from "../services/api";
 
@@ -41,6 +46,19 @@ describe("formatUnlockDate", () => {
   });
 });
 
+describe("formatLockPercent", () => {
+  it("rounds to whole percent", () => {
+    expect(formatLockPercent(74.62)).toBe("75%");
+  });
+
+  it("renders a sub-half-percent lock as <1% rather than 0%", () => {
+    // The API omits unlocked tokens, so any percentage reaching here is
+    // nonzero — "0% LOCKED" would read as a broken number, not a small one.
+    expect(formatLockPercent(0.3)).toBe("<1%");
+    expect(formatLockPercent(0.0001)).toBe("<1%");
+  });
+});
+
 describe("lockClaim", () => {
   it("names the denominator so the percentage can't read as circulating supply", () => {
     const claim = lockClaim(75, "2026-11-25T15:05:21.000Z");
@@ -49,8 +67,8 @@ describe("lockClaim", () => {
     expect(claim).toContain("Sablier");
   });
 
-  it("rounds to whole percent to match the pill label", () => {
-    expect(lockClaim(74.62, "2026-11-25T15:05:21.000Z")).toContain("75%");
+  it("shares the pill's percentage formatting", () => {
+    expect(lockClaim(0.3, "2026-11-25T15:05:21.000Z")).toContain("<1%");
   });
 
   it("drops the date clause when the timestamp is unusable", () => {

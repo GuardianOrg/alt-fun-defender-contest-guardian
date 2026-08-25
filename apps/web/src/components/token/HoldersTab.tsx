@@ -3,7 +3,7 @@ import { SABLIER_LOCKUP_ADDRESS } from "@launchpad/shared";
 import styles from "./BottomTabs.module.css";
 import TokenDataTable from "./TokenDataTable";
 import { cn } from "../../utils/format";
-import { formatUnlockDate } from "../../utils/locks";
+import { lockClaim } from "../../utils/locks";
 import Skeleton from "../shared/Skeleton";
 
 import type { TokenDataTableColumn } from "./TokenDataTable";
@@ -27,11 +27,21 @@ const BURN_DISPLAY_ADDRESS: Record<string, string> = {
 };
 
 /**
- * Tag copy for the Sablier escrow row. `LOCKED` is only claimed when the
- * token has a qualifying lock — the escrow keeps holding the balance after a
- * cliff passes (until the recipient withdraws), and at that point those
- * tokens are freely sellable, so an unconditional `LOCKED` would be a plain
- * lie. `SABLIER` is true of the address at all times.
+ * Tag copy for the Sablier escrow row.
+ *
+ * `LOCKED` is only claimed when the token has a qualifying lock, because the
+ * escrow keeps holding the balance after a cliff passes (until the recipient
+ * withdraws) and those tokens are freely sellable by then — an unconditional
+ * `LOCKED` would be a plain lie in exactly the window that matters.
+ *
+ * Neither branch says anything about this row's balance. The row aggregates
+ * every stream the escrow holds for the token, while `lock` covers only the
+ * qualifying deposits, so the two can legitimately differ; reusing the pill's
+ * `lockClaim` keeps the unsellable assertion pinned to a stated share of
+ * supply rather than to whatever total the row happens to show. The no-lock
+ * branch likewise describes the address only — it must stay true while the
+ * lock feed is still loading or unavailable, when absence of a lock is
+ * unknown rather than established.
  */
 function escrowTag(lock: ApiTokenLock | undefined): {
   label: string;
@@ -41,15 +51,12 @@ function escrowTag(lock: ApiTokenLock | undefined): {
     return {
       label: "SABLIER",
       title:
-        "Sablier vesting contract — these tokens are not currently under a qualifying lock",
+        "Sablier vesting contract — tokens held here follow a vesting or lock schedule",
     };
   }
-  const date = formatUnlockDate(lock.unlocksAt);
   return {
     label: "LOCKED",
-    title: date
-      ? `Locked in Sablier until ${date} — cannot be sold before then`
-      : "Locked in Sablier — cannot be sold before the unlock date",
+    title: lockClaim(lock.lockedPercent, lock.unlocksAt),
   };
 }
 

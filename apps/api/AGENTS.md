@@ -35,7 +35,7 @@ If a new route adds an outbound dependency that doesn't fit one of these, set th
 
 ## Aggregate routes (counter-backed, edge-cached)
 
-`/api/v1/holders`, `/api/v1/portfolio`, `/api/v1/security`, `/api/v1/creators`, and `/api/v1/stats` all answer in O(1) (or close to it) by reading indexer-side derived tables instead of paginating the trade history (issue #397). The mapping:
+`/api/v1/holders`, `/api/v1/portfolio`, `/api/v1/security`, `/api/v1/creators`, `/api/v1/stats`, and `/api/v1/locks` all answer in O(1) (or close to it) by reading indexer-side derived tables instead of paginating the trade history (issue #397). The mapping:
 
 | Route | Source on the indexer | Was |
 |---|---|---|
@@ -46,7 +46,7 @@ If a new route adds an outbound dependency that doesn't fit one of these, set th
 | `GET /stats` | `globalStats` singleton + last 24 `hourlyVolume` buckets | Paginated *every token in the catalogue* and *every Zap trade in the last 24h*. |
 | `GET /locks` | `token_lock` filtered by cliff-time cutoff | New in this release — no prior implementation. |
 
-All five also declare a 15–30s edge window via `setEdgeCacheHeaders` so the Cloudflare edge absorbs concurrent requests instead of fanning every hot page load into the indexer.
+All six also declare an edge window via `setEdgeCacheHeaders` so the Cloudflare edge absorbs concurrent requests instead of fanning every hot page load into the indexer — 15–30s for the five trade-derived routes, 60s for `/locks` (locks only move when a creator creates one or a cliff passes).
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
 
