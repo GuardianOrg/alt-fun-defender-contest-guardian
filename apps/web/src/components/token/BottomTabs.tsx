@@ -4,6 +4,7 @@ import styles from "./BottomTabs.module.css";
 import HoldersTab from "./HoldersTab";
 import TradesTab from "./TradesTab";
 import { useHolders } from "../../hooks/useHolders";
+import { useTokenLocks } from "../../hooks/useTokenLocks";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import SegmentedButton from "../shared/SegmentedButton";
 
@@ -26,6 +27,9 @@ export default function BottomTabs({ token }: Props) {
   const { data: holders = [], isPlaceholderData: holdersLoading } = useHolders(
     token.address,
   );
+  // Decides whether the Sablier escrow row is tagged `LOCKED` or just
+  // `SABLIER` — see `escrowTag` in `HoldersTab`.
+  const lock = useTokenLocks().getLock(token.address);
 
   return (
     <>
@@ -63,6 +67,7 @@ export default function BottomTabs({ token }: Props) {
               holders={holders}
               isLoading={holdersLoading}
               creatorAddress={token.creatorAddress}
+              lock={lock}
             />
           </ErrorBoundary>
         )}

@@ -1,9 +1,13 @@
+import { SABLIER_LOCKUP_ADDRESS } from "@launchpad/shared";
+
 import styles from "./BottomTabs.module.css";
 import TokenDataTable from "./TokenDataTable";
 import { cn } from "../../utils/format";
+import { formatUnlockDate } from "../../utils/locks";
 import Skeleton from "../shared/Skeleton";
 
 import type { TokenDataTableColumn } from "./TokenDataTable";
+import type { ApiTokenLock } from "../../services/api";
 import type { Holder } from "../../services/types";
 
 const HOLDER_SKELETON_COUNT = 8;
@@ -22,18 +26,48 @@ const BURN_DISPLAY_ADDRESS: Record<string, string> = {
   "0xfefefefefefefefefefefefefefefefefefefefe": "0xfe…fe",
 };
 
+/**
+ * Tag copy for the Sablier escrow row. `LOCKED` is only claimed when the
+ * token has a qualifying lock — the escrow keeps holding the balance after a
+ * cliff passes (until the recipient withdraws), and at that point those
+ * tokens are freely sellable, so an unconditional `LOCKED` would be a plain
+ * lie. `SABLIER` is true of the address at all times.
+ */
+function escrowTag(lock: ApiTokenLock | undefined): {
+  label: string;
+  title: string;
+} {
+  if (!lock) {
+    return {
+      label: "SABLIER",
+      title:
+        "Sablier vesting contract — these tokens are not currently under a qualifying lock",
+    };
+  }
+  const date = formatUnlockDate(lock.unlocksAt);
+  return {
+    label: "LOCKED",
+    title: date
+      ? `Locked in Sablier until ${date} — cannot be sold before then`
+      : "Locked in Sablier — cannot be sold before the unlock date",
+  };
+}
+
 interface Props {
   holders: Holder[];
   /** True while `useHolders` is fetching for the first time. */
   isLoading?: boolean;
   /** Token creator / contract owner, lowercased for comparison. */
   creatorAddress?: string;
+  /** This token's active supply lock, if it has one. */
+  lock?: ApiTokenLock;
 }
 
 export default function HoldersTab({
   holders,
   isLoading = false,
   creatorAddress,
+  lock,
 }: Props) {
   const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
   const showSkeletons = isLoading && holders.length === 0;
@@ -83,6 +117,8 @@ export default function HoldersTab({
               const wallet = h.walletFull.toLowerCase();
               const isBurnt = BURN_ADDRESSES.has(wallet);
               const isOwner = !!ownerAddress && wallet === ownerAddress;
+              const escrow =
+                wallet === SABLIER_LOCKUP_ADDRESS ? escrowTag(lock) : null;
               // Default truncation hides the tail that distinguishes burn sinks.
               const displayAddress = isBurnt
                 ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
@@ -132,6 +168,15 @@ export default function HoldersTab({
                         aria-label="Creator"
                       >
                         CREATOR
+                      </span>
+                    )}
+                    {escrow && (
+                      <span
+                        className={styles.holderTag}
+                        title={escrow.title}
+                        aria-label={escrow.title}
+                      >
+                        {escrow.label}
                       </span>
                     )}
                   </td>

@@ -8,11 +8,13 @@ import {
   FactoryAbi,
   ZapAbi,
   BotFeeRouterAbi,
+  SablierLockupAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
   BONDING_START_BLOCK,
   BOT_FEE_ROUTER_START_BLOCK,
+  SABLIER_LOCKUP_ADDRESS,
 } from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -101,6 +103,21 @@ export default createConfig({
       abi: BotFeeRouterAbi,
       address: botFeeRouterAddress,
       startBlock: botFeeRouterStartBlock,
+    },
+    /**
+     * Sablier Lockup v4.0 — a third-party escrow, not ours. Creators lock
+     * token supply through app.sablier.com and the handler in
+     * `src/sablier.ts` turns the qualifying streams into `tokenLock` rows.
+     *
+     * Reuses `startBlock` rather than Sablier's own deploy block (which is
+     * ~5M blocks earlier) because no Alt Fun token existed before
+     * `BONDING_START_BLOCK`, so nothing indexable can precede it.
+     */
+    SablierLockup: {
+      chain: "hyperevm",
+      abi: SablierLockupAbi,
+      address: SABLIER_LOCKUP_ADDRESS,
+      startBlock,
     },
     Token: {
       chain: "hyperevm",

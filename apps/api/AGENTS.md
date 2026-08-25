@@ -44,10 +44,23 @@ If a new route adds an outbound dependency that doesn't fit one of these, set th
 | `GET /security/:address` | `tokenBalance` row keyed `${creator}-${tokenAddress}` (primary-key hit) | Paginated up to 20K `routerTrades` to sum the creator's net position. |
 | `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single indexer read) | Paginated every trade across every token the creator has ever launched. |
 | `GET /stats` | `globalStats` singleton + last 24 `hourlyVolume` buckets | Paginated *every token in the catalogue* and *every Zap trade in the last 24h*. |
+| `GET /locks` | `token_lock` filtered by cliff-time cutoff | New in this release — no prior implementation. |
 
 All five also declare a 15–30s edge window via `setEdgeCacheHeaders` so the Cloudflare edge absorbs concurrent requests instead of fanning every hot page load into the indexer.
 
 When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
+
+### Supply locks (`GET /api/v1/locks`)
+
+Serves every token with an active supply lock, **catalogue-wide and unfiltered by token**. That shape is the point: the locked set is a small fraction of the catalogue, so one 60s-edge-cached body feeds the home-page list *and* every token page, where a per-token variant would be a read per row. Clients index the response by lowercased `tokenAddress` and treat an absent entry as "no lock". `MAX_LOCK_ROWS` bounds the scan; a truncated page just means some tokens miss their badge.
+
+A lock qualifies only when it is a non-cancelable Sablier pure timelock with more than `MIN_LOCK_DURATION_SECONDS` (7 days) still to run. The indexer already guarantees the first two properties — see `apps/indexer/AGENTS.md` → *Supply locks* — so `lib/token-locks.ts` only applies the duration cutoff and sums deposits. `summariseTokenLocks` re-applies the cutoff that `fetchActiveTokenLocks` pushes into SQL: the SQL predicate is there to keep the scan small, the TypeScript one is the definition.
+
+`lockedPercent` divides by the **1B initial supply**, not live `totalSupply()`, which drops at graduation as unsold curve tokens and excess LP reserve are burned. That understates the share of live supply — for a token that graduated with 62.5M burned, a 750M lock reads 75% rather than 80%. It is the wrong number in isolation and the right one in context: `routes/holders.ts` and `routes/security-v2.ts` both divide by 1B, and the holders row for the very same escrow balance sits directly below this pill on the token page. Two visibly disagreeing percentages for one balance is a worse failure than a uniformly conservative denominator. Moving all three to live supply is a single follow-up; splitting them is not an option.
+
+An indexer read failure returns **503, never an empty list** — "we couldn't check" must not render as "nothing is locked", and the 503 also keeps the outage out of the edge cache.
+
+**Deploy order matters.** `ponder_views.token_lock` doesn't exist until the indexer has redeployed and recreated its views, so ship the indexer first. An API deployed ahead of it answers a permanent 503 that looks like a transient outage.
 
 ## Edge caching: `s-maxage` alone does nothing
 

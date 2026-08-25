@@ -22,6 +22,7 @@ import {
   indexerRouterTrade,
   indexerToken,
   indexerTokenBalance,
+  indexerTokenLock,
   indexerTokenSnapshot,
   indexerWalletBotPosition,
   indexerWalletPosition,
@@ -33,8 +34,10 @@ import {
 } from "../utils/outbound-timeout.js";
 import { describeError } from "./log-error.js";
 import { notMintPausedLt } from "./public-token-visibility.js";
+import { MIN_LOCK_DURATION_SECONDS } from "./token-locks.js";
 
 import type { Database } from "../db/client.js";
+import type { TokenLockRow } from "./token-locks.js";
 import type {
   MarketDataItem,
   PonderTokenOnchain,
@@ -1824,6 +1827,46 @@ export async function fetchCreatorVolumesByAddresses(
       error,
       { count: addresses.length, limit },
     );
+    return null;
+  }
+}
+
+/**
+ * Every supply lock that still has at least `MIN_LOCK_DURATION_SECONDS` to
+ * run, across the whole catalogue. Backs `GET /api/v1/locks`.
+ *
+ * Unfiltered by token on purpose: the locked set is a small fraction of the
+ * catalogue, so one shared response serves the home page and every token page
+ * from a single edge-cached body instead of a per-token read. `limit` bounds
+ * the work if locking ever becomes common — a truncated page just means some
+ * tokens miss their badge, which is the same failure direction as everything
+ * else in this feature.
+ *
+ * The `cliff_time` predicate mirrors the rule in `summariseTokenLocks`, which
+ * re-applies it. Duplicated deliberately: here for the index scan, there for
+ * the definition.
+ */
+export async function fetchActiveTokenLocks(
+  db: Database,
+  nowSec: number,
+  limit: number,
+): Promise<TokenLockRow[] | null> {
+  const cutoff = String(nowSec + MIN_LOCK_DURATION_SECONDS);
+  try {
+    return await db
+      .select({
+        tokenAddress: indexerTokenLock.tokenAddress,
+        depositAmount: indexerTokenLock.depositAmount,
+        cliffTime: indexerTokenLock.cliffTime,
+      })
+      .from(indexerTokenLock)
+      .where(gt(indexerTokenLock.cliffTime, cutoff))
+      .limit(limit);
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchActiveTokenLocks_failed", error, {
+      cutoff,
+      limit,
+    });
     return null;
   }
 }

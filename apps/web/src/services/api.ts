@@ -591,6 +591,27 @@ export function fetchHolders(
   return apiFetch(`/api/v1/holders/${address}?limit=${limit}`);
 }
 
+export interface ApiTokenLock {
+  /** Lowercased token address. */
+  tokenAddress: string;
+  /** Locked tokens, 18dp raw. */
+  lockedAmount: string;
+  /** Share of the 1B initial supply, 0–100. */
+  lockedPercent: number;
+  /** ISO timestamp at which all of it becomes sellable. */
+  unlocksAt: string;
+}
+
+/**
+ * Every token with an active supply lock, catalogue-wide. Deliberately not
+ * per-token: the locked set is tiny, so one long-cached response feeds the
+ * home-page list and every token page. Tokens absent from the list have no
+ * lock.
+ */
+export function fetchTokenLocks(): Promise<{ locks: ApiTokenLock[] }> {
+  return apiFetch("/api/v1/locks");
+}
+
 // API wraps the LT directory in an inner `{ data: [...] }` envelope.
 
 export async function fetchLeveragedTokens(

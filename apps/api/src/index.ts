@@ -27,6 +27,7 @@ import botPositionsV2 from "./routes/bot/positions-v2.js";
 import botReferrals from "./routes/bot/referrals.js";
 import botReferralsV2 from "./routes/bot/referrals-v2.js";
 import holders from "./routes/holders.js";
+import locks from "./routes/locks.js";
 import securityV2 from "./routes/security-v2.js";
 import profiles from "./routes/profiles.js";
 import moderation from "./routes/moderation.js";
@@ -189,6 +190,7 @@ app.route("/api/v1/bot/positions-v2", botPositionsV2);
 app.route("/api/v1/bot/referrals", botReferrals);
 app.route("/api/v1/bot/referrals-v2", botReferralsV2);
 app.route("/api/v1/holders", holders);
+app.route("/api/v1/locks", locks);
 // v1 GraphQL-backed `security` route was retired (issue #942) — the
 // DB-backed `securityV2` handler now serves both the canonical
 // `/api/v1/security` path and the additive `-v2` path it shipped under.

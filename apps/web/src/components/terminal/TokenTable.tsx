@@ -7,6 +7,7 @@ import TokenRowSkeleton from "./TokenRowSkeleton";
 import styles from "./TokenTable.module.css";
 import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
+import { useTokenLocks } from "../../hooks/useTokenLocks";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useInfiniteTokens } from "../../hooks/useTokens";
 import {
@@ -67,6 +68,9 @@ export default function TokenTable() {
   // One batched market-data query covers the current infinite-scroll window.
   const addresses = useMemo(() => tokens.map((t) => t.address), [tokens]);
   const { getStats } = useTokenMarketStatsMap(addresses);
+  // Catalogue-wide and long-cached, so it's lifted here for the same reason
+  // market stats are: one request per page rather than one per row.
+  const { getLock } = useTokenLocks();
 
   // Timestamp gate filters out initial pages, pagination, and old refetch rows.
   const flashingIds = useFlashOnNew(tokens, getTokenId, {
@@ -145,6 +149,7 @@ export default function TokenTable() {
                   key={t.address}
                   token={t}
                   stats={getStats(t.address)}
+                  lock={getLock(t.address)}
                   isNew={flashingIds.has(getTokenId(t))}
                   eager={index < EAGER_ROW_COUNT}
                   viewMode={tokenViewMode}

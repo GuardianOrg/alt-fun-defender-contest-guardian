@@ -640,6 +640,57 @@ export const referrerStats = onchainTable("referrer_stats", (t) => ({
 }));
 
 /**
+ * Supply locks: Sablier Lockup streams that escrow one of our tokens.
+ *
+ * **Every row in this table is already a qualifying lock.** The handler in
+ * `src/sablier.ts` only inserts streams whose shape makes them a pure
+ * timelock (nothing unlocks before the cliff, the whole deposit unlocks at
+ * it) *and* that are non-cancelable. So the API's read is just a cliff-time
+ * cutoff — it never has to re-derive eligibility, and there is no vesting
+ * curve to evaluate. See `src/sablier.ts` for why each condition is
+ * load-bearing.
+ *
+ * Append-only. Withdrawals, cancellations and NFT transfers are all
+ * deliberately unindexed: a pure timelock pays out nothing before
+ * `cliffTime` and a non-cancelable stream cannot be clawed back, so no
+ * post-creation event can reduce the locked amount before the cliff — and
+ * after the cliff the cutoff drops the row anyway.
+ */
+export const tokenLock = onchainTable("token_lock", (t) => ({
+  /**
+   * `${lockup}-${streamId}`. Keyed on the escrow address too so a future
+   * Sablier release can be indexed alongside v4 without stream-id collisions.
+   */
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  /**
+   * The Sablier Lockup contract holding the tokens. This is also the wallet
+   * that shows up in `tokenBalance` (and therefore the holders table), which
+   * is how the frontend knows which holder row to tag.
+   */
+  lockup: t.hex().notNull(),
+  streamId: t.bigint().notNull(),
+  /** Tokens escrowed (18dp). Locked in full until `cliffTime`, then zero. */
+  depositAmount: t.bigint().notNull(),
+  /** Unix seconds at which the whole deposit becomes withdrawable. Never 0. */
+  cliffTime: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  // Backs `fetchActiveTokenLocks` in `apps/api/src/lib/indexer-reads.ts`:
+  //
+  //   SELECT ... FROM ponder_views.token_lock
+  //   WHERE cliff_time > $cutoff
+  //
+  // Rows whose cliff has passed (or is within the minimum-duration
+  // window) are the majority once the platform has been live a while,
+  // so the index keeps the scan proportional to the *active* locks
+  // rather than every lock ever created. Mirrored on the API side in
+  // `apps/api/src/db/indexer-schema.ts` — keep the two in lockstep.
+  cliffTimeIdx: index().on(table.cliffTime),
+}));
+
+/**
  * Helper table: tracks which trader wallets have already been counted
  * toward a referrer's `referredCount`. Without this, multiple trades
  * by the same trader under the same referrer would over-count distinct

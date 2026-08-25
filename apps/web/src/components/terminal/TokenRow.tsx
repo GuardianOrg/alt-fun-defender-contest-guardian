@@ -18,10 +18,12 @@ import AssetIcon from "../shared/AssetIcon";
 import CommunityTakeoverPill from "../shared/CommunityTakeoverPill";
 import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
+import LockedPill from "../shared/LockedPill";
 import ProgressBar from "../shared/ProgressBar";
 import RollingNumber from "../shared/RollingNumber";
 
 import type { TokenMarketStats } from "../../hooks/useTokenMarketStats";
+import type { ApiTokenLock } from "../../services/api";
 import type { Token } from "../../services/types";
 import type { TokenViewMode } from "../../state/uiSlice";
 
@@ -29,6 +31,8 @@ interface Props {
   token: Token;
   /** Market stats are lifted to `TokenTable` so each page makes one bounded request. */
   stats: TokenMarketStats;
+  /** Active supply lock, lifted to `TokenTable`. Undefined when unlocked. */
+  lock?: ApiTokenLock;
   /** Flash newly arrived rows from live WS updates or dev-injected mock tokens. */
   isNew?: boolean;
   /** Eager-load above-the-fold token logos for LCP. */
@@ -39,6 +43,7 @@ interface Props {
 export default function TokenRow({
   token,
   stats,
+  lock,
   isNew = false,
   eager = false,
   viewMode,
@@ -115,6 +120,12 @@ export default function TokenRow({
             {isGraduating && <GraduatingPill />}
             {isGraduated && <GraduatedPill />}
             {token.communityTakeoverAt && <CommunityTakeoverPill />}
+            {lock && (
+              <LockedPill
+                percent={lock.lockedPercent}
+                unlocksAt={lock.unlocksAt}
+              />
+            )}
           </div>
           <span className={styles.tokenFullName}>{token.name}</span>
         </div>
