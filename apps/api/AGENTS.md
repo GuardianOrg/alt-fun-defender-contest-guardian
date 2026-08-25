@@ -26,7 +26,7 @@ Budget guidance — looser needs an inline comment explaining why:
 
 | Surface | Budget | Notes |
 |---|---|---|
-| OpenAI moderation (`lib/image-moderation.ts`) | `REQUEST_TIMEOUT_MS` (10s) | Fail-closed on timeout — no upload happens. |
+| OpenAI moderation (`lib/image-moderation.ts`) | `REQUEST_TIMEOUT_MS` (25s) | Fail-closed on timeout — no upload happens. Budget covers **all** attempts for one upload, not each. |
 | Asset/image proxy (`routes/assets.ts → fetchWithTimeout`) | per-call | Helper takes `timeoutMs` explicitly. |
 | Neon / BounceTech HTTP (`db/client.ts`) | `DEFAULT_OUTBOUND_TIMEOUT_MS` (8s) | Armed on every `neon()` HTTP fetch. Chart/list wrap with `HEAVY_READ_TIMEOUT_MS` (20s). Timeout throws; read helpers map it to `null` / 503. |
 | In-isolate coalesced reads (`utils/inflight.ts`) | `INFLIGHT_TIMEOUT_MS` (25s) | Must exceed `HEAVY_READ_TIMEOUT_MS`. 8s-budget keys wait 25s too — a uniform timeout has to clear the largest abort. Spent retries map to `null` / `"unavailable"` so routes 503. |
@@ -204,7 +204,38 @@ Three outcomes per upload, recorded in the `moderation_logs` table:
 - **Pending review** → 200 with `flaggedForReview: true`, image is still written to R2 so admins can inspect it via `GET /admin/moderation/pending`. Triggered when a score sits between `review` and `reject`.
 - **Approve** → 200, plain success.
 
+- **Undecodable PNG** → 400, no R2 write, no `moderation_logs` row, no request spent on OpenAI. Also fail-closed, but attributed to the file rather than the upstream. See *Undecodable PNG encodings* below.
+
 Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as 503 ("moderation temporarily unavailable") and **no upload happens**. This is the failure mode the endpoint exists to prevent — never relax it without the matching docs/AGENTS update.
+
+### Retry, backoff, and the alert hook
+
+A 5xx or a request that never yields a status gets **one retry** (`MAX_ATTEMPTS = 2`), because OpenAI's `500 server_error` is usually a single-request fault and moderation is idempotent. Retries share the one `REQUEST_TIMEOUT_MS` budget instead of getting a fresh window each, which makes the retry conditional on the first attempt having failed *fast* — a 500 back in 200ms leaves 24.8s to try again, one that crawls in at 24s leaves no room and we give up. Token creation has the user watching a spinner before the wallet popup, so the wait must not double because we chose to retry. A 429 is never retried: hammering a throttle extends it.
+
+Backing off is then **streak-gated** — `FAILURE_STREAK_BEFORE_BACKOFF = 3` before `COOLDOWN_MS` arms. The streak counts consecutive *upstream* faults, meaning `unhealthy` and `throttled` only; a `request` fault never advances it, so a malformed 200 still surfaces as a 503 to its own caller without moving the isolate toward backoff. Any successful moderation resets it to zero.
+
+One upstream fault is not an outage, and arming on it turns one person's bad luck into a 30s outage for everyone else on the isolate; letting the next upload proceed costs one request and usually just works. Past the threshold the cooldown gates the isolate and the upload after it expires becomes a half-open probe. A `throttled` fault arms immediately regardless of where the streak sits — that is OpenAI explicitly telling us to stop (issue #509) — while still counting, so sustained throttling eventually alerts too.
+
+Crossing the threshold emits **`openai_moderation_repeated_failures`** at `level: "error"` with the streak count. That event name is the on-call alert hook — renaming it silently disables the alert, and note the event only *enables* paging: the rule that matches it lives in Cloudflare observability, not in this repo. Emission is floored at one per `ALERT_INTERVAL_MS` (= `COOLDOWN_MS`), because every upload still in flight when the streak breaks also lands past the threshold and would otherwise page individually. A sustained outage therefore pages roughly every 30s rather than once per fault.
+
+Faults are classified in one place so this policy stays readable: `throttled` (429 — back off now, never retry), `unhealthy` (5xx / no status — retry, counts toward the streak), `request` (other 4xx, or a 200 whose body can't be parsed or carries no usable verdict — ours to fix, so no retry, no backoff, and it does not count toward the streak).
+
+A 200 counts as usable only if it carries a boolean `flagged` and at least one scorable category (`isUsableResult`). Anything less means nothing actually scored the image, and `decide` would hand back `safe` on an empty score map — putting an unmoderated image in R2, which is the one outcome this module exists to prevent.
+
+### Undecodable PNG encodings
+
+Exactly two PNG encodings make OpenAI's moderation endpoint return `500 {"type":"server_error","message":"Unexpected error"}` on every attempt:
+
+| Colour type | Bit depth | Meaning |
+|---|---|---|
+| 4 | 8 | grayscale + alpha |
+| 0 | 16 | 16-bit grayscale |
+
+Both are ordinary Pillow / ImageMagick output for a monochrome logo with transparency, so real token logos arrive in this shape. Everything around them decodes fine — including the near misses that make the pairing load-bearing: colour type 4 at bit depth **16** passes, and colour type 0 at bit depths 1/2/4/8 passes. So do RGB, RGBA, palette, 16-bit RGB/RGBA, interlaced, APNG, GIF (incl. animated), WebP (incl. animated), CMYK JPEG, 12000×12000, and 4.8MB near-limit files.
+
+`isUndecodablePng` in `lib/image-moderation.ts` reads bit depth and colour type out of the IHDR (fixed offsets 24 and 25, signature-gated) and returns `unprocessable` before the request is made. Doing it locally rather than inferring it from OpenAI's response matters because that 500 is indistinguishable from OpenAI being down, and conflating the two cost us twice: the uploader was told to retry bytes that could never pass, and the 5xx armed `COOLDOWN_MS`, so one undecodable logo 503'd every *other* caller on that isolate for 30 seconds. Keeping the check local leaves the 5xx branch meaning strictly "OpenAI is unhealthy".
+
+Match on the exact pairs and keep the list to encodings actually measured against the live endpoint — this is not a general image validator, and widening it silently rejects valid logos, which is worse than the 503 it saves. An encoding *not* on the list that OpenAI can't decode still surfaces as a 503; `openai_moderation_non_ok` carries the payload's IHDR fields so a new bad combination is identifiable rather than looking like an outage. `apps/web/src/utils/imageProcessing.ts` canvas-normalises every PNG before upload (canvas always emits RGBA), so in practice only direct API callers reach this guard.
 
 CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by design). The strict `sexual` threshold acts as a coarse proxy, but this layer is **not** a NCMEC-certified hash matcher — explicitly documented in root `AGENTS.md`. Don't represent it externally as one.
 

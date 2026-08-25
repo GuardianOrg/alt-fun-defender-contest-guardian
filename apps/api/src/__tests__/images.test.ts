@@ -111,6 +111,46 @@ function mockOpenAIFetch(response: unknown, init: { status?: number } = {}) {
   );
 }
 
+/**
+ * Minimal PNG carrying a real IHDR, so the encoding guard in
+ * `image-moderation.ts` reads the bit depth / colour type it would read
+ * off a genuine file. Only the header matters — nothing decodes these.
+ */
+function pngWithIhdr(bitDepth: number, colourType: number): Uint8Array {
+  const bytes = new Uint8Array(64);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  bytes.set([0x00, 0x00, 0x00, 0x0d], 8); // IHDR length
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12); // "IHDR"
+  bytes.set([0x00, 0x00, 0x00, 0x01], 16); // width 1
+  bytes.set([0x00, 0x00, 0x00, 0x01], 20); // height 1
+  bytes[24] = bitDepth;
+  bytes[25] = colourType;
+  return bytes;
+}
+
+/**
+ * One upload from a fixed IP, for the specs that need several in a row
+ * to walk the retry / backoff state machine. Defaults to an RGBA PNG so
+ * the encoding guard stays out of the way.
+ */
+function uploadFrom(
+  app: Hono<{ Bindings: AppBindings }>,
+  ip: string,
+  bytes: Uint8Array = pngWithIhdr(8, 6),
+) {
+  const formData = new FormData();
+  formData.append("file", new File([bytes], "logo.png", { type: "image/png" }));
+  return app.request(
+    "/api/v1/images",
+    {
+      method: "POST",
+      body: formData,
+      headers: { "CF-Connecting-IP": ip, Host: "api.altfun.com" },
+    },
+    makeEnv(),
+  );
+}
+
 function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
@@ -292,6 +332,116 @@ describe("POST /api/v1/images — image upload", () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
     expect(body.error).toContain("temporarily unavailable");
+    expect(mockR2Put).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["8-bit grayscale + alpha", 8, 4],
+    ["16-bit grayscale", 16, 0],
+  ])(
+    "returns 400 without calling OpenAI for a %s PNG",
+    async (_label, bitDepth, colourType) => {
+      // OpenAI reports "I can't decode this file" with the same 500 it
+      // uses for its own outages, which used to strand the uploader on
+      // retry-forever copy *and* arm the 30s cooldown against everyone
+      // else on the isolate. Both encodings are ordinary Pillow /
+      // ImageMagick output for a monochrome logo with transparency.
+      const app = createApp();
+      const formData = new FormData();
+      formData.append(
+        "file",
+        new File([pngWithIhdr(bitDepth, colourType)], "logo.png", {
+          type: "image/png",
+        }),
+      );
+
+      const res = await uploadRequest(app, { method: "POST", body: formData });
+
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+      expect(body.error).toContain("could not be read");
+      // Fail-closed, and cheap: no R2 write, no `moderation_logs` row
+      // (nothing was classified), and no request spent on OpenAI.
+      expect(mockR2Put).not.toHaveBeenCalled();
+      expect(mockDbInsert).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["8-bit grayscale", 8, 0],
+    ["RGB", 8, 2],
+    ["palette", 8, 3],
+    ["RGBA", 8, 6],
+    ["16-bit RGBA", 16, 6],
+    // The near misses that matter most: each is one field away from a
+    // rejected pair and verified to moderate fine against the live
+    // endpoint, so a guard that matched on colour type alone (or bit
+    // depth alone) would start rejecting valid logos.
+    ["16-bit grayscale + alpha", 16, 4],
+    ["1-bit grayscale", 1, 0],
+    ["4-bit grayscale", 4, 0],
+  ])("still moderates a %s PNG", async (_label, bitDepth, colourType) => {
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([pngWithIhdr(bitDepth, colourType)], "logo.png", {
+        type: "image/png",
+      }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
+  });
+
+  it("only reads the IHDR of an actual PNG, not of any payload", async () => {
+    // Without the signature gate this buffer would be read as 8-bit
+    // grayscale-plus-alpha and rejected, taking WebP / JPEG / GIF
+    // uploads that happen to carry those byte values with it.
+    const notPng = pngWithIhdr(8, 4);
+    notPng[0] = 0x52; // break the PNG signature ("RIFF"-ish first byte)
+
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([notPng], "logo.webp", { type: "image/webp" }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(200);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["no result fields at all", {}],
+    ["no verdict", { categories: {}, category_scores: {} }],
+    ["a verdict but nothing scored", { flagged: false, categories: {}, category_scores: {} }],
+  ])("fails closed on a 200 carrying %s", async (_label, result) => {
+    // The dangerous one is the third: every score reads as absent, so
+    // `decide` finds nothing to reject and would hand back `safe` for an
+    // image nothing ever looked at, putting it in R2 unmoderated.
+    globalThis.fetch = mockOpenAIFetch({
+      id: "modr-test",
+      model: "omni-moderation-latest",
+      results: [result],
+    });
+
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+
+    const res = await uploadRequest(app, { method: "POST", body: formData });
+
+    expect(res.status).toBe(503);
     expect(mockR2Put).not.toHaveBeenCalled();
   });
 
@@ -612,78 +762,221 @@ describe("POST /api/v1/images — OpenAI cooldown cache (issue #509)", () => {
     expect(mockR2Put).not.toHaveBeenCalled();
   });
 
-  it("short-circuits after a 5xx from OpenAI", async () => {
+  it("retries a 5xx once and returns the retry's verdict", async () => {
+    // OpenAI's 500 is usually a single-request fault, and moderation is
+    // idempotent, so the retry turns it into a clean pass rather than a
+    // 503 the user has to act on.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(makeOpenAIModerationResponse()), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+    globalThis.fetch = fetchMock;
+
+    const res = await uploadFrom(createApp(), "198.51.100.55");
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the next upload through instead of backing off on one failure", async () => {
+    // One failed upload is not an outage. Arming the cooldown on it
+    // would turn one person's bad luck into a 30s outage for everyone
+    // else routed through this isolate.
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response("{}", { status: 500 })),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(makeOpenAIModerationResponse()), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+    globalThis.fetch = fetchMock;
+    const app = createApp();
+
+    const failed = await uploadFrom(app, "198.51.100.56");
+    expect(failed.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const next = await uploadFrom(app, "198.51.100.56");
+    expect(next.status).toBe(200);
+  });
+
+  it("backs off and raises an alert after three consecutive failures", async () => {
     const fetchMock = mockOpenAIFetch({}, { status: 503 });
+    globalThis.fetch = fetchMock;
+    const logSpy = vi.spyOn(console, "log");
+    const app = createApp();
+
+    for (let i = 0; i < 3; i++) {
+      const res = await uploadFrom(app, "198.51.100.51");
+      expect(res.status).toBe(503);
+    }
+    // Three uploads, each retried once.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+
+    const alerts = logSpy.mock.calls
+      .map(([line]) => (typeof line === "string" ? line : ""))
+      .filter((line) => line.includes("openai_moderation_repeated_failures"));
+    // On-call alerts match this event name — one per cooldown window, so
+    // a sustained outage pages once rather than per upload.
+    expect(alerts).toHaveLength(1);
+    expect(JSON.parse(alerts[0]).level).toBe("error");
+    expect(JSON.parse(alerts[0]).consecutiveFailures).toBe(3);
+    logSpy.mockRestore();
+
+    const afterBackoff = await uploadFrom(app, "198.51.100.51");
+    expect(afterBackoff.status).toBe(503);
+    // Cooldown armed — no further requests spent on a known-sick upstream.
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("does not let an undecodable PNG arm the cooldown against other callers", async () => {
+    // The blast radius is the point: the encoding guard runs before the
+    // OpenAI call, so the 5xx that used to 503 every other caller on
+    // this isolate for 30s never happens.
+    const fetchMock = mockOpenAIFetch(makeOpenAIModerationResponse());
     globalThis.fetch = fetchMock;
 
     const app = createApp();
     const headers = {
-      "CF-Connecting-IP": "198.51.100.51",
+      "CF-Connecting-IP": "198.51.100.54",
       Host: "api.altfun.com",
     };
 
-    for (const name of ["a.png", "b.png", "c.png"]) {
-      const formData = new FormData();
-      formData.append(
-        "file",
-        new File([new Uint8Array(100)], name, { type: "image/png" }),
-      );
-      const res = await app.request(
-        "/api/v1/images",
-        { method: "POST", body: formData, headers },
-        makeEnv(),
-      );
-      expect(res.status).toBe(503);
-    }
+    const badUpload = new FormData();
+    badUpload.append(
+      "file",
+      new File([pngWithIhdr(8, 4)], "grayscale-alpha.png", { type: "image/png" }),
+    );
+    const res1 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: badUpload, headers },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const goodUpload = new FormData();
+    goodUpload.append(
+      "file",
+      new File([pngWithIhdr(8, 6)], "fine.png", { type: "image/png" }),
+    );
+    const res2 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: goodUpload, headers },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(200);
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
   });
 
-  it("trips the cooldown when the OpenAI request fails before yielding a status (timeout / network error)", async () => {
+  it("treats a result missing its score maps as a payload problem, not an outage", async () => {
+    // Most likely an upstream schema change. Classifying it as unhealthy
+    // would retry every upload and then page the on-call about an
+    // "outage" that no amount of waiting fixes.
+    globalThis.fetch = mockOpenAIFetch({
+      id: "modr-test",
+      model: "omni-moderation-latest",
+      results: [{}],
+    });
+    const app = createApp();
+
+    for (let i = 0; i < 4; i++) {
+      const res = await uploadFrom(app, "198.51.100.60");
+      expect(res.status).toBe(503);
+    }
+    // One call per upload: no retry, and no backoff after three of them.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+    expect(mockR2Put).not.toHaveBeenCalled();
+  });
+
+  it("raises one alert even when the streak breaks on concurrent uploads", async () => {
+    // Uploads already in flight when the third failure lands also see a
+    // broken streak. Without the alert floor each one would page.
+    globalThis.fetch = mockOpenAIFetch({}, { status: 503 });
+    const logSpy = vi.spyOn(console, "log");
+    const app = createApp();
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => uploadFrom(app, "198.51.100.58")),
+    );
+
+    for (const res of results) expect(res.status).toBe(503);
+    const alerts = logSpy.mock.calls
+      .map(([line]) => (typeof line === "string" ? line : ""))
+      .filter((line) => line.includes("openai_moderation_repeated_failures"));
+    expect(alerts).toHaveLength(1);
+    logSpy.mockRestore();
+  });
+
+  it("does not retry when the first attempt spent the whole budget", async () => {
+    // The retry shares one budget with the first attempt, so a slow
+    // failure gets no second try — the point is that choosing to retry
+    // can never double the wait the caller already signed up for.
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        (_url: unknown, init: { signal: AbortSignal }) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+      );
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const pending = uploadFrom(createApp(), "198.51.100.59");
+      await vi.advanceTimersByTimeAsync(26_000);
+
+      expect((await pending).status).toBe(503);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts a request that never yields a status toward the backoff streak", async () => {
     // A hung upstream times out before returning 5xx (AbortError) and a
-    // dead TCP path throws outright. Both are the "upstream is
-    // unhealthy from this isolate" case the cooldown exists to dampen —
-    // without this branch a slow OpenAI escapes backoff entirely and
-    // every request burns the full 10s timeout.
+    // dead TCP path throws outright. Both are the "upstream is unhealthy
+    // from this isolate" case the cooldown exists to dampen — without
+    // counting them, a slow OpenAI would escape backoff entirely and
+    // every upload would burn the full budget for the whole burst.
     const fetchMock = vi
       .fn()
-      .mockRejectedValueOnce(
+      .mockRejectedValue(
         Object.assign(new Error("aborted"), { name: "AbortError" }),
       );
     globalThis.fetch = fetchMock;
 
     const app = createApp();
-    const headers = {
-      "CF-Connecting-IP": "198.51.100.53",
-      Host: "api.altfun.com",
-    };
 
-    const formData1 = new FormData();
-    formData1.append(
-      "file",
-      new File([new Uint8Array(100)], "a.png", { type: "image/png" }),
-    );
-    const res1 = await app.request(
-      "/api/v1/images",
-      { method: "POST", body: formData1, headers },
-      makeEnv(),
-    );
-    expect(res1.status).toBe(503);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 3; i++) {
+      const res = await uploadFrom(app, "198.51.100.53");
+      expect(res.status).toBe(503);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(6);
 
-    const formData2 = new FormData();
-    formData2.append(
-      "file",
-      new File([new Uint8Array(100)], "b.png", { type: "image/png" }),
-    );
-    const res2 = await app.request(
-      "/api/v1/images",
-      { method: "POST", body: formData2, headers },
-      makeEnv(),
-    );
-    expect(res2.status).toBe(503);
-    // Cooldown engaged — no second fetch attempt.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const afterBackoff = await uploadFrom(app, "198.51.100.53");
+    expect(afterBackoff.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it("does not trip the cooldown on a 4xx that isn't 429 (auth / payload errors)", async () => {
