@@ -153,11 +153,7 @@
   max-width: 100%;
 }
 
-/* Identity first: the ticker never shrinks to make room for badges.
- * If ticker + pills don't fit the 240px token column, this group wraps
- * as a unit so both pills stay together under the ticker instead of
- * one sitting on the name line and the other colliding with the
- * subtitle. Inner wrap covers three-pill rows that exceed the column. */
+/* Wrap as a unit so pills don't land on the subtitle line. */
 .pills {
   display: flex;
   flex-wrap: wrap;
