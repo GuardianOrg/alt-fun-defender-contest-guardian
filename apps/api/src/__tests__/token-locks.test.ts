@@ -2,14 +2,11 @@ import { describe, it, expect } from "vitest";
 
 import {
   MIN_LOCK_DURATION_SECONDS,
-  MIN_LOCK_PERCENT,
   summariseTokenLocks,
   type TokenLockRow,
 } from "../lib/token-locks.js";
 
 const ONE = 10n ** 18n;
-/** 1% of the fixed 1B supply the percentages are measured against. */
-const ONE_PERCENT = 10_000_000n * ONE;
 const NOW = 1_787_671_521;
 const TOKEN_A = "0x7f7430a1ad9a9b0e86849c332bf27facfd700000";
 const TOKEN_B = "0xbbbb000000000000000000000000000000000002";
@@ -185,12 +182,11 @@ describe("summariseTokenLocks", () => {
   });
 
   it("keeps a token locking exactly the minimum share of supply", () => {
-    const atFloor = BigInt(MIN_LOCK_PERCENT) * ONE_PERCENT;
     const [summary] = summariseTokenLocks(
-      [lock({ depositAmount: atFloor.toString() })],
+      [lock({ depositAmount: (100_000_000n * ONE).toString() })],
       NOW,
     );
-    expect(summary.lockedPercent).toBe(MIN_LOCK_PERCENT);
+    expect(summary.lockedPercent).toBe(10);
   });
 
   it("applies the supply floor to the per-token total, not to each lock", () => {
