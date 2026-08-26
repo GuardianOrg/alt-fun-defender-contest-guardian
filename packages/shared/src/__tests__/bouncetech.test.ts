@@ -202,6 +202,7 @@ describe("SUPPORTED_UNDERLYING_ASSETS", () => {
       "xyz:MU",
       "xyz:SKHX",
       "xyz:CXMT",
+      "PUMP",
     ]);
   });
 });
@@ -251,7 +252,9 @@ describe("filterMintableLTs", () => {
         mintPaused: true,
       }),
     ];
-    expect(filterMintableLTs(lts).map((lt) => lt.targetAsset)).toEqual(["HYPE"]);
+    expect(filterMintableLTs(lts).map((lt) => lt.targetAsset)).toEqual([
+      "HYPE",
+    ]);
   });
 
   it("returns an empty list when every LT is paused", () => {

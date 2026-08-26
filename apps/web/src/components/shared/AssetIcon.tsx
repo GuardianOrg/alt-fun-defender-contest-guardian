@@ -16,6 +16,7 @@ import kPepe from "../../assets/Logos/kPEPE.svg";
 import lit from "../../assets/Logos/lit.svg";
 import near from "../../assets/Logos/near.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
+import pump from "../../assets/Logos/pump.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
 import spcx from "../../assets/Logos/spcx.svg";
@@ -60,6 +61,7 @@ const ASSET_LOGOS: Record<SupportedAsset, string> = {
   "xyz:MU": xyz_MU,
   "xyz:SKHX": xyz_SKHX,
   "xyz:CXMT": xyz_CXMT,
+  PUMP: pump,
 };
 
 interface Props {
