@@ -134,7 +134,8 @@
 .nameRow {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   min-width: 0;
 }
 
@@ -148,6 +149,18 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+/* Wrap as a unit so pills don't land on the subtitle line. */
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  max-width: 100%;
 }
 
 .tokenFullName {

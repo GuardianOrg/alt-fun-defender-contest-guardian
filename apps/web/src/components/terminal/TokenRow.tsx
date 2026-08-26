@@ -117,14 +117,21 @@ export default function TokenRow({
         <div className={styles.nameWrap}>
           <div className={styles.nameRow}>
             <span className={styles.tokenTicker}>{token.ticker}</span>
-            {isGraduating && <GraduatingPill />}
-            {isGraduated && <GraduatedPill />}
-            {token.communityTakeoverAt && <CommunityTakeoverPill />}
-            {lock && (
-              <LockedPill
-                percent={lock.lockedPercent}
-                unlocksAt={lock.unlocksAt}
-              />
+            {(isGraduating ||
+              isGraduated ||
+              token.communityTakeoverAt ||
+              lock) && (
+              <span className={styles.pills}>
+                {isGraduating && <GraduatingPill />}
+                {isGraduated && <GraduatedPill />}
+                {token.communityTakeoverAt && <CommunityTakeoverPill />}
+                {lock && (
+                  <LockedPill
+                    percent={lock.lockedPercent}
+                    unlocksAt={lock.unlocksAt}
+                  />
+                )}
+              </span>
             )}
           </div>
           <span className={styles.tokenFullName}>{token.name}</span>
