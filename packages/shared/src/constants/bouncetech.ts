@@ -79,6 +79,7 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "xyz:MU",
   "xyz:SKHX",
   "xyz:CXMT",
+  "PUMP",
 ] as const;
 
 export type SupportedAsset = (typeof SUPPORTED_UNDERLYING_ASSETS)[number];
