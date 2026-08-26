@@ -19,6 +19,22 @@ const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
  */
 export const MIN_LOCK_DURATION_SECONDS = 7 * 24 * 60 * 60;
 
+/**
+ * How much of the supply a lock has to cover before it counts as a signal.
+ *
+ * Without a floor the badge is free to mint: nobody has to be the creator to
+ * lock a token, so anyone holding dust of any token could escrow it for eight
+ * days and hang a `LOCKED` pill on someone else's launch for the price of
+ * gas. At 10% the vector inverts — an attacker has to buy and give up 100M
+ * tokens for over a week, which is a favour to the token, not an attack.
+ *
+ * Applied to the **per-token total**, not to individual streams: two 6%
+ * locks are a 12% lock. That's also why it can't be pushed into
+ * `fetchActiveTokenLocks`'s SQL as a `deposit_amount` predicate — filtering
+ * per row would drop both halves.
+ */
+export const MIN_LOCK_PERCENT = 10;
+
 /** A row of `ponder_views.token_lock`, as Drizzle returns it (numerics → strings). */
 export interface TokenLockRow {
   tokenAddress: string;
@@ -57,6 +73,10 @@ export interface TokenLockSummary {
  * caller's SQL. The SQL predicate exists to keep the scan small; this one is
  * what defines the rule, so the function is meaningful (and testable) on any
  * input.
+ *
+ * A token whose qualifying locks add up to less than `MIN_LOCK_PERCENT` is
+ * omitted entirely rather than reported at its real share — callers read an
+ * absent entry as "no lock", which is the claim we want to make.
  *
  * No cross-check against the escrow's live `token_balance`: a pre-cliff pure
  * timelock cannot pay anything out, so the sum can only exceed the real
@@ -97,15 +117,17 @@ export function summariseTokenLocks(
 
   const summaries: TokenLockSummary[] = [];
   for (const [tokenAddress, agg] of byToken) {
+    // Clamped at 100: a badge reading ">100% locked" is the loudest
+    // possible "this number is broken", and the clamp costs nothing.
+    const lockedPercent = Math.min(
+      Number((agg.locked * 10000n) / TOTAL_SUPPLY) / 100,
+      100,
+    );
+    if (lockedPercent < MIN_LOCK_PERCENT) continue;
     summaries.push({
       tokenAddress,
       lockedAmount: agg.locked.toString(),
-      // Clamped at 100: a badge reading ">100% locked" is the loudest
-      // possible "this number is broken", and the clamp costs nothing.
-      lockedPercent: Math.min(
-        Number((agg.locked * 10000n) / TOTAL_SUPPLY) / 100,
-        100,
-      ),
+      lockedPercent,
       unlocksAt: new Date(Number(agg.unlocksAt) * 1000).toISOString(),
     });
   }

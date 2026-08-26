@@ -37,9 +37,10 @@ const locks = new Hono<{ Bindings: AppBindings }>();
  * `tokenAddress` (lowercased) and treat an absent entry as "no lock".
  *
  * A lock counts only when it is a non-cancelable Sablier pure timelock with
- * more than `MIN_LOCK_DURATION_SECONDS` still to run — see
- * `apps/indexer/src/sablier.ts` for what that excludes and why the exclusions
- * always under-report rather than over-report.
+ * more than `MIN_LOCK_DURATION_SECONDS` still to run, and only once a token's
+ * locks clear `MIN_LOCK_PERCENT` of supply — see `apps/indexer/src/sablier.ts`
+ * for what that excludes and why the exclusions always under-report rather
+ * than over-report.
  */
 locks.get("/", async (c) => {
   const db = createDb(c.env.DATABASE_URL);

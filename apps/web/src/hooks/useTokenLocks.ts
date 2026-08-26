@@ -27,8 +27,8 @@ const EMPTY = new Map<string, ApiTokenLock>();
  *
  * Every subscriber shares a single query, so calling this per row is cheap.
  * An absent entry means "no active lock" — the API only returns locks that
- * are non-cancelable, unlock in one cliff, and still have over a week to run
- * (see `apps/api/src/lib/token-locks.ts`).
+ * are non-cancelable, unlock in one cliff, still have over a week to run, and
+ * cover at least a tenth of supply (see `apps/api/src/lib/token-locks.ts`).
  */
 export function useTokenLocks(): {
   locks: Map<string, ApiTokenLock>;

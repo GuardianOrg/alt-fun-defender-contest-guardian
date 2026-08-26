@@ -2,11 +2,14 @@ import { describe, it, expect } from "vitest";
 
 import {
   MIN_LOCK_DURATION_SECONDS,
+  MIN_LOCK_PERCENT,
   summariseTokenLocks,
   type TokenLockRow,
 } from "../lib/token-locks.js";
 
 const ONE = 10n ** 18n;
+/** 1% of the fixed 1B supply the percentages are measured against. */
+const ONE_PERCENT = 10_000_000n * ONE;
 const NOW = 1_787_671_521;
 const TOKEN_A = "0x7f7430a1ad9a9b0e86849c332bf27facfd700000";
 const TOKEN_B = "0xbbbb000000000000000000000000000000000002";
@@ -135,13 +138,13 @@ describe("summariseTokenLocks", () => {
       [
         lock({ depositAmount: "not-a-number" }),
         lock({ tokenAddress: TOKEN_B, cliffTime: "not-a-number" }),
-        lock({ depositAmount: (10_000_000n * ONE).toString() }),
+        lock({ depositAmount: (120_000_000n * ONE).toString() }),
       ],
       NOW,
     );
     expect(summaries).toHaveLength(1);
     expect(summaries[0].tokenAddress).toBe(TOKEN_A);
-    expect(summaries[0].lockedPercent).toBe(1);
+    expect(summaries[0].lockedPercent).toBe(12);
   });
 
   it("skips zero-deposit rows", () => {
@@ -162,10 +165,46 @@ describe("summariseTokenLocks", () => {
     // Deliberately not live `totalSupply()`, which drops at graduation. See
     // the denominator note in `token-locks.ts` — the holders route divides
     // by 1B too, and the two numbers appear side by side on the token page.
+    // 125M reads 12.5% against 1B and 13.3% against the 937.5M a token that
+    // burned 62.5M at graduation would report, so this pins the denominator.
     const [summary] = summariseTokenLocks(
+      [lock({ depositAmount: (125_000_000n * ONE).toString() })],
+      NOW,
+    );
+    expect(summary.lockedPercent).toBe(12.5);
+  });
+
+  it("drops a token locking less than the minimum share of supply", () => {
+    // Nobody has to be the creator to lock a token, so without this floor a
+    // dust escrow would hang a LOCKED pill on any launch for the price of gas.
+    const summaries = summariseTokenLocks(
       [lock({ depositAmount: (1_000_000n * ONE).toString() })],
       NOW,
     );
-    expect(summary.lockedPercent).toBe(0.1);
+    expect(summaries).toEqual([]);
+  });
+
+  it("keeps a token locking exactly the minimum share of supply", () => {
+    const atFloor = BigInt(MIN_LOCK_PERCENT) * ONE_PERCENT;
+    const [summary] = summariseTokenLocks(
+      [lock({ depositAmount: atFloor.toString() })],
+      NOW,
+    );
+    expect(summary.lockedPercent).toBe(MIN_LOCK_PERCENT);
+  });
+
+  it("applies the supply floor to the per-token total, not to each lock", () => {
+    // Two locks that individually fall under the floor but together clear it
+    // are a real lock, so the floor has to run after the per-token sum. This
+    // is also why it can't become a SQL predicate on `deposit_amount`.
+    const belowFloorEach = (60_000_000n * ONE).toString();
+    const [summary] = summariseTokenLocks(
+      [
+        lock({ depositAmount: belowFloorEach }),
+        lock({ depositAmount: belowFloorEach }),
+      ],
+      NOW,
+    );
+    expect(summary.lockedPercent).toBe(12);
   });
 });
