@@ -43,6 +43,7 @@ export {
   isValidTokenSymbol,
 } from "./validation.js";
 export { DEFAULT_GRADUATION_THRESHOLD_USD } from "./bonding.js";
+export { SABLIER_LOCKUP_ADDRESS } from "./sablier.js";
 export { DEFAULT_ADMIN_WALLETS, isAdminWallet, isValidAddressFormat } from "./admin.js";
 export {
   MAX_IMAGE_BYTES,

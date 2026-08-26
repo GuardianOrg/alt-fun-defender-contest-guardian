@@ -1,9 +1,13 @@
+import { SABLIER_LOCKUP_ADDRESS } from "@launchpad/shared";
+
 import styles from "./BottomTabs.module.css";
 import TokenDataTable from "./TokenDataTable";
 import { cn } from "../../utils/format";
+import { lockClaim } from "../../utils/locks";
 import Skeleton from "../shared/Skeleton";
 
 import type { TokenDataTableColumn } from "./TokenDataTable";
+import type { ApiTokenLock } from "../../services/api";
 import type { Holder } from "../../services/types";
 
 const HOLDER_SKELETON_COUNT = 8;
@@ -22,18 +26,55 @@ const BURN_DISPLAY_ADDRESS: Record<string, string> = {
   "0xfefefefefefefefefefefefefefefefefefefefe": "0xfe…fe",
 };
 
+/**
+ * Tag copy for the Sablier escrow row.
+ *
+ * `LOCKED` is only claimed when the token has a qualifying lock, because the
+ * escrow keeps holding the balance after a cliff passes (until the recipient
+ * withdraws) and those tokens are freely sellable by then — an unconditional
+ * `LOCKED` would be a plain lie in exactly the window that matters.
+ *
+ * Neither branch says anything about this row's balance. The row aggregates
+ * every stream the escrow holds for the token, while `lock` covers only the
+ * qualifying deposits, so the two can legitimately differ; reusing the pill's
+ * `lockClaim` keeps the unsellable assertion pinned to a stated share of
+ * supply rather than to whatever total the row happens to show. The no-lock
+ * branch likewise describes the address only — it must stay true while the
+ * lock feed is still loading or unavailable, when absence of a lock is
+ * unknown rather than established.
+ */
+function escrowTag(lock: ApiTokenLock | undefined): {
+  label: string;
+  title: string;
+} {
+  if (!lock) {
+    return {
+      label: "SABLIER",
+      title:
+        "Sablier vesting contract — tokens held here follow a vesting or lock schedule",
+    };
+  }
+  return {
+    label: "LOCKED",
+    title: lockClaim(lock.lockedPercent, lock.unlocksAt),
+  };
+}
+
 interface Props {
   holders: Holder[];
   /** True while `useHolders` is fetching for the first time. */
   isLoading?: boolean;
   /** Token creator / contract owner, lowercased for comparison. */
   creatorAddress?: string;
+  /** This token's active supply lock, if it has one. */
+  lock?: ApiTokenLock;
 }
 
 export default function HoldersTab({
   holders,
   isLoading = false,
   creatorAddress,
+  lock,
 }: Props) {
   const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
   const showSkeletons = isLoading && holders.length === 0;
@@ -83,6 +124,8 @@ export default function HoldersTab({
               const wallet = h.walletFull.toLowerCase();
               const isBurnt = BURN_ADDRESSES.has(wallet);
               const isOwner = !!ownerAddress && wallet === ownerAddress;
+              const escrow =
+                wallet === SABLIER_LOCKUP_ADDRESS ? escrowTag(lock) : null;
               // Default truncation hides the tail that distinguishes burn sinks.
               const displayAddress = isBurnt
                 ? (BURN_DISPLAY_ADDRESS[wallet] ?? h.address)
@@ -132,6 +175,15 @@ export default function HoldersTab({
                         aria-label="Creator"
                       >
                         CREATOR
+                      </span>
+                    )}
+                    {escrow && (
+                      <span
+                        className={styles.holderTag}
+                        title={escrow.title}
+                        aria-label={escrow.title}
+                      >
+                        {escrow.label}
                       </span>
                     )}
                   </td>

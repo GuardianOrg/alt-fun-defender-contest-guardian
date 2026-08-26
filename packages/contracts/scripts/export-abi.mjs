@@ -43,7 +43,12 @@ for (const name of contracts) {
   console.log(`Exported ${name} ABI -> ${outPath}`);
 }
 
-const manualAbis = ["UniswapV2Pair", "LeveragedToken", "LeveragedTokenHelper"];
+const manualAbis = [
+  "UniswapV2Pair",
+  "LeveragedToken",
+  "LeveragedTokenHelper",
+  "SablierLockup",
+];
 for (const name of manualAbis) {
   if (existsSync(join(abiDir, `${name}.ts`))) {
     exports.push(`export { ${name}Abi } from "./${name}.js";`);

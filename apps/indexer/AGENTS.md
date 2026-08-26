@@ -18,6 +18,24 @@ The Hono server in `src/api/index.ts` exposes **only** the `/healthz` lag probe 
 | `Referred` | Zap |
 | `Transfer` | Token (factory-registered via `TokenLaunched`) |
 | `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) — see *One handler per factory source* below for why `Swap` is deliberately not subscribed |
+| `CreateLockupLinearStream` | Sablier Lockup v4.0 (third-party escrow) — writes `tokenLock` for qualifying supply locks. See *Supply locks* below |
+
+### Supply locks (`tokenLock`)
+
+Creators lock token supply through app.sablier.com. `src/sablier.ts` subscribes to Sablier Lockup v4.0 on HyperEVM (`SABLIER_LOCKUP_ADDRESS` in `@launchpad/shared`) and records the streams that constitute a real lock. The API serves them at `GET /api/v1/locks`; the frontend renders a `75% LOCKED` pill and tags the escrow row in the holders table.
+
+**Only non-cancelable pure timelocks are recorded.** A pure timelock is a stream where `unlockAmounts.start == 0`, `unlockAmounts.cliff == depositAmount`, and `cliffTime != 0` — for that shape Sablier's `LockupMath.calculateStreamedAmountLL` provably returns `0` before `cliffTime` and `depositAmount` from `cliffTime` onward. That is what lets `tokenLock` store no vesting parameters and the API run no vesting math: locked amount is the deposit, unlock date is the cliff.
+
+Two consequences worth keeping straight:
+
+- **Cancelable streams are rejected outright.** `cancel()` refunds the unvested balance to the sender, so a cancelable stream offers holders no protection — the creator can take the supply back at will. Rejecting them is also what makes this table append-only: a non-cancelable pure timelock has no path that returns tokens before the cliff, so withdrawals, cancellations, and NFT transfers all need no handler.
+- **Genuine vesting schedules are not counted at all.** Linear, tranched, dynamic and price-gated streams unlock continuously, which is not the claim a "locked" badge makes. Sablier v2.0 / v3.0 escrows are likewise unindexed (different event signatures, and app.sablier.com only creates on the latest release). Every exclusion under-reports; nothing over-reports. That direction is deliberate and any change here must preserve it.
+
+The handler runs its shape and cancelable checks **before** the `token` lookup. `commonParams` is not an indexed event arg, so the log filter can't scope by token — every Sablier linear stream on HyperEVM, for every unrelated project, reaches this handler. Keeping the free checks first means foreign streams cost zero database round-trips.
+
+`SablierLockup` reuses `BONDING_START_BLOCK` rather than Sablier's own (much earlier) deploy block: no Alt Fun token existed before it, so nothing indexable can precede it.
+
+`SablierLockupAbi` is hand-vendored from the official v4.0 artifact rather than generated, so `test/sablier.test.ts` pins its topic0 against a hash observed in a real on-chain log. Without that assertion an ABI drift would silently produce an empty table with no error anywhere — the issue-#418 failure mode. `SablierLockup` is also listed in `manualAbis` in `packages/contracts/scripts/export-abi.mjs`; that script rewrites `packages/shared/src/abis/index.ts` from scratch on every contract deploy and drops any export not on that allowlist.
 
 ### Platform-wide counters (`globalStats`, `hourlyVolume`, `walletPosition`)
 

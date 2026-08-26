@@ -2,12 +2,14 @@ import { useState } from "react";
 
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
+import { useTokenLocks } from "../../hooks/useTokenLocks";
 import { cn } from "../../utils/format";
 import { srcSetFor, transformImageUrl } from "../../utils/image";
 import Button from "../shared/Button";
 import Chip from "../shared/Chip";
 import CommunityTakeoverPill from "../shared/CommunityTakeoverPill";
 import GraduatedPill from "../shared/GraduatedPill";
+import LockedPill from "../shared/LockedPill";
 import Modal from "../shared/Modal";
 
 import type { Token } from "../../services/types";
@@ -21,6 +23,7 @@ export default function HeroSection({ token }: Props) {
   const { copied: shared, copy: copyShareUrl } = useCopyState();
   const [imgError, setImgError] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
+  const lock = useTokenLocks().getLock(token.address);
 
   const shareToken = () => {
     copyShareUrl(window.location.href);
@@ -76,6 +79,12 @@ export default function HeroSection({ token }: Props) {
               </div>
               {token.status === "graduated" && <GraduatedPill />}
               {token.communityTakeoverAt && <CommunityTakeoverPill />}
+              {lock && (
+                <LockedPill
+                  percent={lock.lockedPercent}
+                  unlocksAt={lock.unlocksAt}
+                />
+              )}
             </div>
             <div className={styles.fullName}>{token.name}</div>
           </div>

@@ -323,6 +323,36 @@ export const indexerGraduation = ponderSchema.table(
 );
 
 /**
+ * `ponder_views.token_lock` — Sablier Lockup streams escrowing one of our
+ * tokens, written on `SablierLockup.CreateLockupLinearStream`.
+ *
+ * **Every row is already a qualifying lock.** The indexer only writes
+ * non-cancelable pure timelocks (see `apps/indexer/src/sablier.ts`), so the
+ * whole `deposit_amount` is unsellable until `cliff_time` and free
+ * afterwards. Readers need nothing but the cliff-time cutoff — there is no
+ * vesting curve to evaluate on this side.
+ */
+export const indexerTokenLock = ponderSchema.table(
+  "token_lock",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    /** Sablier escrow address — also the wallet the holders table shows. */
+    lockup: text("lockup").notNull(),
+    streamId: numeric("stream_id").notNull(),
+    depositAmount: numeric("deposit_amount").notNull(),
+    cliffTime: numeric("cliff_time").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    timestamp: numeric("timestamp").notNull(),
+  },
+  // Keep in lockstep with `tokenLock.cliffTimeIdx` in
+  // `apps/indexer/ponder.schema.ts` — backs `fetchActiveTokenLocks`'s
+  // `WHERE cliff_time > $cutoff` so the scan stays proportional to the
+  // active locks rather than every lock ever created.
+  (table) => [index("token_lock_cliff_time_index").on(table.cliffTime)],
+);
+
+/**
  * `ponder_views.referral` — one row per `Referred` event (a buy with a
  * non-zero referrer attribute). The per-referrer index matches the read
  * pattern on `/api/v1/referrals/:wallet` which lists every referral
