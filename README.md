@@ -1,6 +1,6 @@
 # Alt Fun
 
-Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset — tokens appreciate from buy pressure *and* leveraged movement of the underlying.
+Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset — tokens appreciate from buy pressure _and_ leveraged movement of the underlying.
 
 For the full product spec (parameters, fees, lifecycle, architecture), see [`AGENTS.md`](./AGENTS.md).
 
@@ -15,10 +15,10 @@ npm run dev
 
 That's it. `npm run dev` starts the web app, API, and indexer in parallel via Turbo. Expect them on:
 
-| Service | URL |
-|---|---|
-| Web | http://localhost:5173 |
-| API | http://localhost:8787 |
+| Service           | URL                    |
+| ----------------- | ---------------------- |
+| Web               | http://localhost:5173  |
+| API               | http://localhost:8787  |
 | Indexer (GraphQL) | http://localhost:42069 |
 
 ### What `npm run setup` does
@@ -31,15 +31,15 @@ After running setup, open the flagged files and fill in the real secrets (Neon D
 
 ## Monorepo layout
 
-| Path | What it is | Stack |
-|---|---|---|
-| [`apps/web/`](./apps/web/AGENTS.md) | Web app | React 19, Vite 8, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts |
-| [`apps/api/`](./apps/api/AGENTS.md) | REST + WebSocket API | Hono on Cloudflare Workers, Drizzle, Neon (PostgreSQL), R2, Durable Objects |
-| [`apps/indexer/`](./apps/indexer/AGENTS.md) | EVM indexer | Ponder (GraphQL auto-generated from schema), Railway |
-| [`apps/telegram-bot/`](./apps/telegram-bot/AGENTS.md) | Telegram trading bot | grammY on Cloudflare Workers, KV (custodial wallets), Durable Objects |
-| [`packages/contracts/`](./packages/contracts/AGENTS.md) | Solidity contracts | Foundry, forked from Virtuals Protocol |
-| [`packages/shared/`](./packages/shared) | Shared types, ABIs, constants, pricing helpers | TypeScript, tsup |
-| [`packages/config/`](./packages/config) | Shared ESLint + TSConfig | — |
+| Path                                                    | What it is                                     | Stack                                                                                         |
+| ------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`apps/web/`](./apps/web/AGENTS.md)                     | Web app                                        | React 19, Vite 8, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts |
+| [`apps/api/`](./apps/api/AGENTS.md)                     | REST + WebSocket API                           | Hono on Cloudflare Workers, Drizzle, Neon (PostgreSQL), R2, Durable Objects                   |
+| [`apps/indexer/`](./apps/indexer/AGENTS.md)             | EVM indexer                                    | Ponder (GraphQL auto-generated from schema), Railway                                          |
+| [`apps/telegram-bot/`](./apps/telegram-bot/AGENTS.md)   | Telegram trading bot                           | grammY on Cloudflare Workers, KV (custodial wallets), Durable Objects                         |
+| [`packages/contracts/`](./packages/contracts/AGENTS.md) | Solidity contracts                             | Foundry, forked from Virtuals Protocol                                                        |
+| [`packages/shared/`](./packages/shared)                 | Shared types, ABIs, constants, pricing helpers | TypeScript, tsup                                                                              |
+| [`packages/config/`](./packages/config)                 | Shared ESLint + TSConfig                       | —                                                                                             |
 
 Deeper docs:
 
@@ -104,10 +104,12 @@ See [`packages/contracts/AGENTS.md`](./packages/contracts/AGENTS.md) and [`docs/
 
 ## Deployment
 
-| Target | Platform | Trigger |
-|---|---|---|
-| `apps/web` | Cloudflare Pages | GitHub integration on `main` |
-| `apps/api` | Cloudflare Workers | `.github/workflows/deploy-api.yml` on `main` |
-| `apps/indexer` | Railway | GitHub integration on `main` (with "Wait for CI") |
+| Target         | Platform           | Trigger                                           |
+| -------------- | ------------------ | ------------------------------------------------- |
+| `apps/web`     | Cloudflare Pages   | GitHub integration on `main`                      |
+| `apps/api`     | Cloudflare Workers | `.github/workflows/deploy-api.yml` on `main`      |
+| `apps/indexer` | Railway            | GitHub integration on `main` (with "Wait for CI") |
 
 Production env vars live in each platform's dashboard, not in this repo. Pull the relevant service and check there before suspecting config drift.
+
+(test)
