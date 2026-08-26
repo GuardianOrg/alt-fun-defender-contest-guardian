@@ -77,13 +77,19 @@ export default function HeroSection({ token }: Props) {
                 </span>
                 <span className={styles.ltName}>{ltSymbol}</span>
               </div>
-              {token.status === "graduated" && <GraduatedPill />}
-              {token.communityTakeoverAt && <CommunityTakeoverPill />}
-              {lock && (
-                <LockedPill
-                  percent={lock.lockedPercent}
-                  unlocksAt={lock.unlocksAt}
-                />
+              {(token.status === "graduated" ||
+                token.communityTakeoverAt ||
+                lock) && (
+                <span className={styles.pills}>
+                  {token.status === "graduated" && <GraduatedPill />}
+                  {token.communityTakeoverAt && <CommunityTakeoverPill />}
+                  {lock && (
+                    <LockedPill
+                      percent={lock.lockedPercent}
+                      unlocksAt={lock.unlocksAt}
+                    />
+                  )}
+                </span>
               )}
             </div>
             <div className={styles.fullName}>{token.name}</div>
