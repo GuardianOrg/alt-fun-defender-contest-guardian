@@ -288,18 +288,19 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     buyUsdcWei: bigint;
     tokenAmountWei: bigint;
   } | null>(null);
+  const gasTradeLockRef = useRef(false);
+  const [gasTradeLock, setGasTradeLock] = useState(false);
 
   const submitTrade = useCallback(
-    (buyUsdc: number, tokenAmountWei: bigint) => {
-      if (mode === "buy") {
+    (buyUsdc: number, tokenAmountWei: bigint, tradeMode: "buy" | "sell" = mode) => {
+      if (tradeMode === "buy") {
         pendingTradeRef.current = {
           mode: "buy",
           tokenAmount: buyQuote?.tokensOutRaw ?? 0,
           usdcAmount: buyUsdc,
           ticker: token.ticker,
         };
-        executeBuy(token.address, buyUsdc, slippage, referrer);
-        return;
+        return executeBuy(token.address, buyUsdc, slippage, referrer);
       }
       pendingTradeRef.current = {
         mode: "sell",
@@ -307,7 +308,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
         usdcAmount: sellQuote?.usdcOut ?? 0,
         ticker: token.ticker,
       };
-      executeSell(token.address, tokenAmountWei, slippage);
+      return executeSell(token.address, tokenAmountWei, slippage);
     },
     [
       mode,
@@ -330,37 +331,46 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   };
 
   const runHypeFuelThenTrade = async () => {
-    pendingAfterGasRef.current =
-      mode === "buy"
-        ? {
-            mode: "buy",
-            buyUsdcWei: buyGasPlan.proposedBuyUsdcWei,
-            tokenAmountWei: 0n,
-          }
-        : {
-            mode: "sell",
-            buyUsdcWei: 0n,
-            tokenAmountWei: sellTokenAmountWei(),
-          };
-    const ok = await executeHypeFuel();
-    if (!ok) {
+    if (gasTradeLockRef.current) return;
+    gasTradeLockRef.current = true;
+    setGasTradeLock(true);
+    try {
+      pendingAfterGasRef.current =
+        mode === "buy"
+          ? {
+              mode: "buy",
+              buyUsdcWei: buyGasPlan.proposedBuyUsdcWei,
+              tokenAmountWei: 0n,
+            }
+          : {
+              mode: "sell",
+              buyUsdcWei: 0n,
+              tokenAmountWei: sellTokenAmountWei(),
+            };
+      const ok = await executeHypeFuel();
+      if (!ok) {
+        pendingAfterGasRef.current = null;
+        return;
+      }
+      await loadBalance();
+      const pending = pendingAfterGasRef.current;
       pendingAfterGasRef.current = null;
-      return;
+      if (!pending) return;
+      if (pending.mode === "buy") {
+        const buyUsdc = Number(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
+        setAmount(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
+        await submitTrade(buyUsdc, 0n, "buy");
+        return;
+      }
+      await submitTrade(0, pending.tokenAmountWei, "sell");
+    } finally {
+      gasTradeLockRef.current = false;
+      setGasTradeLock(false);
     }
-    await loadBalance();
-    const pending = pendingAfterGasRef.current;
-    pendingAfterGasRef.current = null;
-    if (!pending) return;
-    if (pending.mode === "buy") {
-      const buyUsdc = Number(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
-      setAmount(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
-      submitTrade(buyUsdc, 0n);
-      return;
-    }
-    submitTrade(0, pending.tokenAmountWei);
   };
 
   const doTrade = () => {
+    if (gasTradeLockRef.current) return;
     if (!isConnected) {
       connect();
       return;
@@ -406,7 +416,8 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     step === "approving" ||
     step === "signing" ||
     step === "executing" ||
-    gasInProgress;
+    gasInProgress ||
+    gasTradeLock;
 
   const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
