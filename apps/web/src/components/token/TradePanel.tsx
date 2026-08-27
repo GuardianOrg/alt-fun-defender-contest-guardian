@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
-import { createPublicClient, formatUnits, http, parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { useAccount } from "wagmi";
 
 import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
 import TradePanelBufferWarning from "./TradePanelBufferWarning";
+import TradePanelGasBanner from "./TradePanelGasBanner";
 import TradePanelInput from "./TradePanelInput";
 import TradePanelQuote from "./TradePanelQuote";
-import { hyperEVM } from "../../config/chains";
+import { hyperEvmClient } from "../../config/hyperEvmClient";
 import {
   RELAY_BRIDGE_HYPE_URL,
   RELAY_BRIDGE_USDC_URL,
@@ -18,6 +19,7 @@ import {
 } from "../../config/relay";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
+import { useHypeFuel } from "../../hooks/useHypeFuel";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useIsMintPaused } from "../../hooks/useLeveragedTokens";
 import { useLiveTradeQuote } from "../../hooks/useLiveTradeQuote";
@@ -25,6 +27,12 @@ import { useReferral } from "../../hooks/useReferral";
 import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
+import {
+  needsGas,
+  parseTypedUsdcWei,
+  planBuyGas,
+  planSellGas,
+} from "../../services/hypefuel";
 import {
   cn,
   formatTokenAmount,
@@ -38,17 +46,8 @@ import { buildTxAction, useToast } from "../shared/toast-context";
 
 import type { Token } from "../../services/types";
 
-const rpcUrl =
-  import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-// Batch the balance reads fired on every wallet/mode/token flip.
-const hyperEvmClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(rpcUrl, { batch: true }),
-});
-
 // Thresholds for the contextual bridge/get-gas CTAs.
 const LOW_USDC_THRESHOLD = MIN_USDC_BUY_AMOUNT;
-const LOW_HYPE_THRESHOLD_WEI = parseUnits("0.005", 18);
 
 interface Props {
   token: Token;
@@ -75,6 +74,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const [maxBalanceWei, setMaxBalanceWei] = useState<bigint | null>(null);
   // `maxBalance` points at token balance in sell mode; USDC stays separate for buy validation.
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  const [usdcBalanceWei, setUsdcBalanceWei] = useState<bigint | null>(null);
   // Native HYPE balance drives GET GAS; keep wei for exact threshold compares.
   const [hypeBalanceWei, setHypeBalanceWei] = useState<bigint | null>(null);
 
@@ -83,6 +83,15 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const referrer = useReferral();
   const { step, txHash, error, executeBuy, executeSell, reset } =
     useTradeRouter();
+  const {
+    phase: gasPhase,
+    error: gasError,
+    preview: gasPreview,
+    inProgress: gasInProgress,
+    loadPreview,
+    execute: executeHypeFuel,
+    reset: resetHypeFuel,
+  } = useHypeFuel();
   const { pushToast } = useToast();
   // Submit-time snapshot for the confirmation toast, immune to post-confirm resets.
   const pendingTradeRef = useRef<{
@@ -149,15 +158,47 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     (usdcBalanceNum < LOW_USDC_THRESHOLD || insufficientUsdc);
 
   // GET GAS shares the CTA slot with BRIDGE USDC; funding the trade takes priority.
+  const gasNeeded = needsGas(hypeBalanceWei);
+  const typedBuyUsdcWei =
+    mode === "buy" ? parseTypedUsdcWei(amount) : 0n;
+  const buyGasPlan =
+    usdcBalanceWei !== null
+      ? planBuyGas(usdcBalanceWei, typedBuyUsdcWei)
+      : { action: "none" as const, proposedBuyUsdcWei: 0n, haircut: false };
+  const sellGasPlan =
+    usdcBalanceWei !== null
+      ? planSellGas(usdcBalanceWei, amtNum > 0)
+      : "none";
+  const buyDisabledByPause = isMintPaused && mode === "buy";
+  const buyDisabledByGeo = isGeoBlocked && mode === "buy";
+  const buyDisabledByPolicy = isPolicyHidden && mode === "buy";
+  const buyBlocked = buyDisabledByPause || buyDisabledByGeo || buyDisabledByPolicy;
+  const hypefuelPrimary =
+    gasNeeded &&
+    !buyBlocked &&
+    ((mode === "buy" && buyGasPlan.action === "hypefuel") ||
+      (mode === "sell" && sellGasPlan === "hypefuel"));
   const showGetGas =
     isConnected &&
-    hypeBalanceWei !== null &&
-    hypeBalanceWei < LOW_HYPE_THRESHOLD_WEI &&
-    !showBridgeUsdc;
+    gasNeeded &&
+    !showBridgeUsdc &&
+    !hypefuelPrimary;
+  const showGasBanner =
+    !showBridgeUsdc &&
+    (hypefuelPrimary || gasInProgress || !!gasError);
+  const haircutFromUsd =
+    mode === "buy" && buyGasPlan.haircut
+      ? Number(formatUnits(typedBuyUsdcWei, USDC_DECIMALS))
+      : null;
+  const haircutToUsd =
+    mode === "buy" && buyGasPlan.haircut
+      ? Number(formatUnits(buyGasPlan.proposedBuyUsdcWei, USDC_DECIMALS))
+      : null;
 
   const loadBalance = useCallback(async () => {
     if (!address) {
       setUsdcBalance(null);
+      setUsdcBalanceWei(null);
       setHypeBalanceWei(null);
       return;
     }
@@ -176,6 +217,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
       })) as bigint;
       const usdcFormatted = formatUnits(usdcRaw, USDC_DECIMALS);
       setUsdcBalance(usdcFormatted);
+      setUsdcBalanceWei(usdcRaw);
 
       if (mode === "buy") {
         setMaxBalance(usdcFormatted);
@@ -184,6 +226,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
       }
     } catch {
       setUsdcBalance(null);
+      setUsdcBalanceWei(null);
       if (mode === "buy") {
         setMaxBalance(null);
         setMaxBalanceWei(null);
@@ -223,39 +266,121 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     }
   }, [isMintPaused, isPolicyHidden, mode, amount]);
 
-  const doTrade = () => {
-    if (!isConnected) {
-      connect();
-      return;
-    }
-    if (!amtNum) return;
-    // Guard stale renders between disabled-state polling and a click.
-    if (isMintPaused && mode === "buy") return;
-    if (isGeoBlocked && mode === "buy") return;
-    if (isPolicyHidden && mode === "buy") return;
+  useEffect(() => {
+    if (!address || !hypefuelPrimary) return;
+    void loadPreview(address);
+  }, [address, hypefuelPrimary, loadPreview]);
 
-    if (mode === "buy") {
-      pendingTradeRef.current = {
-        mode: "buy",
-        tokenAmount: buyQuote?.tokensOutRaw ?? 0,
-        usdcAmount: amtNum,
-        ticker: token.ticker,
-      };
-      executeBuy(token.address, amtNum, slippage, referrer);
-    } else {
-      const parsed = parseUnits(amount, 18);
-      const tokenAmountWei =
-        maxBalanceWei !== null && parsed > maxBalanceWei
-          ? maxBalanceWei
-          : parsed;
+  useEffect(() => {
+    resetHypeFuel();
+  }, [amount, mode, resetHypeFuel]);
+
+  const pendingAfterGasRef = useRef<{
+    mode: "buy" | "sell";
+    buyUsdcWei: bigint;
+    tokenAmountWei: bigint;
+  } | null>(null);
+  const gasTradeLockRef = useRef(false);
+  const [gasTradeLock, setGasTradeLock] = useState(false);
+
+  const submitTrade = useCallback(
+    (buyUsdc: number, tokenAmountWei: bigint, tradeMode: "buy" | "sell" = mode) => {
+      if (tradeMode === "buy") {
+        pendingTradeRef.current = {
+          mode: "buy",
+          tokenAmount: buyQuote?.tokensOutRaw ?? 0,
+          usdcAmount: buyUsdc,
+          ticker: token.ticker,
+        };
+        return executeBuy(token.address, buyUsdc, slippage, referrer);
+      }
       pendingTradeRef.current = {
         mode: "sell",
         tokenAmount: parseFloat(formatUnits(tokenAmountWei, 18)),
         usdcAmount: sellQuote?.usdcOut ?? 0,
         ticker: token.ticker,
       };
-      executeSell(token.address, tokenAmountWei, slippage);
+      return executeSell(token.address, tokenAmountWei, slippage);
+    },
+    [
+      mode,
+      buyQuote,
+      sellQuote,
+      token.address,
+      token.ticker,
+      executeBuy,
+      executeSell,
+      slippage,
+      referrer,
+    ],
+  );
+
+  const sellTokenAmountWei = (): bigint => {
+    const parsed = parseUnits(amount, 18);
+    return maxBalanceWei !== null && parsed > maxBalanceWei
+      ? maxBalanceWei
+      : parsed;
+  };
+
+  const runHypeFuelThenTrade = async () => {
+    if (gasTradeLockRef.current) return;
+    gasTradeLockRef.current = true;
+    setGasTradeLock(true);
+    try {
+      pendingAfterGasRef.current =
+        mode === "buy"
+          ? {
+              mode: "buy",
+              buyUsdcWei: buyGasPlan.proposedBuyUsdcWei,
+              tokenAmountWei: 0n,
+            }
+          : {
+              mode: "sell",
+              buyUsdcWei: 0n,
+              tokenAmountWei: sellTokenAmountWei(),
+            };
+      const ok = await executeHypeFuel();
+      if (!ok) {
+        pendingAfterGasRef.current = null;
+        return;
+      }
+      await loadBalance();
+      const pending = pendingAfterGasRef.current;
+      pendingAfterGasRef.current = null;
+      if (!pending) return;
+      if (pending.mode === "buy") {
+        const buyUsdc = Number(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
+        setAmount(formatUnits(pending.buyUsdcWei, USDC_DECIMALS));
+        await submitTrade(buyUsdc, 0n, "buy");
+        return;
+      }
+      await submitTrade(0, pending.tokenAmountWei, "sell");
+    } finally {
+      gasTradeLockRef.current = false;
+      setGasTradeLock(false);
     }
+  };
+
+  const doTrade = () => {
+    if (gasTradeLockRef.current) return;
+    if (!isConnected) {
+      connect();
+      return;
+    }
+    if (!amtNum) return;
+    if (buyBlocked) return;
+    if (gasNeeded) {
+      if (hypefuelPrimary) {
+        void runHypeFuelThenTrade();
+      }
+      return;
+    }
+
+    if (mode === "buy") {
+      submitTrade(amtNum, 0n);
+      return;
+    }
+    submitTrade(0, sellTokenAmountWei());
   };
 
   useEffect(() => {
@@ -280,11 +405,12 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   }, [step, txHash, reset, loadBalance, pushToast]);
 
   const isBusy =
-    step === "approving" || step === "signing" || step === "executing";
+    step === "approving" ||
+    step === "signing" ||
+    step === "executing" ||
+    gasInProgress ||
+    gasTradeLock;
 
-  const buyDisabledByPause = isMintPaused && mode === "buy";
-  const buyDisabledByGeo = isGeoBlocked && mode === "buy";
-  const buyDisabledByPolicy = isPolicyHidden && mode === "buy";
   const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
   // Render one validation surface at a time, with stale router errors lowest priority.
@@ -321,12 +447,16 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   // Keep labels minimal; dedicated banners/errors carry disabled-state detail.
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
-    if (step === "signing") return "SIGN IN WALLET…";
+    if (gasPhase === "signing" || step === "signing")
+      return "SIGN IN WALLET…";
+    if (gasPhase === "quoting" || gasPhase === "filling")
+      return "GETTING HYPE…";
     if (step === "approving")
       return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
     if (step === "confirmed") return "CONFIRMED";
     if (step === "error") return "RETRY";
+    if (hypefuelPrimary) return "GET HYPE FOR GAS";
     return `${mode === "buy" ? "BUY" : "SELL"} ${token.ticker}`;
   };
 
@@ -362,11 +492,12 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             tone="mint"
             active={mode === "buy"}
             fullWidthIndicator
-            disabled={isMintPaused || isPolicyHidden}
+            disabled={isBusy || isMintPaused || isPolicyHidden}
             onClick={() => {
               setMode("buy");
               setAmount("");
               reset();
+              resetHypeFuel();
             }}
             title={
               isPolicyHidden
@@ -383,10 +514,12 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             tone="red"
             active={mode === "sell"}
             fullWidthIndicator
+            disabled={isBusy}
             onClick={() => {
               setMode("sell");
               setAmount("");
               reset();
+              resetHypeFuel();
             }}
           >
             SELL
@@ -502,7 +635,17 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           </div>
         )}
 
-        {amtNum > 0 && (
+        {showGasBanner && (
+          <TradePanelGasBanner
+            preview={gasPreview}
+            haircutFromUsd={haircutFromUsd}
+            haircutToUsd={haircutToUsd}
+            error={gasError}
+            showRelayFallback={!!gasError}
+          />
+        )}
+
+        {amtNum > 0 && !showGasBanner && (
           <TradePanelQuote
             mode={mode}
             ticker={ticker}
@@ -620,7 +763,11 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             sellExceedsBuffer ||
             insufficientUsdc ||
             insufficientToken ||
-            (isConnected && amtNum <= 0)
+            (isConnected && amtNum <= 0 && !gasInProgress) ||
+            (isConnected &&
+              gasNeeded &&
+              !hypefuelPrimary &&
+              !gasInProgress)
           }
           className={step === "confirmed" ? styles.ctaConfirmed : undefined}
           onClick={doTrade}
@@ -631,13 +778,19 @@ export default function TradePanel({ token, chromeless = false }: Props) {
         {isBusy && (
           <div className={styles.busyHint}>
             <div className={styles.liveDot} />
-            {step === "signing"
-              ? "Sign the permit in your wallet…"
-              : step === "approving"
-                ? mode === "sell"
-                  ? "Waiting for token approval in wallet…"
-                  : "Waiting for USDC approval in wallet…"
-                : "Confirm transaction in wallet…"}
+            {gasPhase === "signing"
+              ? "Sign to get HYPE for gas — this is a signature, not a transaction."
+              : gasPhase === "quoting"
+                ? "Getting a HypeFuel quote…"
+                : gasPhase === "filling"
+                  ? "HypeFuel is sending HYPE to your wallet…"
+                  : step === "signing"
+                    ? "Sign the permit in your wallet…"
+                    : step === "approving"
+                      ? mode === "sell"
+                        ? "Waiting for token approval in wallet…"
+                        : "Waiting for USDC approval in wallet…"
+                      : "Confirm transaction in wallet…"}
           </div>
         )}
       </div>

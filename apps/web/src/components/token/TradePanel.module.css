@@ -219,6 +219,7 @@
   text-decoration: underline;
   text-underline-offset: 2px;
   font-size: 11px;
+  width: max-content;
 }
 
 .pausedBannerLink:hover {

@@ -130,6 +130,12 @@ export function getErrorMessage(e: unknown): string {
     return "Wallet timed out - please try again. If using a mobile wallet, make sure the app is open.";
   }
   if (
+    lower.includes("failed to fetch") ||
+    lower.includes("http request failed")
+  ) {
+    return "Could not reach HyperEVM - try again in a few seconds.";
+  }
+  if (
     lower.includes("user rejected") ||
     lower.includes("user denied") ||
     lower.includes("rejected the request")
