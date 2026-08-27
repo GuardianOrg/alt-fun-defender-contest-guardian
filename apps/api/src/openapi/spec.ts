@@ -70,6 +70,28 @@ const paginationParams = [
   },
 ];
 
+const analyticsIntervalParam = {
+  name: "interval",
+  in: "query" as const,
+  schema: {
+    type: "string" as const,
+    enum: ["hour", "day", "week"],
+    default: "day",
+  },
+  description:
+    "Bucket width. Daily buckets align to UTC midnight. Weekly buckets align to Thursday-start weeks (Unix epoch 0 was a Thursday).",
+};
+
+const analyticsLookbackParam = {
+  name: "lookback",
+  in: "query" as const,
+  schema: { type: "integer" as const, minimum: 1 },
+  description:
+    "Number of `interval` buckets to return, including the in-progress trailing bucket. Defaults: 24 (hour), 30 (day), 26 (week). Caps: 168 (hour), 365 (day), 156 (week).",
+};
+
+const analyticsChartParams = [analyticsIntervalParam, analyticsLookbackParam];
+
 const tokenSchema = {
   type: "object" as const,
   properties: {
@@ -290,6 +312,18 @@ const apiKeyHeader = {
     "API key for authentication. All /api/v1/* endpoints require this header. Anonymous rate limit: 60 req/min per IP.",
 };
 
+const optionalApiKeyHeader = {
+  name: "X-API-Key",
+  in: "header" as const,
+  required: false,
+  schema: { type: "string" as const },
+  description:
+    "Optional. Without a key, the request is rate-limited per IP. With a key, the limit is that key's configured quota.",
+};
+
+/** Empty scheme first so Swagger treats the key as optional, matching `apiKeyAuth`. */
+const optionalApiKeySecurity = [{}, { ApiKeyAuth: [] }];
+
 const adminKeyHeader = {
   name: "X-Admin-Key",
   in: "header" as const,
@@ -354,6 +388,11 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
     { name: "Creators", description: "Creator profiles and stats" },
     { name: "Portfolio", description: "Wallet portfolio and holdings" },
     { name: "Stats", description: "Global platform statistics" },
+    {
+      name: "Analytics",
+      description:
+        "Platform-wide volume, fees, users, and graduation aggregates. `X-API-Key` is optional (same as the rest of `/api/v1/*`). Prefer these over paging `/tokens` or `/trades`.",
+    },
     { name: "Assets", description: "Underlying assets and leveraged tokens" },
     { name: "Holders", description: "Token holder rankings" },
     { name: "Security", description: "Token security information" },
@@ -374,6 +413,48 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
       Candle: candleSchema,
       Holder: holderSchema,
       ErrorResponse: errorResponse,
+      AnalyticsWindow: {
+        type: "object",
+        properties: {
+          grossVolumeUsdcRaw: { type: "string" },
+          grossVolumeUsd: { type: "number" },
+          netInflowUsdcRaw: { type: "string" },
+          netInflowUsd: { type: "number" },
+          tradeCount: { type: "integer" },
+          protocolFeesUsdcRaw: { type: "string" },
+          protocolFeesUsd: { type: "number" },
+          creatorFeesUsdcRaw: { type: "string" },
+          creatorFeesUsd: { type: "number" },
+          uniqueTraders: { type: "integer" },
+          qualifiedTraders: { type: "integer" },
+        },
+      },
+      AnalyticsFeeWindow: {
+        type: "object",
+        properties: {
+          protocolFeesUsdcRaw: { type: "string" },
+          protocolFeesUsd: { type: "number" },
+          creatorFeesUsdcRaw: { type: "string" },
+          creatorFeesUsd: { type: "number" },
+          feeEvents: { type: "integer" },
+        },
+      },
+      AnalyticsTraderWindow: {
+        type: "object",
+        properties: {
+          uniqueTraders: { type: "integer" },
+          qualifiedTraders: { type: "integer" },
+        },
+      },
+      AnalyticsForecastEstimate: {
+        type: "object",
+        properties: {
+          dailyAverageUsd: { type: "number" },
+          annualisedUsd: { type: "number" },
+          windowDays: { type: "integer" },
+          stdDevUsd: { type: "number" },
+        },
+      },
     },
     securitySchemes: {
       ApiKeyAuth: {
@@ -994,6 +1075,674 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
                 ),
               },
             },
+          },
+        },
+      },
+    },
+
+    // ─── Analytics ──────────────────────────────────────────
+    "/api/v1/analytics/overview": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Platform analytics snapshot",
+        description:
+          "Lifetime totals plus 24h / 7d / 30d windows for gross Zap volume, protocol and creator fees, trade counts, and unique traders. Use this instead of paging `/tokens` or `/trades`. `*UsdcRaw` fields are USDC 6dp strings; `*Usd` fields are floats.",
+        security: optionalApiKeySecurity,
+        parameters: [optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Composite analytics snapshot",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      nowSec: { type: "integer" },
+                      lifetime: {
+                        type: "object",
+                        properties: {
+                          totalValueLockedUsdcRaw: { type: "string" },
+                          totalValueLockedUsd: { type: "number" },
+                          cumulativeNetInflowUsdcRaw: { type: "string" },
+                          cumulativeNetInflowUsd: { type: "number" },
+                          lifetimeGrossVolumeUsdcRaw: { type: "string" },
+                          lifetimeGrossVolumeUsd: { type: "number" },
+                          lifetimeProtocolFeesUsdcRaw: { type: "string" },
+                          lifetimeProtocolFeesUsd: { type: "number" },
+                          lifetimeCreatorFeesUsdcRaw: { type: "string" },
+                          lifetimeCreatorFeesUsd: { type: "number" },
+                          uniqueTradersAllTime: { type: "integer" },
+                          uniqueCreatorsAllTime: { type: "integer" },
+                        },
+                      },
+                      graduation: {
+                        type: "object",
+                        properties: {
+                          totalLaunched: { type: "integer" },
+                          totalGraduated: { type: "integer" },
+                          totalPendingGraduation: { type: "integer" },
+                          graduationRatePct: { type: "number" },
+                          medianTimeToGraduateSec: {
+                            type: "integer",
+                            nullable: true,
+                          },
+                          meanTimeToGraduateSec: {
+                            type: "integer",
+                            nullable: true,
+                          },
+                        },
+                      },
+                      windows: {
+                        type: "object",
+                        properties: {
+                          last24h: { $ref: "#/components/schemas/AnalyticsWindow" },
+                          last7d: { $ref: "#/components/schemas/AnalyticsWindow" },
+                          last30d: { $ref: "#/components/schemas/AnalyticsWindow" },
+                        },
+                      },
+                      qualifiedTraderThresholdUsd: {
+                        type: "number",
+                        description:
+                          "USD volume cutoff used for `qualifiedTraders` in each window (currently 500).",
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/volume": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Gross trading volume time series",
+        description:
+          "Dense series of gross USDC routed through Zap (buys + sells). Sourced from hourly volume buckets for hour/day/week intervals.",
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Volume series and trailing windows",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      interval: {
+                        type: "string",
+                        enum: ["hour", "day", "week"],
+                      },
+                      intervalSec: { type: "integer" },
+                      lookback: { type: "integer" },
+                      series: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            t: {
+                              type: "integer",
+                              description: "Bucket start, Unix seconds UTC",
+                            },
+                            volumeUsdcRaw: { type: "string" },
+                            volumeUsd: { type: "number" },
+                          },
+                        },
+                      },
+                      windows: {
+                        type: "object",
+                        properties: {
+                          last24h: {
+                            type: "object",
+                            properties: {
+                              grossVolumeUsdcRaw: { type: "string" },
+                              grossVolumeUsd: { type: "number" },
+                              tradeCount: { type: "integer" },
+                            },
+                          },
+                          last7d: {
+                            type: "object",
+                            properties: {
+                              grossVolumeUsdcRaw: { type: "string" },
+                              grossVolumeUsd: { type: "number" },
+                              tradeCount: { type: "integer" },
+                            },
+                          },
+                          last30d: {
+                            type: "object",
+                            properties: {
+                              grossVolumeUsdcRaw: { type: "string" },
+                              grossVolumeUsd: { type: "number" },
+                              tradeCount: { type: "integer" },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `interval`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/revenue": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Protocol and creator fee time series",
+        description:
+          "Dense series of USDC fees from `FeeVault:FeeAccrued` (accrual, not claim). Protocol share is ~0.5% of notional; creator share is ~0.25%.",
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Fee series and trailing windows",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      interval: {
+                        type: "string",
+                        enum: ["hour", "day", "week"],
+                      },
+                      intervalSec: { type: "integer" },
+                      lookback: { type: "integer" },
+                      series: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            t: { type: "integer" },
+                            protocolFeesUsdcRaw: { type: "string" },
+                            protocolFeesUsd: { type: "number" },
+                            creatorFeesUsdcRaw: { type: "string" },
+                            creatorFeesUsd: { type: "number" },
+                            feeEvents: {
+                              type: "integer",
+                              description:
+                                "FeeAccrued events in the bucket. Close proxy for Zap trade count.",
+                            },
+                          },
+                        },
+                      },
+                      windows: {
+                        type: "object",
+                        properties: {
+                          last24h: {
+                            $ref: "#/components/schemas/AnalyticsFeeWindow",
+                          },
+                          last7d: {
+                            $ref: "#/components/schemas/AnalyticsFeeWindow",
+                          },
+                          last30d: {
+                            $ref: "#/components/schemas/AnalyticsFeeWindow",
+                          },
+                          allTime: {
+                            $ref: "#/components/schemas/AnalyticsFeeWindow",
+                          },
+                        },
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `interval`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/value-locked": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Cumulative net USDC inflow",
+        description:
+          "Running sum of Zap buys minus sells from genesis through each bucket. Excludes virtual curve reserves; only real USDC that traversed Zap.",
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Net-inflow series and TVL snapshot",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      interval: {
+                        type: "string",
+                        enum: ["hour", "day", "week"],
+                      },
+                      intervalSec: { type: "integer" },
+                      lookback: { type: "integer" },
+                      baselineUsdcRaw: {
+                        type: "string",
+                        description:
+                          "Cumulative net inflow just before the first bucket.",
+                      },
+                      baselineUsd: { type: "number" },
+                      series: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            t: { type: "integer" },
+                            netInflowUsdcRaw: { type: "string" },
+                            netInflowUsd: { type: "number" },
+                            grossVolumeUsdcRaw: { type: "string" },
+                            grossVolumeUsd: { type: "number" },
+                            cumulativeNetInflowUsdcRaw: { type: "string" },
+                            cumulativeNetInflowUsd: { type: "number" },
+                          },
+                        },
+                      },
+                      snapshot: {
+                        type: "object",
+                        properties: {
+                          totalValueLockedUsdcRaw: { type: "string" },
+                          totalValueLockedUsd: { type: "number" },
+                          cumulativeNetInflowUsdcRaw: { type: "string" },
+                          cumulativeNetInflowUsd: { type: "number" },
+                        },
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `interval`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/active-users": {
+      get: {
+        tags: ["Analytics"],
+        summary: "DAU / WAU / MAU time series",
+        description:
+          "Unique Zap traders per bucket. `qualifiedTraders` only counts wallets whose volume in that bucket is at least `threshold` USD (default 500).",
+        security: optionalApiKeySecurity,
+        parameters: [
+          ...analyticsChartParams,
+          {
+            name: "threshold",
+            in: "query",
+            schema: {
+              type: "number",
+              minimum: 0,
+              maximum: 1_000_000,
+              default: 500,
+            },
+            description:
+              "USD volume cutoff for the qualified-trader cohort in each bucket.",
+          },
+          optionalApiKeyHeader,
+        ],
+        responses: {
+          "200": {
+            description: "Active-user series and trailing windows",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      interval: {
+                        type: "string",
+                        enum: ["hour", "day", "week"],
+                      },
+                      intervalSec: { type: "integer" },
+                      lookback: { type: "integer" },
+                      thresholdUsd: { type: "number" },
+                      series: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            t: { type: "integer" },
+                            uniqueTraders: { type: "integer" },
+                            qualifiedTraders: { type: "integer" },
+                            bucketVolumeUsdcRaw: { type: "string" },
+                            bucketVolumeUsd: { type: "number" },
+                          },
+                        },
+                      },
+                      windows: {
+                        type: "object",
+                        properties: {
+                          last24h: {
+                            $ref: "#/components/schemas/AnalyticsTraderWindow",
+                          },
+                          last7d: {
+                            $ref: "#/components/schemas/AnalyticsTraderWindow",
+                          },
+                          last30d: {
+                            $ref: "#/components/schemas/AnalyticsTraderWindow",
+                          },
+                        },
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `interval`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/breakdown": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Token-set composition",
+        description:
+          "Launched tokens grouped by an off-chain facet. Hidden tokens are excluded.",
+        security: optionalApiKeySecurity,
+        parameters: [
+          {
+            name: "by",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: ["leverage", "direction", "underlying", "lt_pair"],
+              default: "leverage",
+            },
+            description:
+              "`lt_pair` is the LT contract address. Other values are leverage (2/3/5), long/short, or underlying symbol.",
+          },
+          optionalApiKeyHeader,
+        ],
+        responses: {
+          "200": {
+            description: "Grouped token aggregates",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    dimension: {
+                      type: "string",
+                      enum: ["leverage", "direction", "underlying", "lt_pair"],
+                    },
+                    rows: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          key: { type: "string" },
+                          tokenCount: { type: "integer" },
+                          graduatedCount: { type: "integer" },
+                          lifetimeVolumeUsdcRaw: { type: "string" },
+                          lifetimeVolumeUsd: { type: "number" },
+                          protocolFeesUsdcRaw: { type: "string" },
+                          protocolFeesUsd: { type: "number" },
+                          creatorFeesUsdcRaw: { type: "string" },
+                          creatorFeesUsd: { type: "number" },
+                          totalRaisedUsdcRaw: { type: "string" },
+                          totalRaisedUsd: { type: "number" },
+                        },
+                      },
+                    },
+                  },
+                }),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `by`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/revenue-forecast": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Annualised protocol-fee projections",
+        description:
+          "Flat 1d/3d/7d/30d/90d extrapolations and EWMA (7d/14d/30d half-lives) over 120 days of daily protocol fees. Volatile day-to-day; pick a horizon rather than treating one number as truth.",
+        security: optionalApiKeySecurity,
+        parameters: [optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Forecast windows, EWMA estimates, and daily series",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    nowSec: { type: "integer" },
+                    historyDays: { type: "integer" },
+                    flat: {
+                      type: "object",
+                      additionalProperties: {
+                        $ref: "#/components/schemas/AnalyticsForecastEstimate",
+                      },
+                      description:
+                        "Keys: `last1d`, `last3d`, `last7d`, `last30d`, `last90d`.",
+                    },
+                    ewma: {
+                      type: "object",
+                      additionalProperties: {
+                        $ref: "#/components/schemas/AnalyticsForecastEstimate",
+                      },
+                      description:
+                        "Keys: `halfLife7d`, `halfLife14d`, `halfLife30d`.",
+                    },
+                    lifetimeAverage: {
+                      $ref: "#/components/schemas/AnalyticsForecastEstimate",
+                    },
+                    series: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          t: { type: "integer" },
+                          protocolFeesUsd: { type: "number" },
+                        },
+                      },
+                    },
+                  },
+                }),
+              },
+            },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/graduations": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Graduation count time series",
+        description:
+          "Graduations per bucket plus funnel stats (rate, median and mean time to graduate).",
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
+        responses: {
+          "200": {
+            description: "Graduation series and funnel",
+            content: {
+              "application/json": {
+                schema: successResponse(
+                  {
+                    type: "object",
+                    properties: {
+                      interval: {
+                        type: "string",
+                        enum: ["hour", "day", "week"],
+                      },
+                      intervalSec: { type: "integer" },
+                      lookback: { type: "integer" },
+                      series: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            t: { type: "integer" },
+                            graduations: { type: "integer" },
+                          },
+                        },
+                      },
+                      funnel: {
+                        type: "object",
+                        properties: {
+                          totalLaunched: { type: "integer" },
+                          totalGraduated: { type: "integer" },
+                          totalPendingGraduation: { type: "integer" },
+                          graduationRatePct: { type: "number" },
+                          medianTimeToGraduateSec: {
+                            type: "integer",
+                            nullable: true,
+                          },
+                          meanTimeToGraduateSec: {
+                            type: "integer",
+                            nullable: true,
+                          },
+                        },
+                      },
+                    },
+                  },
+                  true,
+                ),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `interval`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
+          },
+        },
+      },
+    },
+    "/api/v1/analytics/top-tokens": {
+      get: {
+        tags: ["Analytics"],
+        summary: "Token leaderboard",
+        description:
+          "Top tokens by a lifetime counter on the indexer `token` row. Hidden tokens are excluded.",
+        security: optionalApiKeySecurity,
+        parameters: [
+          {
+            name: "sort",
+            in: "query",
+            schema: {
+              type: "string",
+              enum: [
+                "volume_lifetime",
+                "protocol_fees_lifetime",
+                "creator_fees_lifetime",
+                "raised_lifetime",
+              ],
+              default: "volume_lifetime",
+            },
+          },
+          {
+            name: "limit",
+            in: "query",
+            schema: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 20,
+            },
+          },
+          optionalApiKeyHeader,
+        ],
+        responses: {
+          "200": {
+            description: "Leaderboard rows",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    sort: { type: "string" },
+                    limit: { type: "integer" },
+                    rows: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          address: { type: "string" },
+                          name: { type: "string" },
+                          symbol: { type: "string" },
+                          creator: { type: "string" },
+                          graduated: { type: "boolean" },
+                          lifetimeVolumeUsdcRaw: { type: "string" },
+                          lifetimeVolumeUsd: { type: "number" },
+                          protocolFeesUsdcRaw: { type: "string" },
+                          protocolFeesUsd: { type: "number" },
+                          creatorFeesUsdcRaw: { type: "string" },
+                          creatorFeesUsd: { type: "number" },
+                          organicUsdcRaisedUsdcRaw: { type: "string" },
+                          organicUsdcRaisedUsd: { type: "number" },
+                        },
+                      },
+                    },
+                  },
+                }),
+              },
+            },
+          },
+          "400": {
+            description: "Invalid `sort`",
+            content: { "application/json": { schema: errorResponse } },
+          },
+          "503": {
+            description: "Indexer unavailable",
+            content: { "application/json": { schema: errorResponse } },
           },
         },
       },
