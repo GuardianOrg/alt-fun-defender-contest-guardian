@@ -312,6 +312,18 @@ const apiKeyHeader = {
     "API key for authentication. All /api/v1/* endpoints require this header. Anonymous rate limit: 60 req/min per IP.",
 };
 
+const optionalApiKeyHeader = {
+  name: "X-API-Key",
+  in: "header" as const,
+  required: false,
+  schema: { type: "string" as const },
+  description:
+    "Optional. Without a key, the request is rate-limited per IP. With a key, the limit is that key's configured quota.",
+};
+
+/** Empty scheme first so Swagger treats the key as optional, matching `apiKeyAuth`. */
+const optionalApiKeySecurity = [{}, { ApiKeyAuth: [] }];
+
 const adminKeyHeader = {
   name: "X-Admin-Key",
   in: "header" as const,
@@ -1075,7 +1087,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Platform analytics snapshot",
         description:
           "Lifetime totals plus 24h / 7d / 30d windows for gross Zap volume, protocol and creator fees, trade counts, and unique traders. Use this instead of paging `/tokens` or `/trades`. `*UsdcRaw` fields are USDC 6dp strings; `*Usd` fields are floats.",
-        parameters: [apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Composite analytics snapshot",
@@ -1149,7 +1162,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Gross trading volume time series",
         description:
           "Dense series of gross USDC routed through Zap (buys + sells). Sourced from hourly volume buckets for hour/day/week intervals.",
-        parameters: [...analyticsChartParams, apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Volume series and trailing windows",
@@ -1232,7 +1246,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Protocol and creator fee time series",
         description:
           "Dense series of USDC fees from `FeeVault:FeeAccrued` (accrual, not claim). Protocol share is ~0.5% of notional; creator share is ~0.25%.",
-        parameters: [...analyticsChartParams, apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Fee series and trailing windows",
@@ -1307,7 +1322,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Cumulative net USDC inflow",
         description:
           "Running sum of Zap buys minus sells from genesis through each bucket. Excludes virtual curve reserves; only real USDC that traversed Zap.",
-        parameters: [...analyticsChartParams, apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Net-inflow series and TVL snapshot",
@@ -1377,6 +1393,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "DAU / WAU / MAU time series",
         description:
           "Unique Zap traders per bucket. `qualifiedTraders` only counts wallets whose volume in that bucket is at least `threshold` USD (default 500).",
+        security: optionalApiKeySecurity,
         parameters: [
           ...analyticsChartParams,
           {
@@ -1391,7 +1408,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
             description:
               "USD volume cutoff for the qualified-trader cohort in each bucket.",
           },
-          apiKeyHeader,
+          optionalApiKeyHeader,
         ],
         responses: {
           "200": {
@@ -1460,6 +1477,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Token-set composition",
         description:
           "Launched tokens grouped by an off-chain facet. Hidden tokens are excluded.",
+        security: optionalApiKeySecurity,
         parameters: [
           {
             name: "by",
@@ -1472,7 +1490,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
             description:
               "`lt_pair` is the LT contract address. Other values are leverage (2/3/5), long/short, or underlying symbol.",
           },
-          apiKeyHeader,
+          optionalApiKeyHeader,
         ],
         responses: {
           "200": {
@@ -1527,7 +1545,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Annualised protocol-fee projections",
         description:
           "Flat 1d/3d/7d/30d/90d extrapolations and EWMA (7d/14d/30d half-lives) over 120 days of daily protocol fees. Volatile day-to-day; pick a horizon rather than treating one number as truth.",
-        parameters: [apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Forecast windows, EWMA estimates, and daily series",
@@ -1585,7 +1604,8 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Graduation count time series",
         description:
           "Graduations per bucket plus funnel stats (rate, median and mean time to graduate).",
-        parameters: [...analyticsChartParams, apiKeyHeader],
+        security: optionalApiKeySecurity,
+        parameters: [...analyticsChartParams, optionalApiKeyHeader],
         responses: {
           "200": {
             description: "Graduation series and funnel",
@@ -1652,6 +1672,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
         summary: "Token leaderboard",
         description:
           "Top tokens by a lifetime counter on the indexer `token` row. Hidden tokens are excluded.",
+        security: optionalApiKeySecurity,
         parameters: [
           {
             name: "sort",
@@ -1677,7 +1698,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
               default: 20,
             },
           },
-          apiKeyHeader,
+          optionalApiKeyHeader,
         ],
         responses: {
           "200": {
