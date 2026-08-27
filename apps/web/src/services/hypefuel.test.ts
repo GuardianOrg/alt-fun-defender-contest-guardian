@@ -269,6 +269,27 @@ describe("assertHypeFuelAuthorization", () => {
     ).toThrow(/\$1/);
   });
 
+  it("rejects a quote whose nonce is not bound to the order", () => {
+    expect(() =>
+      assertHypeFuelAuthorization(
+        USER,
+        order,
+        typed({ nonce: quoteNonce({ ...order, minHypeOut: "2" }) }),
+      ),
+    ).toThrow(/nonce/);
+  });
+
+  it("rejects an expired quote", () => {
+    const past = String(Math.floor(Date.now() / 1000) - 10);
+    const expired = { ...order, validBefore: past };
+    const payload = typed();
+    payload.message.validBefore = past;
+    payload.message.nonce = quoteNonce(expired);
+    expect(() => assertHypeFuelAuthorization(USER, expired, payload)).toThrow(
+      /expired/,
+    );
+  });
+
   it("rejects a quote that is not yet valid", () => {
     const validAfter = String(Math.floor(Date.now() / 1000) + 60);
     const future = { ...order, validAfter };
