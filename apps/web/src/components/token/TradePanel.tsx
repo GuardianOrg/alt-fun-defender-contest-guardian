@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
-import { createPublicClient, formatUnits, http, parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { useAccount } from "wagmi";
 
 import CreatorBadge from "./CreatorBadge";
@@ -11,7 +11,7 @@ import TradePanelBufferWarning from "./TradePanelBufferWarning";
 import TradePanelGasBanner from "./TradePanelGasBanner";
 import TradePanelInput from "./TradePanelInput";
 import TradePanelQuote from "./TradePanelQuote";
-import { hyperEVM } from "../../config/chains";
+import { hyperEvmClient } from "../../config/hyperEvmClient";
 import {
   RELAY_BRIDGE_HYPE_URL,
   RELAY_BRIDGE_USDC_URL,
@@ -45,14 +45,6 @@ import SegmentedButton from "../shared/SegmentedButton";
 import { buildTxAction, useToast } from "../shared/toast-context";
 
 import type { Token } from "../../services/types";
-
-const rpcUrl =
-  import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-// Batch the balance reads fired on every wallet/mode/token flip.
-const hyperEvmClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(rpcUrl, { batch: true }),
-});
 
 // Thresholds for the contextual bridge/get-gas CTAs.
 const LOW_USDC_THRESHOLD = MIN_USDC_BUY_AMOUNT;

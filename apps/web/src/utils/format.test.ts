@@ -66,6 +66,18 @@ describe("getErrorMessage", () => {
     expect(message).toBe("something unfamiliar happened");
   });
 
+  it("hides RPC URLs when the node fetch fails", () => {
+    const message = getErrorMessage(
+      new Error(
+        "HTTP request failed. URL: https://example.invalid/v2/secret " +
+          'Request body: [{"method":"eth_call"}] Details: Failed to fetch',
+      ),
+    );
+    expect(message).toBe("Could not reach HyperEVM - try again in a few seconds.");
+    expect(message).not.toMatch(/https?:\/\//);
+    expect(message).not.toMatch(/secret/i);
+  });
+
   it("handles non-Error inputs without throwing", () => {
     expect(getErrorMessage("plain string error")).toBe("Transaction failed");
     expect(getErrorMessage(null)).toBe("Transaction failed");

@@ -1,10 +1,8 @@
 import { useCallback, useState } from "react";
 
-import { createPublicClient, http } from "viem";
-
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
-import { hyperEVM } from "../config/chains";
+import { hyperEvmClient } from "../config/hyperEvmClient";
 import {
   HypeFuelError,
   assertHypeFuelAuthorization,
@@ -13,13 +11,6 @@ import {
   type HypeFuelQuotePreview,
 } from "../services/hypefuel";
 import { getErrorMessage } from "../utils/format";
-
-const rpcUrl =
-  import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-const hyperEvmClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(rpcUrl, { batch: true }),
-});
 
 export type HypeFuelPhase = "idle" | "quoting" | "signing" | "filling";
 

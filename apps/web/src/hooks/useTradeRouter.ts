@@ -1,25 +1,15 @@
 import { useState, useCallback } from "react";
 
-import { createPublicClient, http, isAddress, maxUint256, parseUnits } from "viem";
+import { isAddress, maxUint256, parseUnits } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
 import { useWallet } from "./useWallet";
-import { hyperEVM } from "../config/chains";
+import { hyperEvmClient } from "../config/hyperEvmClient";
 import { erc20Abi, ZapAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
 import { getErrorMessage } from "../utils/format";
-
-const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-// `batch: true` mirrors `config/wagmi.ts`. `executeBuy` / `executeSell`
-// each fan out `readContract(allowance) → simulateContract →
-// estimateContractGas` in the same tick on the permit path; batching
-// collapses the two pre-write reads into one HTTP POST.
-const hyperEvmClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(rpcUrl, { batch: true }),
-});
 
 /// Permit deadline — 30 minutes is plenty for a single trade to confirm and
 /// short enough that a leaked sig isn't a long-term liability.
