@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
 import {
+  PLATFORM_TOKEN_ADDRESS,
   SUPPORTED_UNDERLYING_ASSETS,
   isSupportedUnderlying,
 } from "@launchpad/shared";
@@ -267,26 +268,28 @@ function buildScoredComparator(
  * Sort modes accepted on `/api/v1/tokens?sort=…`.
  *
  * The first three (`createdAt` / `leverage` / `name`) are simple SQL
- * `ORDER BY` modes used by the DB-first path. The last three are
+ * `ORDER BY` modes used by the DB-first path. The remaining four are
  * "scored" sorts that re-rank the trending candidate pool (top‑N by
  * rolling 24h volume) — when any of these is selected, the route
  * fetches the volume-ranked candidate pool from the indexer and then
  * reorders the hydrated rows in memory.
  *
- *   - `trending`   — multi-window walk: last-24h cohort by gross USDC
+ *   - `trending`   — same ranking as `volume24h`, with the platform
+ *                    ALT token pinned first. The TRENDING-tab default.
+ *   - `volume24h`  — multi-window walk: last-24h cohort by gross USDC
  *                    volume desc, then the 24–48h cohort, then 48–72h,
- *                    … (mcap tie-break within a window). The TRENDING-tab
- *                    default; backs infinite scroll past the last 24h.
+ *                    … (mcap tie-break within a window). Unpinned;
+ *                    backs infinite scroll past the last 24h.
  *   - `mcap`       — market cap desc (24h volume tie-break: equal
  *                    mcap rows surface the more-active token first).
  *   - `change24h`  — 24h percentage change desc (mcap tie-break;
  *                    null sinks to the bottom — see the comparator).
  *
- * For `status=graduated` requests the same three scored sorts are
- * accepted: they re-rank the graduated cohort (top‑N by `graduatedAt
- * desc` from the indexer) by the same key. `trending` on a graduated
- * cohort means "most-traded graduated tokens this week" — legitimate
- * lens, though the frontend's TRENDING tab won't surface that combo.
+ * For `status=graduated` requests the scored sorts are accepted: they
+ * re-rank the graduated cohort (top‑N by `graduatedAt desc` from the
+ * indexer) by the same key. The ALT pin is TRENDING-tab-only (this
+ * branch returns before it); the frontend's GRADUATED "24H VOLUME" row
+ * sends `volume24h`.
  * For `status=graduating` the sort param is ignored (curveFilled desc
  * is the only meaningful order for that tab — see the in-memory sort
  * a few hundred lines below).
@@ -296,8 +299,38 @@ type SortMode =
   | "leverage"
   | "name"
   | "trending"
+  | "volume24h"
   | "mcap"
   | "change24h";
+
+const PLATFORM_TOKEN_ADDRESS_LOWER = PLATFORM_TOKEN_ADDRESS.toLowerCase();
+
+function isPlatformToken(address: string): boolean {
+  return address.toLowerCase() === PLATFORM_TOKEN_ADDRESS_LOWER;
+}
+
+/** Move `pinned` to index 0, dropping any earlier copy so it isn't duplicated. */
+function prependPlatformToken<T extends { address: string }>(
+  rows: T[],
+  pinned: T,
+): T[] {
+  const rest = rows.filter((r) => !isPlatformToken(r.address));
+  return [pinned, ...rest];
+}
+
+/**
+ * Map the request's `sort=` onto the comparator's three keys.
+ * `volume24h` and `trending` share the volume-walk comparator; `trending`
+ * then re-pins ALT after the sort so the pin survives mcap tie-breaks.
+ */
+function scoredSortKey(
+  sort: SortMode,
+): "trending" | "mcap" | "change24h" | null {
+  if (sort === "trending" || sort === "volume24h") return "trending";
+  if (sort === "mcap" || sort === "change24h") return sort;
+  return null;
+}
+
 type StatusFilter = "curve" | "graduating" | "graduated";
 
 interface ListFilters {
@@ -316,6 +349,16 @@ function matchesFilters(t: DbToken, f: ListFilters): boolean {
     return false;
   }
   return true;
+}
+
+/** Pin only when the row would pass the same public catalogue lens as the rest of the page. */
+function eligiblePlatformPin(
+  row: DbToken | undefined,
+  filters: ListFilters,
+): DbToken | undefined {
+  if (!row || row.isHidden) return undefined;
+  if (!matchesFilters(row, filters)) return undefined;
+  return row;
 }
 
 function supportedUnderlyingCondition(): SQL {
@@ -376,6 +419,7 @@ listRoute.get("/", async (c) => {
     sortRaw === "leverage" ||
     sortRaw === "name" ||
     sortRaw === "trending" ||
+    sortRaw === "volume24h" ||
     sortRaw === "mcap" ||
     sortRaw === "change24h"
       ? sortRaw
@@ -384,8 +428,12 @@ listRoute.get("/", async (c) => {
   // any sort in this set. Used both for cache-key canonicalisation
   // (collapse `&dir=asc` / `&dir=desc` into the same entry) and to
   // gate the candidate-pool branch a few hundred lines below.
-  const isScoredSort =
-    sort === "trending" || sort === "mcap" || sort === "change24h";
+  const scoredKey = scoredSortKey(sort);
+  const isScoredSort = scoredKey !== null;
+  const isVolumeWalkSort = sort === "trending" || sort === "volume24h";
+  // ALT pin is the TRENDING-tab default only — explicit 24h volume and
+  // the other scored sorts keep a pure ranking.
+  const shouldPinPlatformToken = sort === "trending";
   const dir = c.req.query("dir") === "asc" ? asc : desc;
 
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
@@ -529,9 +577,7 @@ listRoute.get("/", async (c) => {
     // BounceTech, not Ponder — so we enrich the pool, sort, and
     // paginate at the end. Trades a wider BounceTech batch for honest
     // ordering across the visible page.
-    const scoredSort = isScoredSort
-      ? (sort as "trending" | "mcap" | "change24h")
-      : null;
+    const scoredSort = scoredKey;
 
     const enrichInputDbRows = scoredSort
       ? orderedDbRows
@@ -861,17 +907,29 @@ listRoute.get("/", async (c) => {
       currentHourStart,
     );
     if (candidates !== null) {
-      if (candidates.length === 0) {
-        // Indexer is up but no token has ever traded — legitimately-empty
-        // trending tab. Skip the DB roundtrip.
+      // `tokens.address` is stored checksummed (`getAddress(...)` at
+      // insert time in `lib/token-registration.ts`); the indexer
+      // returns lowercased — checksum each for the SQL `IN (...)`.
+      const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
+      // Fold ALT into the hydrate set so a zero-volume platform token
+      // can still be pinned; skipped when the pin isn't requested.
+      if (shouldPinPlatformToken) {
+        const pinAddr = getAddress(PLATFORM_TOKEN_ADDRESS);
+        if (
+          !checksummed.some(
+            (a) => a.toLowerCase() === PLATFORM_TOKEN_ADDRESS_LOWER,
+          )
+        ) {
+          checksummed.push(pinAddr);
+        }
+      }
+      if (checksummed.length === 0) {
+        // Indexer is up but no token has ever traded, and we're not
+        // pinning — legitimately-empty trending tab.
         dbTokens = [];
         trendingVolumeByAddress = new Map();
         trendingWindowByAddress = new Map();
       } else {
-        // `tokens.address` is stored checksummed (`getAddress(...)` at
-        // insert time in `lib/token-registration.ts`); the indexer
-        // returns lowercased — checksum each for the SQL `IN (...)`.
-        const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
         const filteredRows = await tryApiDbRead(
           "api_db.tokens_list_trending_hydrate",
           () =>
@@ -890,7 +948,7 @@ listRoute.get("/", async (c) => {
         trendingWindowByAddress = new Map(
           candidates.map((c) => [c.tokenAddress, c.windowIndex]),
         );
-        // For `sort=trending` we can paginate BEFORE market-data
+        // For volume-walk sorts we can paginate BEFORE market-data
         // enrichment: candidates come back in the final walk order
         // (`window_index ASC, in-window volume DESC, token_address ASC`)
         // from the indexer, so reordering filter-passing rows to match
@@ -914,17 +972,25 @@ listRoute.get("/", async (c) => {
           const row = rowsByAddr.get(cand.tokenAddress);
           if (row) orderedByVolume.push(row);
         }
-        dbTokens =
-          sort === "trending"
-            ? orderedByVolume.slice(offset, offset + limit)
-            : orderedByVolume;
+        const pinRow = shouldPinPlatformToken
+          ? eligiblePlatformPin(
+              rowsByAddr.get(PLATFORM_TOKEN_ADDRESS_LOWER),
+              filters,
+            )
+          : undefined;
+        const ordered = pinRow
+          ? prependPlatformToken(orderedByVolume, pinRow)
+          : orderedByVolume;
+        dbTokens = isVolumeWalkSort
+          ? ordered.slice(offset, offset + limit)
+          : ordered;
       }
     } else {
       // Indexer down — fall back to the legacy createdAt-DESC pool so
       // the tab keeps rendering. Tagged `dataSource: "degraded"` below;
       // the brief loss of volume ordering is preferable to a 503.
       //
-      // For `sort=trending` the in-memory comparator can only re-rank
+      // For volume-walk sorts the in-memory comparator can only re-rank
       // by row-local `volume24hUsd`, which is the same axis SQL would
       // sort on — so we push pagination into SQL and skip the
       // post-enrich slice (matches the live trending path; prevents
@@ -933,7 +999,7 @@ listRoute.get("/", async (c) => {
       // memory so the comparator can pick the true top-N by the
       // requested key before the post-enrich slice paginates.
       trendingDegraded = true;
-      if (sort === "trending") {
+      if (isVolumeWalkSort) {
         const fallbackRows = await tryApiDbRead(
           "api_db.tokens_list_trending_fallback_page",
           () =>
@@ -949,7 +1015,18 @@ listRoute.get("/", async (c) => {
         if (fallbackRows === null) {
           return c.json(formatError("Token metadata unavailable"), 503);
         }
-        dbTokens = fallbackRows;
+        const pinRow =
+          shouldPinPlatformToken && offset === 0
+            ? eligiblePlatformPin(
+                fallbackRows.find((r) => isPlatformToken(r.address)),
+                filters,
+              )
+            : undefined;
+        dbTokens = pinRow
+          ? prependPlatformToken(fallbackRows, pinRow).slice(0, limit)
+          : shouldPinPlatformToken
+            ? fallbackRows.filter((r) => !isPlatformToken(r.address))
+            : fallbackRows;
       } else {
         const fallbackPool = await tryApiDbRead(
           "api_db.tokens_list_trending_fallback_pool",
@@ -1061,12 +1138,13 @@ listRoute.get("/", async (c) => {
     //   - change24h → mcap desc
     //   - mcap → 24h volume desc (equal-mcap rows surface the more-
     //     active token first)
-    // For `sort=trending`, `dbTokens` was already sliced to the page
+    // For volume-walk sorts, `dbTokens` was already sliced to the page
     // upstream (window-ordered), so the comparator only reshuffles ties
     // *within the page* — the post-sort slice below is skipped to avoid
-    // double-paginating. For mcap / change24h the pool is still 500
-    // tokens here and the comparator picks the true top-N before the
-    // post-sort slice paginates.
+    // double-paginating. `sort=trending` then re-pins ALT first. For
+    // mcap / change24h the pool is still 500 tokens here and the
+    // comparator picks the true top-N before the post-sort slice
+    // paginates.
     const volume24hOf = (t: EnrichedToken): number => {
       const addr = t.address.toLowerCase();
       const mapped = trendingVolumeByAddress?.get(addr);
@@ -1080,10 +1158,17 @@ listRoute.get("/", async (c) => {
     const windowIndexOf = (t: EnrichedToken): number =>
       trendingWindowByAddress?.get(t.address.toLowerCase()) ?? 0;
     const sorted = [...enriched].sort(
-      buildScoredComparator(sort, volume24hOf, mcapOf, windowIndexOf),
+      buildScoredComparator(scoredKey, volume24hOf, mcapOf, windowIndexOf),
     );
-    enriched =
-      sort === "trending" ? sorted : sorted.slice(offset, offset + limit);
+    enriched = isVolumeWalkSort
+      ? sorted
+      : sorted.slice(offset, offset + limit);
+    // Comparator ranks by volume/window, which would un-pin ALT. Restore
+    // after the sort; no-op on later pages where ALT isn't in the slice.
+    if (shouldPinPlatformToken) {
+      const pinned = enriched.find((t) => isPlatformToken(t.address));
+      if (pinned) enriched = prependPlatformToken(enriched, pinned);
+    }
   }
 
   const isLive = marketResult.ok && !trendingDegraded;

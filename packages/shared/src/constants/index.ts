@@ -1,4 +1,8 @@
-export { CONTRACT_ADDRESSES, HYPERSWAP_ADDRESSES } from "./addresses.js";
+export {
+  CONTRACT_ADDRESSES,
+  HYPERSWAP_ADDRESSES,
+  PLATFORM_TOKEN_ADDRESS,
+} from "./addresses.js";
 export {
   SUPPORTED_CHAINS,
   HYPER_EVM,

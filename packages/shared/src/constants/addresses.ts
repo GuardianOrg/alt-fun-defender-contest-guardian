@@ -20,3 +20,7 @@ export const HYPERSWAP_ADDRESSES = {
   factory: "0x724412C00059bf7d6ee7d4a1d0D5cd4de3ea1C48",
   router: "0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A",
 } as const;
+
+/** Canonical ALT token — pinned first on the home-page TRENDING sort. */
+export const PLATFORM_TOKEN_ADDRESS =
+  "0xa3882D42ed12B57C10C85E8Ec8fEBD0774600000" as const;

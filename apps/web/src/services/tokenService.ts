@@ -98,8 +98,7 @@ export type TokenSort = "default" | "mcap" | "change24h" | "volume24h";
 /** Map UI sort values to API `sort=` values. */
 function wireSort(
   sort: Exclude<TokenSort, "default">,
-): "trending" | "mcap" | "change24h" {
-  if (sort === "volume24h") return "trending";
+): "trending" | "volume24h" | "mcap" | "change24h" {
   return sort;
 }
 

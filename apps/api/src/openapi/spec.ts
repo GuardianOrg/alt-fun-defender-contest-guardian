@@ -449,11 +449,19 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
             in: "query",
             schema: {
               type: "string",
-              enum: ["createdAt", "leverage", "name", "trending"],
+              enum: [
+                "createdAt",
+                "leverage",
+                "name",
+                "trending",
+                "volume24h",
+                "mcap",
+                "change24h",
+              ],
               default: "createdAt",
             },
             description:
-              "Sort field. `trending` ranks tokens by rolling 24h gross USDC volume (sole signal — no precomputed score, no boost, no freshness/recency heuristics). Tie-break on mcap desc. Ignores `dir`, always returns highest-volume first, and is capped at the 500 highest-volume tokens matching the filters.",
+              "Sort field. `trending` is 24h volume with the platform ALT token pinned first (home-page default). `volume24h` is the same ranking unpinned. `mcap` / `change24h` re-rank the volume-active candidate pool. Ignores `dir` on scored sorts, always desc.",
           },
           {
             name: "dir",
