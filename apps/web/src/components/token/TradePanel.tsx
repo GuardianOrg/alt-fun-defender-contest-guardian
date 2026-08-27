@@ -28,8 +28,6 @@ import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import {
-  canHypeFuelFromUsdc,
-  LOW_HYPE_THRESHOLD_WEI,
   needsGas,
   parseTypedUsdcWei,
   planBuyGas,
@@ -87,8 +85,6 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   const [usdcBalanceWei, setUsdcBalanceWei] = useState<bigint | null>(null);
   // Native HYPE balance drives GET GAS; keep wei for exact threshold compares.
   const [hypeBalanceWei, setHypeBalanceWei] = useState<bigint | null>(null);
-  // Survives a $1 top-up that still leaves HYPE under the threshold (high HYPE price).
-  const [gasFilled, setGasFilled] = useState(false);
 
   const { address } = useAccount();
   const { isConnected, connect } = useWallet();
@@ -170,7 +166,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     (usdcBalanceNum < LOW_USDC_THRESHOLD || insufficientUsdc);
 
   // GET GAS shares the CTA slot with BRIDGE USDC; funding the trade takes priority.
-  const gasNeeded = needsGas(hypeBalanceWei, gasFilled);
+  const gasNeeded = needsGas(hypeBalanceWei);
   const typedBuyUsdcWei =
     mode === "buy" ? parseTypedUsdcWei(amount) : 0n;
   const buyGasPlan =
@@ -190,18 +186,11 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     !buyBlocked &&
     ((mode === "buy" && buyGasPlan.action === "hypefuel") ||
       (mode === "sell" && sellGasPlan === "hypefuel"));
-  const canPayHypeFuel =
-    usdcBalanceWei !== null && canHypeFuelFromUsdc(usdcBalanceWei);
   const showGetGas =
     isConnected &&
     gasNeeded &&
     !showBridgeUsdc &&
     !hypefuelPrimary;
-  const secondaryIsHypeFuel =
-    canPayHypeFuel &&
-    (mode === "buy"
-      ? buyGasPlan.action !== "relay"
-      : sellGasPlan !== "relay");
   const showGasBanner =
     !showBridgeUsdc &&
     (hypefuelPrimary || gasInProgress || !!gasError);
@@ -286,19 +275,9 @@ export default function TradePanel({ token, chromeless = false }: Props) {
   }, [isMintPaused, isPolicyHidden, mode, amount]);
 
   useEffect(() => {
-    setGasFilled(false);
-  }, [address]);
-
-  useEffect(() => {
-    if (hypeBalanceWei !== null && hypeBalanceWei >= LOW_HYPE_THRESHOLD_WEI) {
-      setGasFilled(false);
-    }
-  }, [hypeBalanceWei]);
-
-  useEffect(() => {
-    if (!address || !gasNeeded || !canPayHypeFuel || showBridgeUsdc) return;
+    if (!address || !hypefuelPrimary) return;
     void loadPreview(address);
-  }, [address, gasNeeded, canPayHypeFuel, showBridgeUsdc, loadPreview]);
+  }, [address, hypefuelPrimary, loadPreview]);
 
   useEffect(() => {
     resetHypeFuel();
@@ -350,29 +329,24 @@ export default function TradePanel({ token, chromeless = false }: Props) {
       : parsed;
   };
 
-  const runHypeFuelThenTrade = async (continueTrade: boolean) => {
-    if (continueTrade) {
-      pendingAfterGasRef.current =
-        mode === "buy"
-          ? {
-              mode: "buy",
-              buyUsdcWei: buyGasPlan.proposedBuyUsdcWei,
-              tokenAmountWei: 0n,
-            }
-          : {
-              mode: "sell",
-              buyUsdcWei: 0n,
-              tokenAmountWei: sellTokenAmountWei(),
-            };
-    } else {
-      pendingAfterGasRef.current = null;
-    }
+  const runHypeFuelThenTrade = async () => {
+    pendingAfterGasRef.current =
+      mode === "buy"
+        ? {
+            mode: "buy",
+            buyUsdcWei: buyGasPlan.proposedBuyUsdcWei,
+            tokenAmountWei: 0n,
+          }
+        : {
+            mode: "sell",
+            buyUsdcWei: 0n,
+            tokenAmountWei: sellTokenAmountWei(),
+          };
     const ok = await executeHypeFuel();
     if (!ok) {
       pendingAfterGasRef.current = null;
       return;
     }
-    setGasFilled(true);
     await loadBalance();
     const pending = pendingAfterGasRef.current;
     pendingAfterGasRef.current = null;
@@ -395,7 +369,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
     if (buyBlocked) return;
     if (gasNeeded) {
       if (hypefuelPrimary) {
-        void runHypeFuelThenTrade(true);
+        void runHypeFuelThenTrade();
       }
       return;
     }
@@ -515,7 +489,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             tone="mint"
             active={mode === "buy"}
             fullWidthIndicator
-            disabled={isMintPaused || isPolicyHidden}
+            disabled={isBusy || isMintPaused || isPolicyHidden}
             onClick={() => {
               setMode("buy");
               setAmount("");
@@ -537,6 +511,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             tone="red"
             active={mode === "sell"}
             fullWidthIndicator
+            disabled={isBusy}
             onClick={() => {
               setMode("sell");
               setAmount("");
@@ -663,9 +638,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
             haircutFromUsd={haircutFromUsd}
             haircutToUsd={haircutToUsd}
             error={gasError}
-            showRelayFallback={
-              !!gasError && !gasError.toLowerCase().includes("rejected")
-            }
+            showRelayFallback={!!gasError}
           />
         )}
 
@@ -767,13 +740,7 @@ export default function TradePanel({ token, chromeless = false }: Props) {
           <Button
             variant="secondary"
             fullWidth
-            onClick={() => {
-              if (secondaryIsHypeFuel) {
-                void runHypeFuelThenTrade(false);
-                return;
-              }
-              openRelayBridge(RELAY_BRIDGE_HYPE_URL);
-            }}
+            onClick={() => openRelayBridge(RELAY_BRIDGE_HYPE_URL)}
           >
             GET GAS
           </Button>

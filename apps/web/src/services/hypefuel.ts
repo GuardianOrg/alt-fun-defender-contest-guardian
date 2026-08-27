@@ -1,11 +1,13 @@
-import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
-import { parseUnits } from "viem";
+import { MIN_USDC_BUY_AMOUNT, USDC_ADDRESS } from "@launchpad/shared";
+import { encodeAbiParameters, keccak256, parseUnits, toHex } from "viem";
 
 import { USDC_DECIMALS } from "../contracts/addresses";
 
 export const HYPEFUEL_API = "https://api.hypefuel.me";
 export const HYPEFUEL_DOCS_URL = "https://hypefuel.me/docs";
 export const HYPEFUEL_SITE_URL = "https://hypefuel.me";
+export const HYPEFUEL_ADDRESS =
+  "0x42b06b1d9a07Fc3925C518dbf9475E7cA80DC8DF" as const;
 
 /** Contract minimum fill size. Quote `$1` rather than polling `/v1/config`. */
 export const HYPEFUEL_USDC_WEI = 1_000_000n;
@@ -13,7 +15,16 @@ export const HYPEFUEL_USDC_WEI = 1_000_000n;
 /** Native HYPE below this cannot reliably pay a Zap buy/sell. */
 export const LOW_HYPE_THRESHOLD_WEI = parseUnits("0.005", 18);
 
+const HYPEFUEL_FETCH_TIMEOUT_MS = 15_000;
+const HYPER_EVM_CHAIN_ID = 999;
+
 const MIN_BUY_USDC_WEI = parseUnits(String(MIN_USDC_BUY_AMOUNT), USDC_DECIMALS);
+
+const ORDER_TYPEHASH = keccak256(
+  toHex(
+    "HypeFuelOrder(address user,uint256 usdcIn,uint256 minHypeOut,uint256 validAfter,uint256 validBefore,bytes32 salt)",
+  ),
+);
 
 export class HypeFuelError extends Error {
   readonly code: string;
@@ -114,7 +125,18 @@ export function isHypeFuelRelayFallback(code: string): boolean {
 }
 
 async function hypeFuelFetch<T>(path: string, init: RequestInit): Promise<T> {
-  const res = await fetch(`${HYPEFUEL_API}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${HYPEFUEL_API}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(HYPEFUEL_FETCH_TIMEOUT_MS),
+    });
+  } catch (e) {
+    if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new HypeFuelError("timeout", "HypeFuel timed out. Try again or bridge HYPE.");
+    }
+    throw e;
+  }
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     throw parseHypeFuelError(res.status, body);
@@ -179,6 +201,70 @@ export function typedDataForViem(raw: HypeFuelTypedDataJson) {
   };
 }
 
+function sameAddress(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+function orderNonce(order: HypeFuelSerializedOrder): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "bytes32" },
+      ],
+      [
+        ORDER_TYPEHASH,
+        order.user,
+        BigInt(order.usdcIn),
+        BigInt(order.minHypeOut),
+        BigInt(order.validAfter),
+        BigInt(order.validBefore),
+        order.salt,
+      ],
+    ),
+  );
+}
+
+/** Reject a quote whose EIP-3009 payload does not match the `$1` top-up we displayed. */
+export function assertHypeFuelAuthorization(
+  user: `0x${string}`,
+  order: HypeFuelSerializedOrder,
+  raw: HypeFuelTypedDataJson,
+) {
+  const typed = typedDataForViem(raw);
+  if (typed.domain.chainId !== HYPER_EVM_CHAIN_ID) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote is for the wrong chain.");
+  }
+  if (!sameAddress(typed.domain.verifyingContract, USDC_ADDRESS)) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote is not for USDC.");
+  }
+  if (!sameAddress(typed.message.from, user) || !sameAddress(order.user, user)) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote is for a different wallet.");
+  }
+  if (!sameAddress(typed.message.to, HYPEFUEL_ADDRESS)) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote pays the wrong contract.");
+  }
+  if (typed.message.value !== HYPEFUEL_USDC_WEI || order.usdcIn !== HYPEFUEL_USDC_WEI.toString()) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote amount does not match $1.");
+  }
+  if (typed.message.nonce.toLowerCase() !== orderNonce(order).toLowerCase()) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote nonce does not match the order.");
+  }
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  if (typed.message.validAfter > now) {
+    throw new HypeFuelError("invalid_quote", "HypeFuel quote is not yet valid.");
+  }
+  if (typed.message.validBefore <= now) {
+    throw new HypeFuelError("order_expired", "HypeFuel quote expired. Try again.");
+  }
+  return typed;
+}
+
 export function parseTypedUsdcWei(amount: string): bigint {
   if (!amount) return 0n;
   try {
@@ -188,8 +274,8 @@ export function parseTypedUsdcWei(amount: string): bigint {
   }
 }
 
-export function needsGas(hypeWei: bigint | null, gasFilled: boolean): boolean {
-  if (gasFilled || hypeWei === null) return false;
+export function needsGas(hypeWei: bigint | null): boolean {
+  if (hypeWei === null) return false;
   return hypeWei < LOW_HYPE_THRESHOLD_WEI;
 }
 

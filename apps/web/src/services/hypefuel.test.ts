@@ -1,8 +1,11 @@
-import { parseUnits } from "viem";
+import { USDC_ADDRESS } from "@launchpad/shared";
+import { encodeAbiParameters, keccak256, parseUnits, toHex } from "viem";
 import { describe, expect, it } from "vitest";
 
 import {
+  HYPEFUEL_ADDRESS,
   HYPEFUEL_USDC_WEI,
+  assertHypeFuelAuthorization,
   canHypeFuelFromUsdc,
   isHypeFuelRelayFallback,
   needsGas,
@@ -161,12 +164,119 @@ describe("needsGas", () => {
   const threshold = parseUnits("0.005", 18);
 
   it("is false until the balance has loaded", () => {
-    expect(needsGas(null, false)).toBe(false);
+    expect(needsGas(null)).toBe(false);
   });
 
-  it("is true only below the threshold and without a latch", () => {
-    expect(needsGas(threshold - 1n, false)).toBe(true);
-    expect(needsGas(threshold, false)).toBe(false);
-    expect(needsGas(0n, true)).toBe(false);
+  it("is true only below the threshold", () => {
+    expect(needsGas(threshold - 1n)).toBe(true);
+    expect(needsGas(threshold)).toBe(false);
+    expect(needsGas(0n)).toBe(true);
+  });
+});
+
+const USER = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045" as const;
+const SALT =
+  "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
+
+function quoteNonce(order: {
+  user: `0x${string}`;
+  usdcIn: string;
+  minHypeOut: string;
+  validAfter: string;
+  validBefore: string;
+  salt: `0x${string}`;
+}): `0x${string}` {
+  const typehash = keccak256(
+    toHex(
+      "HypeFuelOrder(address user,uint256 usdcIn,uint256 minHypeOut,uint256 validAfter,uint256 validBefore,bytes32 salt)",
+    ),
+  );
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: "bytes32" },
+        { type: "address" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "bytes32" },
+      ],
+      [
+        typehash,
+        order.user,
+        BigInt(order.usdcIn),
+        BigInt(order.minHypeOut),
+        BigInt(order.validAfter),
+        BigInt(order.validBefore),
+        order.salt,
+      ],
+    ),
+  );
+}
+
+describe("assertHypeFuelAuthorization", () => {
+  const validBefore = String(Math.floor(Date.now() / 1000) + 300);
+  const order = {
+    user: USER,
+    usdcIn: HYPEFUEL_USDC_WEI.toString(),
+    minHypeOut: "1",
+    validAfter: "0",
+    validBefore,
+    salt: SALT,
+  };
+
+  function typed(overrides?: {
+    to?: `0x${string}`;
+    value?: string;
+    nonce?: `0x${string}`;
+  }) {
+    return {
+      domain: {
+        name: "USDC",
+        version: "2",
+        chainId: 999,
+        verifyingContract: USDC_ADDRESS,
+      },
+      types: {
+        ReceiveWithAuthorization: [{ name: "from", type: "address" }],
+      },
+      primaryType: "ReceiveWithAuthorization",
+      message: {
+        from: USER,
+        to: overrides?.to ?? HYPEFUEL_ADDRESS,
+        value: overrides?.value ?? HYPEFUEL_USDC_WEI.toString(),
+        validAfter: "0",
+        validBefore,
+        nonce: overrides?.nonce ?? quoteNonce(order),
+      },
+    };
+  }
+
+  it("accepts a $1 quote bound to the signer and HypeFuel", () => {
+    expect(() => assertHypeFuelAuthorization(USER, order, typed())).not.toThrow();
+  });
+
+  it("rejects a quote that pays a different contract", () => {
+    expect(() =>
+      assertHypeFuelAuthorization(USER, order, typed({ to: USER })),
+    ).toThrow(/wrong contract/);
+  });
+
+  it("rejects a quote that spends more than $1", () => {
+    expect(() =>
+      assertHypeFuelAuthorization(USER, order, typed({ value: "2000000" })),
+    ).toThrow(/\$1/);
+  });
+
+  it("rejects a quote that is not yet valid", () => {
+    const validAfter = String(Math.floor(Date.now() / 1000) + 60);
+    const future = { ...order, validAfter };
+    const payload = typed();
+    payload.message.validAfter = validAfter;
+    payload.message.nonce = quoteNonce(future);
+    expect(() => assertHypeFuelAuthorization(USER, future, payload)).toThrow(
+      /not yet valid/,
+    );
   });
 });

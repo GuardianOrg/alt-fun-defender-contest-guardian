@@ -7,9 +7,9 @@ import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import {
   HypeFuelError,
+  assertHypeFuelAuthorization,
   fillHypeFuel,
   quoteHypeFuel,
-  typedDataForViem,
   type HypeFuelQuotePreview,
 } from "../services/hypefuel";
 import { getErrorMessage } from "../utils/format";
@@ -59,7 +59,11 @@ export function useHypeFuel() {
       setPreview(quoted.quote);
 
       setPhase("signing");
-      const typed = typedDataForViem(quoted.typedData);
+      const typed = assertHypeFuelAuthorization(
+        address,
+        quoted.order,
+        quoted.typedData,
+      );
       const signature = await walletClient.signTypedData({
         account: address,
         ...typed,
