@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PLATFORM_TOKEN_ADDRESS } from "@launchpad/shared";
+
 import type { AppBindings } from "../lib/types.js";
 import type {
   MarketDataBatchResult,
@@ -864,6 +866,7 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
 
   it("returns an empty list when the indexer reports zero recent trades", async () => {
     mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
+    currentDbRows.rows = [];
 
     const res = await createApp().request(
       "/tokens?sort=trending",
@@ -875,6 +878,194 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     expect(body.data).toEqual([]);
     // Should never call market-data when there's nothing to hydrate.
     expect(mockComputeMarketDataForAddresses).not.toHaveBeenCalled();
+  });
+
+  it("pins the platform token first on sort=trending even when it ranks lower by volume", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+      {
+        tokenAddress: PLATFORM_TOKEN_ADDRESS.toLowerCase(),
+        volume24hUsd: 10,
+      },
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(PLATFORM_TOKEN_ADDRESS, { ticker: "ALT" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: PLATFORM_TOKEN_ADDRESS,
+          onchain: makeOnchain(PLATFORM_TOKEN_ADDRESS),
+          market: makeMarket(),
+        },
+        { address: ADDR_B, onchain: makeOnchain(ADDR_B), market: makeMarket() },
+        { address: ADDR_A, onchain: makeOnchain(ADDR_A), market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["ALT", "BBB", "AAA"]);
+  });
+
+  it("does not pin the platform token on sort=volume24h", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+      {
+        tokenAddress: PLATFORM_TOKEN_ADDRESS.toLowerCase(),
+        volume24hUsd: 10,
+      },
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(PLATFORM_TOKEN_ADDRESS, { ticker: "ALT" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_B, onchain: makeOnchain(ADDR_B), market: makeMarket() },
+        { address: ADDR_A, onchain: makeOnchain(ADDR_A), market: makeMarket() },
+        {
+          address: PLATFORM_TOKEN_ADDRESS,
+          onchain: makeOnchain(PLATFORM_TOKEN_ADDRESS),
+          market: makeMarket(),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=volume24h",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "AAA", "ALT"]);
+  });
+
+  it("pins the platform token even when it is absent from the volume candidate pool", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(PLATFORM_TOKEN_ADDRESS, { ticker: "ALT" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: PLATFORM_TOKEN_ADDRESS,
+          onchain: makeOnchain(PLATFORM_TOKEN_ADDRESS),
+          market: makeMarket(),
+        },
+        { address: ADDR_B, onchain: makeOnchain(ADDR_B), market: makeMarket() },
+        { address: ADDR_A, onchain: makeOnchain(ADDR_A), market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["ALT", "BBB", "AAA"]);
+  });
+
+  it("surfaces the platform token when the volume pool is empty", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
+    currentDbRows.rows = [
+      makeDbRow(PLATFORM_TOKEN_ADDRESS, { ticker: "ALT" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: PLATFORM_TOKEN_ADDRESS,
+          onchain: makeOnchain(PLATFORM_TOKEN_ADDRESS),
+          market: makeMarket(),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["ALT"]);
+  });
+
+  it("skips the platform pin when filters exclude it", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      {
+        tokenAddress: PLATFORM_TOKEN_ADDRESS.toLowerCase(),
+        volume24hUsd: 10,
+      },
+    ]);
+    // Mock stands in for SQL: the `underlying=BTC` clause would drop ALT
+    // (HYPE) from the hydrate set, so it must not be pinned or listed.
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB", underlying: "BTC" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_B, onchain: makeOnchain(ADDR_B), market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending&underlying=BTC",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB"]);
+  });
+
+  it("does not repeat the platform token on later trending pages", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+      {
+        tokenAddress: PLATFORM_TOKEN_ADDRESS.toLowerCase(),
+        volume24hUsd: 10,
+      },
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(PLATFORM_TOKEN_ADDRESS, { ticker: "ALT" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: makeOnchain(ADDR_A), market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending&limit=1&offset=2",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["AAA"]);
   });
 
   it("only enriches the paginated slice, not the full candidate pool", async () => {
@@ -1211,11 +1402,11 @@ describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
     // pool doesn't contain it). We assert this indirectly by checking
     // that `fetchTrendingCandidatesByVolume` is the gating call for
     // every scored-sort variant.
-    for (const s of ["mcap", "change24h"] as const) {
+    for (const s of ["mcap", "change24h", "volume24h"] as const) {
       mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
       await createApp().request(`/tokens?sort=${s}`, {}, makeEnv());
     }
-    expect(mockFetchTrendingCandidatesByVolume).toHaveBeenCalledTimes(2);
+    expect(mockFetchTrendingCandidatesByVolume).toHaveBeenCalledTimes(3);
   });
 });
 

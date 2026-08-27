@@ -98,6 +98,7 @@ export type TokenListSort =
   | "leverage"
   | "name"
   | "trending"
+  | "volume24h"
   | "mcap"
   | "change24h";
 

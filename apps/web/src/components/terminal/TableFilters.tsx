@@ -269,7 +269,7 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
 function defaultSortLabel(
   activeFilter: ReturnType<typeof selectActiveFilter>,
 ): string {
-  return activeFilter === "graduated" ? "RECENTLY GRADUATED" : "24H VOLUME";
+  return activeFilter === "graduated" ? "RECENTLY GRADUATED" : "TRENDING";
 }
 
 /** Explicit sort labels mirror table column names. */
@@ -381,15 +381,13 @@ export default function TableFilters() {
                   >
                     <span>{defaultSortLabel(activeFilter)}</span>
                   </OptionRow>
-                  {/* TRENDING already defaults to 24H VOLUME; show the explicit row only on GRADUATED. */}
-                  {activeFilter === "graduated" && (
-                    <OptionRow
-                      selected={tokenSort === "volume24h"}
-                      onClick={() => handleSelectSort("volume24h")}
-                    >
-                      <span>{explicitSortLabel("volume24h")}</span>
-                    </OptionRow>
-                  )}
+                  {/* TRENDING default is volume + ALT pin; 24H VOLUME is the unpinned ranking. */}
+                  <OptionRow
+                    selected={tokenSort === "volume24h"}
+                    onClick={() => handleSelectSort("volume24h")}
+                  >
+                    <span>{explicitSortLabel("volume24h")}</span>
+                  </OptionRow>
                   <OptionRow
                     selected={tokenSort === "mcap"}
                     onClick={() => handleSelectSort("mcap")}

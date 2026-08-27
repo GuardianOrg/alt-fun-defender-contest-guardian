@@ -202,7 +202,7 @@ describe("getTokensPage", () => {
   // `sort=trending` (the explicit value, not absence), and on
   // GRADUATED it lands as `status=graduated` with no `sort` param.
   // These tests pin both cases so the dropdown's "Recently graduated"
-  // / "24h volume" defaults don't silently regress into the wrong API
+  // / "Trending" defaults don't silently regress into the wrong API
   // shape.
 
   it("maps trending tab + default sort to `sort=trending`", async () => {
@@ -260,12 +260,7 @@ describe("getTokensPage", () => {
     }
   });
 
-  it("maps graduated tab + volume24h sort to `status=graduated&sort=trending`", async () => {
-    // `volume24h` is a UI-only label; the API exposes the same
-    // 24h-volume-desc ordering as `sort=trending`. Pin the wire
-    // mapping so the GRADUATED dropdown's "24H VOLUME" row can't
-    // silently drift into a `?sort=volume24h` request the API
-    // doesn't recognise.
+  it("maps graduated tab + volume24h sort to `status=graduated&sort=volume24h`", async () => {
     await tokenService.getTokensPage(
       "graduated",
       0,
@@ -275,14 +270,10 @@ describe("getTokensPage", () => {
     );
     const url = lastUrl();
     expect(url.searchParams.get("status")).toBe("graduated");
-    expect(url.searchParams.get("sort")).toBe("trending");
+    expect(url.searchParams.get("sort")).toBe("volume24h");
   });
 
-  it("maps trending tab + volume24h sort to `sort=trending` (idempotent default)", async () => {
-    // On TRENDING the natural ordering is already 24h-volume desc, so
-    // a stale `tokenSort === "volume24h"` carried over from GRADUATED
-    // must collapse to the same `sort=trending` wire value the
-    // TRENDING default uses — never to an unrecognised `?sort=volume24h`.
+  it("maps trending tab + volume24h sort to unpinned `sort=volume24h`", async () => {
     await tokenService.getTokensPage(
       "trending",
       0,
@@ -291,7 +282,7 @@ describe("getTokensPage", () => {
       "volume24h",
     );
     const url = lastUrl();
-    expect(url.searchParams.get("sort")).toBe("trending");
+    expect(url.searchParams.get("sort")).toBe("volume24h");
     expect(url.searchParams.has("status")).toBe(false);
   });
 
