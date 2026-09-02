@@ -14,9 +14,9 @@
   },
   "dependencies": {
     "@launchpad/shared": "*",
-    "hono": "^4.12.14",
-    "ponder": "^0.16",
-    "viem": "^2.47.12"
+    "hono": "^4.13.5",
+    "ponder": "^0.17",
+    "viem": "^2.56.0"
   },
   "devDependencies": {
     "@launchpad/config": "*",

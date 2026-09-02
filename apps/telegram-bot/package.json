@@ -14,13 +14,13 @@
   },
   "dependencies": {
     "@grammyjs/conversations": "^2.1.1",
-    "@grammyjs/storage-cloudflare": "^2.4.2",
+    "@grammyjs/storage-cloudflare": "^2.6.0",
     "@launchpad/shared": "*",
     "@resvg/resvg-wasm": "^2.6.2",
     "bcryptjs": "^3.0.3",
-    "grammy": "^1.42.0",
-    "hono": "^4.12.14",
-    "viem": "^2.47.12"
+    "grammy": "^1.46.0",
+    "hono": "^4.13.5",
+    "viem": "^2.56.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260421.1",
