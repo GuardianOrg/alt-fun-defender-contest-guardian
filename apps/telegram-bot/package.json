@@ -23,10 +23,10 @@
     "viem": "^2.47.12"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260421.1",
+    "@cloudflare/workers-types": "^5.20260830.1",
     "@launchpad/config": "*",
-    "typescript": "~6.0.3",
-    "vitest": "^4",
-    "wrangler": "^4.84.0"
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
   }
 }

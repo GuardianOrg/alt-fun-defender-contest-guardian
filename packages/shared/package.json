@@ -23,7 +23,7 @@
   "devDependencies": {
     "@launchpad/config": "*",
     "tsup": "^8",
-    "typescript": "~6.0.3",
-    "vitest": "^4.1.4"
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.11"
   }
 }
