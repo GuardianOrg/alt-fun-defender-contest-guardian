@@ -20,7 +20,7 @@ jobs:
     name: JS/TS Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -56,7 +56,7 @@ jobs:
     name: JS/TS Typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -92,7 +92,7 @@ jobs:
     name: JS/TS Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -128,7 +128,7 @@ jobs:
     name: JS/TS Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -187,7 +187,7 @@ jobs:
           - shard: rest
             args: --no-match-contract "^(GraduationInvariantsTest|BondingTest|ClonesTest)$"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -229,7 +229,7 @@ jobs:
     name: API Analytics Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -301,7 +301,7 @@ jobs:
   #     # works.
   #     BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
   #   steps:
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@v7
   #
   #     - uses: actions/setup-node@v6
   #       with:
@@ -356,7 +356,7 @@ jobs:
   #   name: Indexer Smoke Test
   #   runs-on: ubuntu-latest
   #   steps:
-  #     - uses: actions/checkout@v6
+  #     - uses: actions/checkout@v7
   #
   #     - uses: actions/setup-node@v6
   #       with:
