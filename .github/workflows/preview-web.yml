@@ -78,7 +78,7 @@ jobs:
             --commit-hash=${{ github.event.pull_request.head.sha }}
 
       - name: Comment preview URL on PR
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: cf-preview-web
           message: |
