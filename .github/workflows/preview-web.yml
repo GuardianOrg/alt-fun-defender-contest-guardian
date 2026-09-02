@@ -36,7 +36,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -50,7 +50,7 @@ jobs:
         run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-js-${{ runner.os }}-${{ github.sha }}

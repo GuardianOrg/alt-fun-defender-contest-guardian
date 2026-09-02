@@ -29,7 +29,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -43,7 +43,7 @@ jobs:
         run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-lint-${{ runner.os }}-${{ github.sha }}
@@ -65,7 +65,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -79,7 +79,7 @@ jobs:
         run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-typecheck-${{ runner.os }}-${{ github.sha }}
@@ -101,7 +101,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -115,7 +115,7 @@ jobs:
         run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-test-${{ runner.os }}-${{ github.sha }}
@@ -137,7 +137,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -151,7 +151,7 @@ jobs:
         run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: turbo-build-${{ runner.os }}-${{ github.sha }}
@@ -199,7 +199,7 @@ jobs:
           version: v1.7.1
 
       - name: Cache Foundry artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             packages/contracts/cache
@@ -238,7 +238,7 @@ jobs:
 
       - name: Cache node_modules
         id: nm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: "**/node_modules"
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -310,7 +310,7 @@ jobs:
   #
   #     - name: Cache node_modules
   #       id: nm-cache
-  #       uses: actions/cache@v5
+  #       uses: actions/cache@v6
   #       with:
   #         path: "**/node_modules"
   #         key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -324,7 +324,7 @@ jobs:
   #       run: node scripts/fix-ink-react.mjs
   #
   #     - name: Cache Turbo
-  #       uses: actions/cache@v5
+  #       uses: actions/cache@v6
   #       with:
   #         path: .turbo
   #         key: turbo-js-${{ runner.os }}-${{ github.sha }}
@@ -365,7 +365,7 @@ jobs:
   #
   #     - name: Cache node_modules
   #       id: nm-cache
-  #       uses: actions/cache@v5
+  #       uses: actions/cache@v6
   #       with:
   #         path: "**/node_modules"
   #         key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
@@ -379,7 +379,7 @@ jobs:
   #       run: node scripts/fix-ink-react.mjs
   #
   #     - name: Cache Turbo
-  #       uses: actions/cache@v5
+  #       uses: actions/cache@v6
   #       with:
   #         path: .turbo
   #         key: turbo-js-${{ runner.os }}-${{ github.sha }}
