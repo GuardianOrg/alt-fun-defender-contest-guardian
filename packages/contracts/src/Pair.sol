@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPair} from "./interfaces/IPair.sol";
+
+/// @title Pair
+/// @notice Per-token bonding-curve pair. Forked from Virtuals `FPair.sol`.
+/// @dev Reserves are NOT sorted by address (unlike UniswapV2). The launched
+///      token is always `launchedToken`/`tokenReserve`; the paired LT is always
+///      `assetToken`/`assetReserve` (virtual at init). Naming-by-role kills the
+///      ordering confusion at the source.
+contract Pair is IPair {
+    using SafeERC20 for IERC20;
+
+    address public immutable router;
+    address public immutable launchedToken;
+    address public immutable assetToken;
+
+    struct Pool {
+        uint256 tokenReserve;
+        uint256 assetReserve;
+        uint256 k;
+    }
+
+    Pool private _pool;
+
+    event Mint(uint256 tokenReserve, uint256 assetReserve);
+    event Swap(uint256 tokenIn, uint256 tokenOut, uint256 assetIn, uint256 assetOut);
+
+    error OnlyRouter();
+    error AlreadyMinted();
+    error KInvariantViolated();
+    error ZeroAddress();
+    error IdenticalTokens();
+
+    modifier onlyRouter() {
+        if (msg.sender != router) revert OnlyRouter();
+        _;
+    }
+
+    constructor(
+        address router_,
+        address launchedToken_,
+        address assetToken_
+    ) {
+        if (router_ == address(0) || launchedToken_ == address(0) || assetToken_ == address(0)) revert ZeroAddress();
+        if (launchedToken_ == assetToken_) revert IdenticalTokens();
+        router = router_;
+        launchedToken = launchedToken_;
+        assetToken = assetToken_;
+    }
+
+    function mint(
+        uint256 tokenReserve,
+        uint256 assetReserve
+    ) external onlyRouter returns (bool) {
+        if (_pool.k != 0) revert AlreadyMinted();
+        _pool = Pool({tokenReserve: tokenReserve, assetReserve: assetReserve, k: tokenReserve * assetReserve});
+        emit Mint(tokenReserve, assetReserve);
+        return true;
+    }
+
+    function swap(
+        uint256 tokenIn,
+        uint256 tokenOut,
+        uint256 assetIn,
+        uint256 assetOut
+    ) external onlyRouter returns (bool) {
+        uint256 newTokenReserve = (_pool.tokenReserve + tokenIn) - tokenOut;
+        uint256 newAssetReserve = (_pool.assetReserve + assetIn) - assetOut;
+        if ((newTokenReserve + 1) * (newAssetReserve + 1) < _pool.k) revert KInvariantViolated();
+
+        _pool.tokenReserve = newTokenReserve;
+        _pool.assetReserve = newAssetReserve;
+        emit Swap(tokenIn, tokenOut, assetIn, assetOut);
+        return true;
+    }
+
+    function transferAsset(
+        address recipient,
+        uint256 amount
+    ) external onlyRouter {
+        IERC20(assetToken).safeTransfer(recipient, amount);
+    }
+
+    function transferToken(
+        address recipient,
+        uint256 amount
+    ) external onlyRouter {
+        IERC20(launchedToken).safeTransfer(recipient, amount);
+    }
+
+    function getReserves() external view returns (uint256, uint256) {
+        return (_pool.tokenReserve, _pool.assetReserve);
+    }
+
+    function k() external view returns (uint256) {
+        return _pool.k;
+    }
+
+    function tokenBalance() external view returns (uint256) {
+        return IERC20(launchedToken).balanceOf(address(this));
+    }
+
+    function assetBalance() external view returns (uint256) {
+        return IERC20(assetToken).balanceOf(address(this));
+    }
+}

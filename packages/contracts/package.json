@@ -1,0 +1,14 @@
+{
+  "name": "@launchpad/contracts",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "test:verbose": "forge test -vvv",
+    "test:gas": "forge test --gas-report",
+    "lint": "forge fmt --check",
+    "fmt": "forge fmt",
+    "export-abi": "node scripts/export-abi.mjs"
+  }
+}
